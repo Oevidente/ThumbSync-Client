@@ -1413,38 +1413,91 @@ class ThumbSyncApp {
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
           
-          <!-- Input card fields -->
-          <div class="lg:col-span-2 rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 lg:p-8 space-y-5 h-fit select-none">
-            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-1 flex items-center gap-2">
-              <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff] shadow-[0_0_8px_#0a84ff]"></span>
-              Parâmetros de Acesso API
-            </h3>
-
-            <!-- Client ID Input -->
-            <div class="space-y-1.5">
-              <div class="flex justify-between items-center text-xs font-semibold">
-                <label for="conf-clientId" class="text-zinc-300">Google Client ID (OAuth 2.0)</label>
-                <a href="https://console.cloud.google.com/" target="_blank" class="text-[#0a84ff] hover:underline">Ir para Google Cloud Console</a>
+          <div class="lg:col-span-2 space-y-6">
+            <!-- Google Login Card in Settings for Mobile & Desktop -->
+            <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-xl bg-[#0a84ff]/10 border border-[#0a84ff]/20 flex items-center justify-center text-[#0a84ff] shadow-inner">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-black text-white uppercase tracking-wider">Conta do Google</h3>
+                    <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block mt-0.5">Sincronização Nuvem</span>
+                  </div>
+                </div>
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#30d158] shadow-[0_0_8px_#30d158]' : 'bg-[#ff9f0a] shadow-[0_0_8px_#ff9f0a] animate-pulse'}"></span>
+                  <span class="text-xs font-bold text-zinc-400">
+                    ${this.state.gdriveConnected ? 'Conectado' : 'Modo Demo'}
+                  </span>
+                </div>
               </div>
-              <input type="text" id="conf-clientId" value="${this.config.clientId}" placeholder="Faltando credencial client_id.apps.googleusercontent.com" class="glass-input w-full block">
-              <p class="text-[9px] text-zinc-650 font-medium">Forneça o Client ID gerado pelo console do desenvolvedor GCP com suporte a JavaScript Origins habilitado.</p>
+
+              ${this.state.gdriveConnected ? `
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                  <div class="min-w-0">
+                    <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
+                    <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
+                  </div>
+                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-[#ff453a] hover:bg-[#ff453a]/15 transition-all outline-none border border-[#ff453a]/25 cursor-pointer shrink-0">
+                    Sair do Google Drive
+                  </button>
+                </div>
+              ` : `
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                  <div class="max-w-md">
+                    <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
+                    <p class="text-[10px] text-zinc-405 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
+                  </div>
+                  <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
+                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
+                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                    </svg>
+                    <span>Entrar com o Google</span>
+                  </button>
+                </div>
+              `}
             </div>
 
-            <!-- Folder Name Input -->
-            <div class="space-y-1.5">
-              <label for="conf-folder" class="text-xs font-semibold text-zinc-300">Nome da pasta no Google Drive</label>
-              <input type="text" id="conf-folder" value="${this.config.folderName}" placeholder="e.g. Thumbs" class="glass-input w-full block">
-              <p class="text-[9px] text-zinc-650 font-medium">As miniaturas WebP e o arquivo de lista serão arquivados dentro desta pasta na raiz do seu Drive.</p>
-            </div>
+            <!-- Input card fields -->
+            <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 lg:p-8 space-y-5 h-fit select-none">
+              <h3 class="text-sm font-black text-white uppercase tracking-wider mb-1 flex items-center gap-2">
+                <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff] shadow-[0_0_8px_#0a84ff]"></span>
+                Parâmetros de Acesso API
+              </h3>
 
-            <!-- List file name Input -->
-            <div class="space-y-1.5">
-              <label for="conf-file" class="text-xs font-semibold text-zinc-300">Nome do arquivo de lista</label>
-              <input type="text" id="conf-file" value="${this.config.listFileName}" placeholder="e.g. lista.txt" class="glass-input w-full block">
-            </div>
+              <!-- Client ID Input -->
+              <div class="space-y-1.5">
+                <div class="flex justify-between items-center text-xs font-semibold">
+                  <label for="conf-clientId" class="text-zinc-300">Google Client ID (OAuth 2.0)</label>
+                  <a href="https://console.cloud.google.com/" target="_blank" class="text-[#0a84ff] hover:underline">Ir para Google Cloud Console</a>
+                </div>
+                <input type="text" id="conf-clientId" value="${this.config.clientId}" placeholder="Faltando credencial client_id.apps.googleusercontent.com" class="glass-input w-full block">
+                <p class="text-[9px] text-zinc-650 font-medium">Forneça o Client ID gerado pelo console do desenvolvedor GCP com suporte a JavaScript Origins habilitado.</p>
+              </div>
 
-            <div class="flex items-center gap-3 pt-2">
-              <button id="btn-save-config" class="glass-btn-primary flex-1 cursor-pointer">Salvar Preferências</button>
+              <!-- Folder Name Input -->
+              <div class="space-y-1.5">
+                <label for="conf-folder" class="text-xs font-semibold text-zinc-300">Nome da pasta no Google Drive</label>
+                <input type="text" id="conf-folder" value="${this.config.folderName}" placeholder="e.g. Thumbs" class="glass-input w-full block">
+                <p class="text-[9px] text-zinc-650 font-medium">As miniaturas WebP e o arquivo de lista serão arquivados dentro desta pasta na raiz do seu Drive.</p>
+              </div>
+
+              <!-- List file name Input -->
+              <div class="space-y-1.5">
+                <label for="conf-file" class="text-xs font-semibold text-zinc-300">Nome do arquivo de lista</label>
+                <input type="text" id="conf-file" value="${this.config.listFileName}" placeholder="e.g. lista.txt" class="glass-input w-full block">
+              </div>
+
+              <div class="flex items-center gap-3 pt-2">
+                <button id="btn-save-config" class="glass-btn-primary flex-1 cursor-pointer">Salvar Preferências</button>
+              </div>
             </div>
           </div>
 
@@ -1820,6 +1873,20 @@ class ThumbSyncApp {
 
     // ------------------- VIEW: SETTINGS -------------------
     if (this.state.activeTab === 'settings') {
+      const btnLogins = document.querySelectorAll('.btn-login-action');
+      btnLogins.forEach(btn => {
+         btn.addEventListener('click', () => {
+           this.handleGoogleLogin();
+         });
+      });
+
+      const btnLogouts = document.querySelectorAll('.btn-logout-action');
+      btnLogouts.forEach(btn => {
+         btn.addEventListener('click', () => {
+           this.handleGoogleLogout();
+         });
+      });
+
       const btnSaveConfig = document.getElementById('btn-save-config');
       if (btnSaveConfig) {
         btnSaveConfig.addEventListener('click', () => {
