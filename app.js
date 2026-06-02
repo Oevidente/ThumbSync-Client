@@ -399,15 +399,7 @@ class ThumbSyncApp {
   }
 
   addLog(message) {
-    const time = new Date().toLocaleTimeString('pt-BR');
-    this.state.logs.unshift(`[${time}] ${message}`);
-    if (this.state.logs.length > 200) {
-      this.state.logs.pop();
-    }
-    const logEl = document.getElementById('log-scroller');
-    if (logEl) {
-      this.renderLogs();
-    }
+    // Desativado para este cliente - logs removidos
   }
 
   /**
@@ -1018,16 +1010,12 @@ class ThumbSyncApp {
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
+              `, `
                 <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i=>i.hasWebp).length}</span>
               `)}
               ${this.renderNavItem('list_manager', 'Lista de Jogos', `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
-              `)}
-              ${this.renderNavItem('logs', 'Painel de Logs', `
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               `)}
               ${this.renderNavItem('settings', 'Configurações', `
@@ -1141,12 +1129,13 @@ class ThumbSyncApp {
     this.bindGlobalEvents();
   }
 
-  renderNavItem(tab, label, iconHtml) {
+  renderNavItem(tab, label, iconHtml, badgeHtml = '') {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-405 hover:text-white hover:bg-white/[0.04]' }">
+      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]' }">
         ${iconHtml}
         <span>${label}</span>
+        ${badgeHtml}
       </button>
     `;
   }
@@ -1182,8 +1171,6 @@ class ThumbSyncApp {
       this.renderCatalog(contentFrame);
     } else if (this.state.activeTab === 'list_manager') {
       this.renderListManager(contentFrame);
-    } else if (this.state.activeTab === 'logs') {
-      this.renderLogsTab(contentFrame);
     } else if (this.state.activeTab === 'settings') {
       this.renderSettings(contentFrame);
     }
@@ -1239,7 +1226,7 @@ class ThumbSyncApp {
         </div>
 
         <!-- Filtros -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl select-none">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl select-none">
           <div class="space-y-1">
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
             <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
@@ -1251,16 +1238,6 @@ class ThumbSyncApp {
               ${uniqueProviders.map(p => `
                 <option value="${p}" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
               `).join('')}
-            </select>
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Situação de Miniatura</label>
-            <select id="catalouge-status-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none select-none">
-              <option value="todos" ${this.state.filterStatus === 'todos' ? 'selected' : ''}>Todas as Situações</option>
-              <option value="com_arte" ${this.state.filterStatus === 'com_arte' ? 'selected' : ''}>Com Imagem (.webp)</option>
-              <option value="sem_arte" ${this.state.filterStatus === 'sem_arte' ? 'selected' : ''}>Imagens Faltando</option>
-              <option value="listados" ${this.state.filterStatus === 'listados' ? 'selected' : ''}>Ativos na listagem</option>
-              <option value="nao_listados" ${this.state.filterStatus === 'nao_listados' ? 'selected' : ''}>Arquivos avulsos no drive</option>
             </select>
           </div>
           <div class="space-y-1">
@@ -1627,51 +1604,7 @@ class ThumbSyncApp {
     `;
   }
 
-  /**
-   * TELA LOGS
-   */
-  renderLogsTab(container) {
-    container.innerHTML = `
-      <div class="space-y-6 text-left select-none flex flex-col h-[75vh]">
-        <div class="pb-2 border-b border-white/[0.05]">
-          <h1 class="text-2xl font-black text-white tracking-tight">Logs do Aplicativo</h1>
-          <p class="text-zinc-500 text-xs mt-0.5">Veja em tempo real a comunicação da api e as transações ocorrendo.</p>
-        </div>
 
-        <div class="flex-1 min-h-0 bg-[#09090b] border border-white/[0.06] rounded-3xl p-5 flex flex-col relative overflow-hidden">
-          <div class="flex items-center gap-2 mb-4 shrink-0">
-            <span class="w-2.5 h-2.5 rounded-full bg-red-500"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-yellow-500"></span>
-            <span class="w-2.5 h-2.5 rounded-full bg-green-500"></span>
-            <span class="text-[10px] text-zinc-600 font-mono ml-2 font-bold uppercase tracking-wider">Console de Transações</span>
-          </div>
-
-          <div id="log-scroller" class="flex-1 overflow-y-auto font-mono text-[10px] text-zinc-400 leading-relaxed pr-2 custom-scrollbar select-text">
-          </div>
-        </div>
-      </div>
-    `;
-    this.renderLogs();
-  }
-
-  renderLogs() {
-    const scroller = document.getElementById('log-scroller');
-    if (!scroller) return;
-
-    scroller.innerHTML = this.state.logs.map(log => {
-      let colorClass = 'text-zinc-400';
-      if (log.includes('Erro') || log.includes('falhou')) {
-         colorClass = 'text-red-400 font-bold';
-      } else if (log.includes('sucesso') || log.includes('concluída') || log.includes('Ativo')) {
-         colorClass = 'text-emerald-400';
-      } else if (log.includes('Aviso')) {
-         colorClass = 'text-yellow-400 font-semibold';
-      } else if (log.includes('Iniciando') || log.includes('Buscando')) {
-         colorClass = 'text-blue-400';
-      }
-      return `<div class="${colorClass} mb-1">${log}</div>`;
-    }).join('');
-  }
 
   /**
    * TELA CONFIGURAÇÃO (GOOGLE CLIENT ID)
@@ -1975,13 +1908,7 @@ class ThumbSyncApp {
          });
        }
 
-       const statusSelect = document.getElementById('catalouge-status-filter');
-       if (statusSelect) {
-         statusSelect.addEventListener('change', (e) => {
-            this.state.filterStatus = e.currentTarget.value;
-            this.renderActiveTab();
-         });
-       }
+
 
        const tagSelect = document.getElementById('catalouge-tag-filter');
        if (tagSelect) {
