@@ -1,11 +1,10 @@
 const CACHE_NAME = 'thumbsync-cache-v1';
 const ASSETS_TO_CACHE = [
   'index.html',
-  'icon-192.png',
-  'icon-512.png',
+  'app.js',
+  'favicon.png',
   'manifest.webmanifest',
-  'logodosite.jpg',
-  'favicon.svg'
+  'logodosite.jpg'
 ];
 
 // Instalação do Service Worker - fazendo cache estático inicial simples

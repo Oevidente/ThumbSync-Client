@@ -307,6 +307,8 @@ class ThumbSyncApp {
       listContent: '',
       driveFiles: [],
       listFileId: '',
+      tagsFileId: '',
+      lastTagsFileModifiedTime: '',
       lastListFileModifiedTime: '',
       thumbsFolderId: '',
       catalogItems: [],
@@ -331,6 +333,7 @@ class ThumbSyncApp {
       clientId: '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
+      tagsFileName: 'tags.json',
       useMock: true
     };
 
@@ -346,8 +349,7 @@ class ThumbSyncApp {
       this.addLog("Sessão Google desautenticada ou expirada.");
       this.state.gdriveConnected = false;
       this.state.useMock = true;
-      this.syncLocalCatalog();
-      this.render();
+      this.syncMockWithLocalFiles();
     });
   }
 
@@ -389,7 +391,11 @@ class ThumbSyncApp {
     }
     this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
 
-    this.syncLocalCatalog();
+    if (this.state.useMock || !this.state.gdriveConnected) {
+      this.syncMockWithLocalFiles();
+    } else {
+      this.syncLocalCatalog();
+    }
   }
 
   saveStateToStorage() {
@@ -590,8 +596,7 @@ class ThumbSyncApp {
     this.imageCache.forEach(url => URL.revokeObjectURL(url));
     this.imageCache.clear();
 
-    this.syncLocalCatalog();
-    this.render();
+    this.syncMockWithLocalFiles();
   }
 
   /**
@@ -649,6 +654,31 @@ class ThumbSyncApp {
       this.state.driveFiles = allFiles;
       this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
 
+      const tagsFile = allFiles.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      if (tagsFile) {
+        this.addLog(`Sincronizando banco de tags em '${this.config.tagsFileName}'...`);
+        this.state.tagsFileId = tagsFile.id;
+        try {
+          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${tagsFile.id}?fields=modifiedTime`);
+          if (resMeta.ok) {
+            this.state.lastTagsFileModifiedTime = (await resMeta.json()).modifiedTime;
+          }
+        } catch (e) {}
+        try {
+          const tagsText = await driveClient.downloadTextFile(tagsFile.id);
+          const parsed = JSON.parse(tagsText);
+          if (parsed && typeof parsed === 'object') {
+             this.state.customTags = parsed;
+          }
+        } catch (err) {
+          this.addLog(`Aviso: Falha ao ler tags.json: ${err.message}`);
+        }
+      } else {
+        this.addLog(`Criando banco de tags '${this.config.tagsFileName}'...`);
+        const newTagsId = await driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags || {}), folderId);
+        this.state.tagsFileId = newTagsId;
+      }
+
       const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
@@ -685,8 +715,71 @@ class ThumbSyncApp {
     }
   }
 
+  async syncMockWithLocalFiles() {
+    this.state.isLoading = true;
+    this.render();
+    try {
+      // 1. Fetch fresh list from mock_data ONLY if we don't have user edits
+      if (!this.state.listContent || this.state.listContent.includes("Zeus vs Hades")) {
+        const res = await fetch('./mock_data/lista.txt');
+        if (res.ok) {
+          this.state.listContent = await res.text();
+          this.saveStateToStorage();
+        }
+      }
+
+      // 2. Determine games from the list
+      const lines = this.state.listContent.split(/\r?\n/);
+      let currentProvider = "Sem provedor";
+      const listGames = [];
+      const driveFiles = [];
+      
+      for (const line of lines) {
+        const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+        if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
+        const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
+        if (providerMatch) {
+           currentProvider = providerMatch[1].trim();
+           continue;
+        }
+        if (/^provedor\s*:/i.test(clean)) continue;
+        listGames.push({ displayName: clean, providerName: currentProvider });
+      }
+
+      // 3. For each game, sequentially do a HEAD request to see if it is in the provider's folder
+      for (const game of listGames) {
+        const providerPath = game.providerName === "Sem provedor" ? "" : game.providerName + "/";
+        const url = `./mock_data/source/${providerPath}${game.displayName}.webp`;
+        try {
+          const req = await fetch(url, { method: 'HEAD' });
+          if (req.ok) {
+            driveFiles.push({
+              id: 'mock-' + this.normalizeName(game.displayName),
+              name: game.displayName + '.webp',
+              mimeType: 'image/webp',
+              size: '100000',
+              modifiedTime: new Date().toISOString(),
+              providerName: game.providerName
+            });
+          }
+        } catch (e) {}
+      }
+
+      // 4. Overwrite system's mock tracking
+      this.state.driveFiles = driveFiles;
+      
+      // We do not save mock file array to storage, we just trigger syncLocalCatalog
+      this.syncLocalCatalog();
+    } catch (e) {
+      console.error(e);
+    } finally {
+      this.state.isLoading = false;
+      this.render();
+    }
+  }
+
   /**
-   * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive
+   * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive ou Mock
    */
   syncLocalCatalog() {
     const listGames = [];
@@ -712,7 +805,7 @@ class ThumbSyncApp {
       });
     }
 
-    const driveFiles = this.state.useMock ? MOCK_DRIVE_FILES : this.state.driveFiles;
+    const driveFiles = this.state.driveFiles;
     const itemsMap = new Map();
 
     listGames.forEach(game => {
@@ -736,11 +829,6 @@ class ThumbSyncApp {
       let fileProvider = "Sem provedor";
       if (file.providerName) {
         fileProvider = file.providerName;
-      } else {
-        const matchGame = listGames.find(g => g.normalizedName === normName);
-        if (matchGame) {
-          fileProvider = matchGame.providerName;
-        }
       }
 
       const key = `${this.normalizeName(fileProvider)}::${normName}`;
@@ -796,6 +884,18 @@ class ThumbSyncApp {
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
     
+    if (!this.state.useMock && driveClient.isAuthenticated() && this.state.tagsFileId) {
+      driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags), undefined, this.state.tagsFileId).then(async () => {
+         try {
+            const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`);
+            if (resMeta.ok) {
+              const dataMeta = await resMeta.json();
+              this.state.lastTagsFileModifiedTime = dataMeta.modifiedTime;
+            }
+         } catch(e) {}
+      }).catch(console.error);
+    }
+
     const item = this.state.catalogItems.find(i => i.id === itemId);
     if (item) {
       this.addLog(`Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`);
@@ -979,11 +1079,11 @@ class ThumbSyncApp {
             this.saveStateToStorage();
           }
         } catch (err) {}
+        this.syncLocalCatalog();
       } else {
         this.addLog(`lista.txt gravada localmente com sucesso.`);
+        this.syncMockWithLocalFiles();
       }
-
-      this.syncLocalCatalog();
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
       alert("Falha ao salvar as alterações. Verifique sua conexão e tente novamente.");
@@ -999,37 +1099,67 @@ class ThumbSyncApp {
     }
     
     this.liveSyncInterval = setInterval(async () => {
-      if (document.visibilityState === 'visible' && !this.state.isLoading && !this.state.useMock && this.state.gdriveConnected && this.state.listFileId) {
+      if (!this.state.isLoading && !this.state.useMock && this.state.gdriveConnected) {
         try {
-          const url = `https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`;
-          const res = await driveClient.fetchWithAuth(url);
-          if (res.ok) {
-            const meta = await res.json();
-            const currentModTime = meta.modifiedTime;
-            
-            if (this.state.lastListFileModifiedTime && currentModTime !== this.state.lastListFileModifiedTime) {
-              const liveIndicator = document.getElementById('live-indicator-wrapper');
-              if (liveIndicator) {
-                liveIndicator.classList.add('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
-              }
-              
-              const updatedText = await driveClient.downloadTextFile(this.state.listFileId);
-              
-              this.state.listContent = updatedText;
-              this.state.lastListFileModifiedTime = currentModTime;
-              this.saveStateToStorage();
-              this.syncLocalCatalog();
-              this.renderActiveTab();
-              
-              if (liveIndicator) {
-                setTimeout(() => {
-                  liveIndicator.classList.remove('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
-                }, 1500);
+          let listUpdated = false;
+          let tagsUpdated = false;
+
+          if (this.state.listFileId) {
+            const url = `https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`;
+            const res = await driveClient.fetchWithAuth(url);
+            if (res.ok) {
+              const meta = await res.json();
+              if (this.state.lastListFileModifiedTime && meta.modifiedTime !== this.state.lastListFileModifiedTime) {
+                const updatedText = await driveClient.downloadTextFile(this.state.listFileId);
+                this.state.listContent = updatedText;
+                this.state.lastListFileModifiedTime = meta.modifiedTime;
+                listUpdated = true;
+                this.saveStateToStorage();
               }
             }
           }
+
+          if (this.state.tagsFileId) {
+            const urlTags = `https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`;
+            const resTags = await driveClient.fetchWithAuth(urlTags);
+            if (resTags.ok) {
+              const metaTags = await resTags.json();
+              if (this.state.lastTagsFileModifiedTime && metaTags.modifiedTime !== this.state.lastTagsFileModifiedTime) {
+                const tagsText = await driveClient.downloadTextFile(this.state.tagsFileId);
+                try {
+                  const parsed = JSON.parse(tagsText);
+                  if (parsed && typeof parsed === 'object') {
+                    this.state.customTags = parsed;
+                    this.state.lastTagsFileModifiedTime = metaTags.modifiedTime;
+                    tagsUpdated = true;
+                    this.saveStateToStorage();
+                  }
+                } catch(e) {}
+              }
+            }
+          }
+
+          if (listUpdated || tagsUpdated) {
+            const liveIndicator = document.getElementById('live-indicator-wrapper');
+            if (liveIndicator) {
+              liveIndicator.classList.add('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+              setTimeout(() => {
+                liveIndicator.classList.remove('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+              }, 1500);
+            }
+            
+            this.syncLocalCatalog();
+            this.renderActiveTab();
+            
+            if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+              new Notification('ThumbSync Atualizado', {
+                body: listUpdated ? 'A lista de jogos foi atualizada por outro usuário.' : 'As tags dos jogos foram atualizadas.',
+                icon: '/favicon.png'
+              });
+            }
+          }
         } catch (e) {
-          console.warn("Checagem de lista ao vivo automática falhou silenciosamente:", e.message);
+          console.warn("Checagem live automática falhou:", e.message);
         }
       }
     }, 7000);
@@ -2210,7 +2340,12 @@ class ThumbSyncApp {
        const btnSyncListOnly = document.getElementById('btn-sync-list-only');
        if (btnSyncListOnly) {
          btnSyncListOnly.addEventListener('click', () => {
-           this.syncWithGoogleDrive();
+           if (this.state.useMock || !this.state.gdriveConnected) {
+             this.addLog('Atualizando a partir dos arquivos locais...');
+             this.syncMockWithLocalFiles();
+           } else {
+             this.syncWithGoogleDrive();
+           }
          });
        }
 
