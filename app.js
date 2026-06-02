@@ -307,6 +307,7 @@ class ThumbSyncApp {
       listContent: '',
       driveFiles: [],
       listFileId: '',
+      lastListFileModifiedTime: '',
       thumbsFolderId: '',
       catalogItems: [],
       driveProviders: [],
@@ -338,6 +339,7 @@ class ThumbSyncApp {
     this.addLog("Inicializando módulo ThumbSync...");
     this.loadStateFromStorage();
     this.initGISAutomatic();
+    this.setupLiveSync();
     
     // Fallback listeners para expiração de token
     window.addEventListener('gdrive_unauthorized', () => {
@@ -366,6 +368,7 @@ class ThumbSyncApp {
 
     this.state.useMock = savedUseMock;
     this.state.listContent = cachedList;
+    this.state.lastListFileModifiedTime = localStorage.getItem('thumbsync_last_list_modified_time') || '';
 
     const savedToken = localStorage.getItem('gdrive_access_token');
     const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
@@ -397,6 +400,7 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
     localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
     localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
+    localStorage.setItem('thumbsync_last_list_modified_time', this.state.lastListFileModifiedTime || '');
   }
 
   addLog(message) {
@@ -649,6 +653,7 @@ class ThumbSyncApp {
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
+        this.state.lastListFileModifiedTime = listFile.modifiedTime || '';
         const listText = await driveClient.downloadTextFile(listFile.id);
         this.state.listContent = listText;
         this.addLog(`Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`);
@@ -656,6 +661,13 @@ class ThumbSyncApp {
         this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
         const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
+        try {
+          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`);
+          if (resMeta.ok) {
+            const dataMeta = await resMeta.json();
+            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
+          }
+        } catch (err) {}
         this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
       }
@@ -700,6 +712,7 @@ class ThumbSyncApp {
       if (listFile) {
         this.addLog(`Baixando catálogo do arquivo '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
+        this.state.lastListFileModifiedTime = listFile.modifiedTime || '';
         const listText = await driveClient.downloadTextFile(listFile.id);
         this.state.listContent = listText;
         this.addLog(`Arquivo '${this.config.listFileName}' sincronizado com sucesso (${listText.split('\n').length} linhas).`);
@@ -707,6 +720,13 @@ class ThumbSyncApp {
         this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
         const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
+        try {
+          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`);
+          if (resMeta.ok) {
+            const dataMeta = await resMeta.json();
+            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
+          }
+        } catch (err) {}
         this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
       }
@@ -1008,6 +1028,15 @@ class ThumbSyncApp {
         this.addLog(`Escrevendo alterações no arquivo lista.txt do Google Drive...`);
         await driveClient.saveTextFile(this.config.listFileName, newContent, undefined, this.state.listFileId);
         this.addLog(`lista.txt atualizada e gravada com sucesso na sua conta.`);
+        
+        try {
+          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`);
+          if (resMeta.ok) {
+            const dataMeta = await resMeta.json();
+            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
+            this.saveStateToStorage();
+          }
+        } catch (err) {}
       } else {
         this.addLog(`lista.txt gravada localmente com sucesso.`);
       }
@@ -1020,6 +1049,48 @@ class ThumbSyncApp {
       this.state.isLoading = false;
       this.render();
     }
+  }
+
+  setupLiveSync() {
+    if (this.liveSyncInterval) {
+      clearInterval(this.liveSyncInterval);
+    }
+    
+    this.liveSyncInterval = setInterval(async () => {
+      if (document.visibilityState === 'visible' && !this.state.isLoading && !this.state.useMock && this.state.gdriveConnected && this.state.listFileId) {
+        try {
+          const url = `https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`;
+          const res = await driveClient.fetchWithAuth(url);
+          if (res.ok) {
+            const meta = await res.json();
+            const currentModTime = meta.modifiedTime;
+            
+            if (this.state.lastListFileModifiedTime && currentModTime !== this.state.lastListFileModifiedTime) {
+              const liveIndicator = document.getElementById('live-indicator-wrapper');
+              if (liveIndicator) {
+                liveIndicator.classList.add('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+              }
+              
+              const updatedText = await driveClient.downloadTextFile(this.state.listFileId);
+              
+              this.state.listContent = updatedText;
+              this.state.lastListFileModifiedTime = currentModTime;
+              this.saveStateToStorage();
+              this.syncLocalCatalog();
+              this.renderActiveTab();
+              
+              if (liveIndicator) {
+                setTimeout(() => {
+                  liveIndicator.classList.remove('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+                }, 1500);
+              }
+            }
+          }
+        } catch (e) {
+          console.warn("Checagem de lista ao vivo automática falhou silenciosamente:", e.message);
+        }
+      }
+    }, 7000);
   }
 
   handleAddGamesToList(providerName, gameNames) {
@@ -1241,11 +1312,21 @@ class ThumbSyncApp {
           
           <!-- MOBILE HEADER ACTION BAR -->
           <header class="h-16 shrink-0 border-b border-white/[0.05] bg-[#0f0f13] flex items-center justify-between px-4 sm:px-6 select-none relative z-10 w-full">
-            <div class="flex items-center gap-2">
-              <span class="text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
-              <span class="px-2 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.useMock ? 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/15' : 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15'}">
-                ${this.state.useMock ? "OFF-LINE DEMO" : "GOOGLE DRIVE CONECTADO"}
+            <div id="live-indicator-wrapper" class="flex items-center gap-2.5 transition-all duration-300 rounded-2xl border border-transparent px-2 py-1">
+              <span class="text-[10px] sm:text-xs text-zinc-550 font-bold uppercase tracking-wider relative">Status</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-black tracking-wider ${this.state.useMock ? 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/15' : 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15'} shadow-sm">
+                ${this.state.useMock ? "OFF-LINE DEMO" : "CONECTADO"}
               </span>
+              
+              ${!this.state.useMock && this.state.gdriveConnected ? `
+                <div class="flex items-center gap-1.5 bg-emerald-500/5 px-2.5 py-1 rounded-xl border border-emerald-500/10 transition-all duration-300">
+                  <span class="relative flex h-1.5 w-1.5 shrink-0">
+                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                    <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                  </span>
+                  <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest font-mono">Ao Vivo</span>
+                </div>
+              ` : ''}
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
