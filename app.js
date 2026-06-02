@@ -327,7 +327,7 @@ class ThumbSyncApp {
     };
 
     this.config = {
-      clientId: '',
+      clientId: '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
       useMock: true
@@ -350,7 +350,8 @@ class ThumbSyncApp {
   }
 
   loadStateFromStorage() {
-    const savedClientId = localStorage.getItem('thumbsync_client_id') || '';
+    const defaultClientId = '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
+    const savedClientId = localStorage.getItem('thumbsync_client_id') || defaultClientId;
     const savedFolderName = localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
     const savedListFileName = localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
     const savedUseMock = localStorage.getItem('thumbsync_use_mock') !== 'false';
@@ -1784,6 +1785,18 @@ class ThumbSyncApp {
                   <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-500 hover:underline">Google Cloud Console</a>
                 </div>
                 <input type="text" id="conf-clientId" value="${this.config.clientId}" placeholder="Faltando credencial client_id.apps.googleusercontent.com" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
+                
+                <!-- Aviso de Cuidado / Segurança iOS Callout -->
+                <div id="client-id-warning" class="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] leading-normal font-sans">
+                  <svg class="w-4 h-4 shrink-0 text-amber-400 mt-0.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                  </svg>
+                  <div>
+                    <span class="font-bold block text-amber-400 mb-0.5">⚠️ CUIDADO COM ALTERAÇÕES</span>
+                    <span>Este ID está pré-configurado com a credencial segura e homologada da aplicação. Se você alterar ou remover este valor, as conexões com o Google Drive poderão falhar ou apresentar erros críticos de autenticação de origem.</span>
+                  </div>
+                </div>
+
                 <p class="text-[9px] text-zinc-500 font-medium leading-normal">Seu Client ID do aplicativo Web. Google Auth requer que você adicione esta URL nas Origens JavaScript Autorizadas do seu ID de Cliente.</p>
               </div>
 
@@ -2160,7 +2173,18 @@ class ThumbSyncApp {
           const fileInput = document.getElementById('conf-file');
 
           if (clientIdInput && folderInput && fileInput) {
-            this.config.clientId = clientIdInput.value.trim();
+            const defaultClientId = '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
+            const newClientId = clientIdInput.value.trim();
+
+            if (newClientId !== defaultClientId && newClientId !== '') {
+              const proceed = confirm("⚠️ ATENÇÃO & CUIDADO:\nVocê está alterando o Google Client ID padrão homologado para esta aplicação.\n\nFazer isso pode comprometer a autenticação e interromper totalmente o sincronismo automático de imagens com o Google Drive.\n\nDeseja realmente prosseguir com a alteração do Client ID?");
+              if (!proceed) {
+                clientIdInput.value = defaultClientId;
+                return;
+              }
+            }
+
+            this.config.clientId = newClientId;
             this.config.folderName = folderInput.value.trim() || 'Thumbs';
             this.config.listFileName = fileInput.value.trim() || 'lista.txt';
             
