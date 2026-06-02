@@ -288,6 +288,13 @@ export const PROVIDER_BADGE_STYLE = {
   'default': 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
 };
 
+export const LIVE_KEYWORDS = [
+  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac", 
+  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze", 
+  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing", 
+  "marble race", "war", "super color game"
+];
+
 
 // --- CORE APPLICATION CONTROLLER CLASS ---
 class ThumbSyncApp {
@@ -309,7 +316,9 @@ class ThumbSyncApp {
       logs: [],
       filterProvider: 'todos',
       filterStatus: 'todos',
+      filterTag: 'todos',
       searchQuery: '',
+      customTags: {},
       
       // Modal state
       selectedCatalogItem: null,
@@ -369,6 +378,13 @@ class ThumbSyncApp {
       this.addLog("Iniciando no modo de demonstração off-line.");
     }
 
+    try {
+      this.state.customTags = JSON.parse(localStorage.getItem('thumbsync_custom_tags')) || {};
+    } catch (e) {
+      this.state.customTags = {};
+    }
+    this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
+
     this.syncLocalCatalog();
   }
 
@@ -378,6 +394,8 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
     localStorage.setItem('thumbsync_use_mock', this.config.useMock ? 'true' : 'false');
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
+    localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
+    localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
   }
 
   addLog(message) {
@@ -669,6 +687,30 @@ class ThumbSyncApp {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  getGameTag(item) {
+    if (this.state.customTags && this.state.customTags[item.id]) {
+      return this.state.customTags[item.id];
+    }
+    const norm = this.normalizeName(item.displayName);
+    const isLive = LIVE_KEYWORDS.some(kw => norm.includes(kw));
+    return isLive ? "ao vivo" : "slot";
+  }
+
+  updateGameTag(itemId, newTag) {
+    if (!this.state.customTags) {
+      this.state.customTags = {};
+    }
+    this.state.customTags[itemId] = newTag;
+    this.saveStateToStorage();
+    
+    const item = this.state.catalogItems.find(i => i.id === itemId);
+    if (item) {
+      this.addLog(`Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`);
+      this.renderActiveTab();
+      this.renderPreviewModal(item);
+    }
   }
 
   setActiveTab(tab) {
@@ -1119,6 +1161,14 @@ class ThumbSyncApp {
       }
     }
 
+    if (this.state.filterTag !== 'todos') {
+      if (this.state.filterTag === 'ao_vivo') {
+        items = items.filter(i => this.getGameTag(i) === 'ao vivo');
+      } else if (this.state.filterTag === 'slot') {
+        items = items.filter(i => this.getGameTag(i) === 'slot');
+      }
+    }
+
     if (this.state.searchQuery.trim() !== '') {
       const q = this.normalizeName(this.state.searchQuery);
       items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
@@ -1136,7 +1186,7 @@ class ThumbSyncApp {
         </div>
 
         <!-- Filtros -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl select-none">
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl select-none">
           <div class="space-y-1">
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
             <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
@@ -1160,6 +1210,14 @@ class ThumbSyncApp {
               <option value="nao_listados" ${this.state.filterStatus === 'nao_listados' ? 'selected' : ''}>Arquivos avulsos no drive</option>
             </select>
           </div>
+          <div class="space-y-1">
+            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
+            <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none select-none">
+              <option value="todos" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
+              <option value="ao_vivo" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
+              <option value="slot" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
+            </select>
+          </div>
         </div>
 
         <!-- Catalogo em Grid -->
@@ -1170,6 +1228,18 @@ class ThumbSyncApp {
             ${items.map(item => {
               const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
               const hasWebp = item.hasWebp;
+              const tag = this.getGameTag(item);
+              const tagHtml = tag === "ao vivo" ? `
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
+                  <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
+                  Ao Vivo
+                </span>
+              ` : `
+                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
+                  <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
+                  Slot
+                </span>
+              `;
 
               return `
                 <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
@@ -1187,6 +1257,10 @@ class ThumbSyncApp {
                       </div>
                     </div>
                   `}
+
+                  <div class="absolute top-3 right-3 z-20">
+                    ${tagHtml}
+                  </div>
 
                   <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
                   
@@ -1683,6 +1757,7 @@ class ThumbSyncApp {
     const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'Simulado / Local';
 
     const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
+    const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
       <div class="flex flex-col gap-5 pt-4 text-left relative h-full">
@@ -1711,6 +1786,21 @@ class ThumbSyncApp {
           </div>
         </div>
 
+        <!-- Categoria do Jogo com controles de tag personalizados (iOS / Mac 2026 Style) -->
+        <div class="space-y-1.5 select-none">
+          <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
+          <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+            <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
+              <span class="w-1.5 h-1.5 rounded-full bg-[#ff453a] ${currentTag === 'ao vivo' ? 'animate-pulse' : ''}"></span>
+              Ao Vivo
+            </button>
+            <button id="tag-btn-slot" data-tag-value="slot" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'slot' ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
+              <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff]"></span>
+              Slot
+            </button>
+          </div>
+        </div>
+
         <div class="flex flex-col gap-2 select-none mt-auto pb-2">
           <button id="modal-action-download" class="w-full py-2 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
@@ -1729,6 +1819,20 @@ class ThumbSyncApp {
     if (btnDownload) {
       btnDownload.addEventListener('click', () => {
         this.handleDownloadFile(item);
+      });
+    }
+
+    const tagLiveBtn = document.getElementById('tag-btn-ao-vivo');
+    const tagSlotBtn = document.getElementById('tag-btn-slot');
+    
+    if (tagLiveBtn) {
+      tagLiveBtn.addEventListener('click', () => {
+        this.updateGameTag(item.id, 'ao vivo');
+      });
+    }
+    if (tagSlotBtn) {
+      tagSlotBtn.addEventListener('click', () => {
+        this.updateGameTag(item.id, 'slot');
       });
     }
   }
@@ -1816,6 +1920,15 @@ class ThumbSyncApp {
        if (statusSelect) {
          statusSelect.addEventListener('change', (e) => {
             this.state.filterStatus = e.currentTarget.value;
+            this.renderActiveTab();
+         });
+       }
+
+       const tagSelect = document.getElementById('catalouge-tag-filter');
+       if (tagSelect) {
+         tagSelect.addEventListener('change', (e) => {
+            this.state.filterTag = e.currentTarget.value;
+            this.saveStateToStorage();
             this.renderActiveTab();
          });
        }
