@@ -302,6 +302,7 @@ class ThumbSyncApp {
       listFileId: '',
       thumbsFolderId: '',
       catalogItems: [],
+      driveProviders: [],
       
       // UI Helpers
       isLoading: false,
@@ -522,6 +523,8 @@ class ThumbSyncApp {
           directFiles.push(f);
         }
       });
+
+      this.state.driveProviders = subfolders.map(f => f.name);
 
       this.addLog(`Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`);
 
@@ -1323,6 +1326,48 @@ class ThumbSyncApp {
 
     const groupsList = Array.from(groupsMap.entries());
 
+    // Combinar provedores para exibir como opções no modal de adicionar jogo
+    const modalProvidersSet = new Set();
+    
+    // 1. Dos grupos do lista.txt
+    groupsList.forEach(([prov]) => {
+      if (prov && prov !== "Sem provedor") {
+        modalProvidersSet.add(prov);
+      }
+    });
+
+    // 2. Das subpastas físicas sincronizadas do Drive
+    if (this.state.driveProviders && this.state.driveProviders.length > 0) {
+      this.state.driveProviders.forEach(p => {
+        if (p && p !== "Sem provedor") {
+          modalProvidersSet.add(p);
+        }
+      });
+    }
+
+    // 3. Dos arquivos que contêm provedores definidos
+    if (this.state.driveFiles) {
+      this.state.driveFiles.forEach(f => {
+        if (f.providerName && f.providerName !== "Sem provedor") {
+          modalProvidersSet.add(f.providerName);
+        }
+      });
+    }
+
+    // 4. Se estiver no modo off-line / Mock, garante os de mock tradicionais
+    if (this.state.useMock) {
+      modalProvidersSet.add("PG Soft");
+      modalProvidersSet.add("Pragmatic Play");
+    }
+
+    // Se estiver totalmente vazio (por garantia extrema), adiciona um padrão ou Sem Provedor
+    if (modalProvidersSet.size === 0) {
+      modalProvidersSet.add("PG Soft");
+      modalProvidersSet.add("Pragmatic Play");
+    }
+
+    const modalProvidersList = Array.from(modalProvidersSet).sort();
+
     container.innerHTML = `
       <div class="space-y-6 text-left select-none relative">
         <div class="flex flex-col sm:flex-row justify-between gap-3 sm:items-center pb-2 border-b border-white/[0.05]">
@@ -1413,7 +1458,7 @@ class ThumbSyncApp {
             <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-add-game-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
-                ${groupsList.map(([prov]) => `
+                ${modalProvidersList.map(prov => `
                   <option value="${prov}" ${prov === this.state.addingGameToProvider ? 'selected' : ''}>${prov}</option>
                 `).join('')}
               </select>
