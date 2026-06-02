@@ -370,7 +370,7 @@ class ThumbSyncApp {
     const savedToken = localStorage.getItem('gdrive_access_token');
     const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
 
-    if (savedToken && tokenExpiresAt > Date.now()) {
+    if (savedToken) {
       driveClient.setAccessToken(savedToken);
       this.state.gdriveConnected = true;
       this.state.useMock = false;
@@ -420,12 +420,102 @@ class ThumbSyncApp {
     setTimeout(() => clearInterval(checkGIS), 10000);
   }
 
+  async attemptSilentTokenRefresh() {
+    if (typeof window.google === 'undefined' || !window.google.accounts || !window.google.accounts.oauth2) {
+      this.addLog("Google GSI SDK não carregado para renovação silenciosa.");
+      return false;
+    }
+    return new Promise((resolve) => {
+      try {
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: this.config.clientId,
+          scope: 'https://www.googleapis.com/auth/drive',
+          prompt: 'none',
+          callback: async (response) => {
+            if (response.error) {
+              this.addLog(`Renovação silenciosa falhou: ${response.error}`);
+              resolve(false);
+              return;
+            }
+            this.addLog("Token do Google Drive renovado silenciosamente.");
+            driveClient.setAccessToken(response.access_token);
+            this.state.gdriveConnected = true;
+            this.state.useMock = false;
+            this.config.useMock = false;
+
+            localStorage.setItem('gdrive_access_token', response.access_token);
+            localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
+            this.saveStateToStorage();
+            resolve(true);
+          }
+        });
+        client.requestAccessToken({ prompt: 'none' });
+      } catch (e) {
+        this.addLog(`Erro ao renovar token de forma silenciosa: ${e.message}`);
+        resolve(false);
+      }
+    });
+  }
+
+  async ensureActiveSession() {
+    const savedToken = localStorage.getItem('gdrive_access_token');
+    
+    if (!savedToken) {
+      alert("⚠️ Aviso: Sua conta Google não está conectada!\n\nPor favor, conecte a sua conta do Google Drive no botão lateral 'Conectar Google Drive' ou na aba 'Configurações' para poder usar a sincronização em nuvem.");
+      this.setActiveTab('settings');
+      return false;
+    }
+
+    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+    if (tokenExpiresAt <= Date.now()) {
+      this.addLog("Token vencido detectado. Tentando renovação silenciosa no Google...");
+      this.state.isLoading = true;
+      this.render();
+      
+      const refreshed = await this.attemptSilentTokenRefresh();
+      this.state.isLoading = false;
+      this.render();
+      
+      if (!refreshed) {
+        const confirmLogin = confirm("⚠️ Sua sessão de segurança com o Google Drive de 1 hora expirou.\n\nDeseja realizar a reconexão rápida agora para sincronizar e enviar seus arquivos?");
+        if (confirmLogin) {
+          this.handleGoogleLogin();
+        } else {
+          this.addLog("Operação cancelada por falta de credenciais renovadas.");
+        }
+        return false;
+      }
+    }
+    
+    // Garante que o token utilizável esteja no driveClient e no estado geral
+    const freshToken = localStorage.getItem('gdrive_access_token');
+    if (freshToken) {
+      driveClient.setAccessToken(freshToken);
+      this.state.gdriveConnected = true;
+      this.state.useMock = false;
+      this.config.useMock = false;
+    }
+    return true;
+  }
+
   async reconnectSilent() {
     try {
       const savedToken = localStorage.getItem('gdrive_access_token');
+      const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+      
       if (savedToken) {
-        driveClient.setAccessToken(savedToken);
-        await this.syncOnlyList();
+        if (tokenExpiresAt <= Date.now()) {
+          this.addLog("Reconexão pós-boot: Token expirado. Buscando renovação silenciosa...");
+          const refreshed = await this.attemptSilentTokenRefresh();
+          if (refreshed) {
+            await this.syncOnlyList();
+          } else {
+            this.addLog("Reconexão silenciosa no boot não pôde ser completada.");
+          }
+        } else {
+          driveClient.setAccessToken(savedToken);
+          await this.syncOnlyList();
+        }
       }
     } catch (err) {
       this.addLog(`Reconexão automática falhou: ${err.message}`);
@@ -504,12 +594,8 @@ class ThumbSyncApp {
    * Sincroniza listas e miniaturas com o Google Drive baseado nas configurações do usuário.
    */
   async syncWithGoogleDrive() {
-    if (this.state.useMock || !driveClient.isAuthenticated()) {
-      this.addLog("Sincronizando no modo off-line com cache local.");
-      this.syncLocalCatalog();
-      this.render();
-      return;
-    }
+    const sessionOk = await this.ensureActiveSession();
+    if (!sessionOk) return;
 
     this.state.isLoading = true;
     this.addLog(`Sincronizando com o seu Google Drive...`);
@@ -591,15 +677,8 @@ class ThumbSyncApp {
    * Sincroniza apenas o arquivo lista.txt com o Google Drive de forma rápida e independente.
    */
   async syncOnlyList() {
-    if (this.state.useMock || !driveClient.isAuthenticated()) {
-      this.addLog("Sincronizando apenas lista.txt no modo off-line...");
-      const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
-      this.state.listContent = cachedList;
-      this.syncLocalCatalog();
-      this.addLog("Lista.txt reatualizada do cache local.");
-      this.render();
-      return;
-    }
+    const sessionOk = await this.ensureActiveSession();
+    if (!sessionOk) return;
 
     this.state.isLoading = true;
     this.addLog(`Sincronizando apenas '${this.config.listFileName}' com o Google Drive...`);
@@ -887,6 +966,9 @@ class ThumbSyncApp {
       alert("Esta miniatura não possui imagem (.webp) no Google Drive para download.");
       return;
     }
+
+    const sessionOk = await this.ensureActiveSession();
+    if (!sessionOk) return;
 
     this.addLog(`Baixando miniatura do Google Drive: ${item.displayName}.webp...`);
     try {
@@ -1482,10 +1564,8 @@ class ThumbSyncApp {
         const dropZone = card.querySelector('.dropzone-indicator');
         if (dropZone) dropZone.classList.remove('opacity-100');
 
-        if (this.state.useMock) {
-          alert("Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para fazer upload real de Webps!");
-          return;
-        }
+        const sessionOk = await this.ensureActiveSession();
+        if (!sessionOk) return;
 
         const files = e.dataTransfer.files;
         if (files.length === 0) return;
