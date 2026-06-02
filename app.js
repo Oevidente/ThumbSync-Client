@@ -512,13 +512,13 @@ class ThumbSyncApp {
           this.addLog("Reconexão pós-boot: Token expirado. Buscando renovação silenciosa...");
           const refreshed = await this.attemptSilentTokenRefresh();
           if (refreshed) {
-            await this.syncOnlyList();
+            await this.syncWithGoogleDrive();
           } else {
             this.addLog("Reconexão silenciosa no boot não pôde ser completada.");
           }
         } else {
           driveClient.setAccessToken(savedToken);
-          await this.syncOnlyList();
+          await this.syncWithGoogleDrive();
         }
       }
     } catch (err) {
@@ -679,64 +679,6 @@ class ThumbSyncApp {
       this.addLog(`Erro ao sincronizar: ${e.message}`);
       this.state.useMock = true;
       this.syncLocalCatalog();
-    } finally {
-      this.state.isLoading = false;
-      this.render();
-    }
-  }
-
-  /**
-   * Sincroniza apenas o arquivo lista.txt com o Google Drive de forma rápida e independente.
-   */
-  async syncOnlyList() {
-    const sessionOk = await this.ensureActiveSession();
-    if (!sessionOk) return;
-
-    this.state.isLoading = true;
-    this.addLog(`Sincronizando apenas '${this.config.listFileName}' com o Google Drive...`);
-    this.render();
-
-    try {
-      this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
-      const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
-      this.state.thumbsFolderId = folderId;
-
-      this.addLog("Buscando lista.txt dentro da pasta...");
-      const files = await driveClient.listFilesInFolder(folderId);
-
-      // Sincroniza apenas os provedores (subpastas), sem listar os arquivos internos (imagens) para manter rápido
-      const subfolders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
-      this.state.driveProviders = subfolders.map(f => f.name);
-
-      const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
-      if (listFile) {
-        this.addLog(`Baixando catálogo do arquivo '${this.config.listFileName}'...`);
-        this.state.listFileId = listFile.id;
-        this.state.lastListFileModifiedTime = listFile.modifiedTime || '';
-        const listText = await driveClient.downloadTextFile(listFile.id);
-        this.state.listContent = listText;
-        this.addLog(`Arquivo '${this.config.listFileName}' sincronizado com sucesso (${listText.split('\n').length} linhas).`);
-      } else {
-        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
-        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
-        this.state.listFileId = newFileId;
-        try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`);
-          if (resMeta.ok) {
-            const dataMeta = await resMeta.json();
-            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
-          }
-        } catch (err) {}
-        this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
-        this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
-      }
-
-      this.saveStateToStorage();
-      this.syncLocalCatalog();
-      this.addLog("Sincronização de lista concluída.");
-    } catch (e) {
-      this.addLog(`Erro ao sincronizar somente a lista: ${e.message}`);
-      alert(`Falha ao sincronizar somente a lista: ${e.message}`);
     } finally {
       this.state.isLoading = false;
       this.render();
@@ -2268,7 +2210,7 @@ class ThumbSyncApp {
        const btnSyncListOnly = document.getElementById('btn-sync-list-only');
        if (btnSyncListOnly) {
          btnSyncListOnly.addEventListener('click', () => {
-           this.syncOnlyList();
+           this.syncWithGoogleDrive();
          });
        }
 
