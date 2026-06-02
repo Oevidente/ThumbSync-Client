@@ -1064,7 +1064,7 @@ class ThumbSyncApp {
    * VIEW: MINIATURAS (THUMBNAIL CATALOUGE)
    */
   private renderCatalog(container: HTMLElement) {
-    const providers = Array.from(new Set(this.state.catalogItems.map(i => i.providerName)));
+    const providers = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
     // Filters logic
     let items = this.state.catalogItems;
@@ -1261,7 +1261,7 @@ class ThumbSyncApp {
       modalProvidersSet.add("Pragmatic Play");
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort();
+    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
       <div class="space-y-6 select-none relative">

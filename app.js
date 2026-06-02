@@ -1124,7 +1124,7 @@ class ThumbSyncApp {
       items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
     }
 
-    const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean);
+    const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
       <div class="space-y-6 text-left select-none relative">
@@ -1366,7 +1366,7 @@ class ThumbSyncApp {
       modalProvidersSet.add("Pragmatic Play");
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort();
+    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
       <div class="space-y-6 text-left select-none relative">
