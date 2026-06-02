@@ -235,13 +235,44 @@ class ThumbSyncApp {
       this.addLog(`Pasta '${this.config.folderName}' localizada (ID: ${folderId.substring(0,6)}...)`);
 
       // 2. Fetch all files inside the folder
-      this.addLog("Escaneando arquivos da pasta...");
+      this.addLog("Escaneando arquivos raiz e pastas de provedores dentro da pasta...");
       const files = await driveClient.listFilesInFolder(folderId);
-      this.state.driveFiles = files;
-      this.addLog(`${files.length} arquivos localizados no Google Drive.`);
+
+      const directFiles: DriveFile[] = [];
+      const subfolders: DriveFile[] = [];
+
+      files.forEach(f => {
+        if (f.mimeType === 'application/vnd.google-apps.folder') {
+          subfolders.push(f);
+        } else {
+          directFiles.push(f);
+        }
+      });
+
+      this.addLog(`Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`);
+
+      const allFiles = [...directFiles];
+
+      // Busca recursivamente os arquivos (.webp) dentro de cada pasta de provedor
+      for (const subfolder of subfolders) {
+        this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
+        try {
+          const subFiles = await driveClient.listFilesInFolder(subfolder.id);
+          subFiles.forEach(sf => {
+            sf.providerName = subfolder.name; // Associa a imagem ao provedor (nome da pasta)
+            allFiles.push(sf);
+          });
+          this.addLog(`Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`);
+        } catch (subErr: any) {
+          this.addLog(`Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
+        }
+      }
+
+      this.state.driveFiles = allFiles;
+      this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
 
       // 3. Look for file list.txt
-      const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Lendo lista de jogos contida em '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
@@ -249,7 +280,7 @@ class ThumbSyncApp {
         this.state.listContent = listText;
         this.addLog(`Lista '${this.config.listFileName}' carregada com sucesso (${listText.split('\n').length} linhas).`);
       } else {
-        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não encontrado. Criando modelo padrão...`);
+        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não encontrado na pasta raiz. Criando modelo padrão...`);
         const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
         this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
@@ -321,7 +352,7 @@ class ThumbSyncApp {
       
       // Auto-detect provider by subfolders or parent segments if available
       let fileProvider = "Sem provedor";
-      if (this.state.useMock && file.providerName) {
+      if (file.providerName) {
         fileProvider = file.providerName;
       } else {
         // Simple heuristic: check if any listed game matches this name, then inherit its provider name!

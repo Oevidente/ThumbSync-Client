@@ -77,6 +77,42 @@ export class DriveApiClient {
   }
 
   /**
+   * Procura uma pasta por nome dentro de uma pasta pai. Se não existir, cria.
+   */
+  async findOrCreateSubfolder(folderName, parentFolderId) {
+    const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
+    
+    const res = await this.fetchWithAuth(url);
+    if (!res.ok) {
+      throw new Error(`Erro ao buscar subpasta no Drive: ${res.statusText}`);
+    }
+    const data = await res.json();
+    
+    if (data.files && data.files.length > 0) {
+      return data.files[0].id;
+    }
+
+    // Criar subpasta com pai especificado
+    const createUrl = 'https://www.googleapis.com/drive/v3/files';
+    const createRes = await this.fetchWithAuth(createUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId]
+      })
+    });
+
+    if (!createRes.ok) {
+      throw new Error(`Erro ao criar subpasta no Drive: ${createRes.statusText}`);
+    }
+    const folder = await createRes.json();
+    return folder.id;
+  }
+
+  /**
    * Lista todos os arquivos webp e de texto na pasta.
    */
   async listFilesInFolder(folderId) {
@@ -473,12 +509,43 @@ class ThumbSyncApp {
       this.state.thumbsFolderId = folderId;
       this.addLog(`Pasta '${this.config.folderName}' ativa (ID: ${folderId.substring(0, 8)}...)`);
 
-      this.addLog("Escaneando arquivos dentro da pasta...");
+      this.addLog("Escaneando arquivos raiz e pastas de provedores dentro da pasta...");
       const files = await driveClient.listFilesInFolder(folderId);
-      this.state.driveFiles = files;
-      this.addLog(`${files.length} arquivos localizados.`);
 
-      const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      const directFiles = [];
+      const subfolders = [];
+
+      files.forEach(f => {
+        if (f.mimeType === 'application/vnd.google-apps.folder') {
+          subfolders.push(f);
+        } else {
+          directFiles.push(f);
+        }
+      });
+
+      this.addLog(`Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`);
+
+      const allFiles = [...directFiles];
+
+      // Busca recursivamente os arquivos (.webp) dentro de cada pasta de provedor
+      for (const subfolder of subfolders) {
+        this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
+        try {
+          const subFiles = await driveClient.listFilesInFolder(subfolder.id);
+          subFiles.forEach(sf => {
+            sf.providerName = subfolder.name; // Associa a imagem ao provedor (nome da pasta)
+            allFiles.push(sf);
+          });
+          this.addLog(`Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`);
+        } catch (subErr) {
+          this.addLog(`Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
+        }
+      }
+
+      this.state.driveFiles = allFiles;
+      this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
+
+      const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
@@ -486,7 +553,7 @@ class ThumbSyncApp {
         this.state.listContent = listText;
         this.addLog(`Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`);
       } else {
-        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado. Gerando modelo básico...`);
+        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
         const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
         this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
@@ -555,7 +622,7 @@ class ThumbSyncApp {
       const normName = this.normalizeName(baseName);
       
       let fileProvider = "Sem provedor";
-      if (this.state.useMock && file.providerName) {
+      if (file.providerName) {
         fileProvider = file.providerName;
       } else {
         const matchGame = listGames.find(g => g.normalizedName === normName);
@@ -1194,7 +1261,14 @@ class ThumbSyncApp {
         this.render();
 
         try {
-          const targetFolderId = this.state.thumbsFolderId;
+          let targetFolderId = this.state.thumbsFolderId;
+          const providerName = item.providerName || "Sem provedor";
+
+          if (providerName && providerName !== "Sem provedor") {
+            this.addLog(`Resolvendo pasta do provedor '${providerName}' no Drive...`);
+            targetFolderId = await driveClient.findOrCreateSubfolder(providerName, this.state.thumbsFolderId);
+          }
+
           const fileName = `${item.displayName}.webp`;
 
           // Fazer upload de imagem via Drive CLIENT

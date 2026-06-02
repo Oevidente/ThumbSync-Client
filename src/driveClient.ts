@@ -74,6 +74,45 @@ export class DriveApiClient {
   }
 
   /**
+   * Search for a folder by name inside a parent folder in the user's Drive.
+   * If folder does not exist, create it inside that parent.
+   */
+  async findOrCreateSubfolder(folderName: string, parentFolderId: string): Promise<string> {
+    const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
+    const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
+    
+    const res = await this.fetchWithAuth(url);
+    if (!res.ok) {
+      throw new Error(`Erro ao buscar subpasta no Drive: ${res.statusText}`);
+    }
+    const data = await res.json();
+    
+    if (data.files && data.files.length > 0) {
+      return data.files[0].id;
+    }
+
+    // Create folder inside parent
+    const createUrl = 'https://www.googleapis.com/drive/v3/files';
+    const createRes = await this.fetchWithAuth(createUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        name: folderName,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [parentFolderId]
+      })
+    });
+
+    if (!createRes.ok) {
+      throw new Error(`Erro ao criar subpasta no Drive: ${createRes.statusText}`);
+    }
+    const folder = await createRes.json();
+    return folder.id;
+  }
+
+  /**
    * List all files inside a folder (or recursively).
    */
   async listFilesInFolder(folderId: string): Promise<DriveFile[]> {
