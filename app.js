@@ -775,9 +775,16 @@ class ThumbSyncApp {
       }
       
       const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
+      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
       imgEl.src = localUrl;
       
+      let triedFallback = false;
       imgEl.onerror = () => {
+        if (!triedFallback) {
+          triedFallback = true;
+          imgEl.src = fallbackUrl;
+          return;
+        }
         imgEl.onerror = null;
         imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
@@ -828,17 +835,44 @@ class ThumbSyncApp {
         providerPath = item.providerName + "/";
       }
       const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
+      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
 
       try {
-        const response = await fetch(localUrl);
+        let response = await fetch(localUrl);
+        if (!response.ok) {
+          response = await fetch(fallbackUrl);
+        }
         if (!response.ok) throw new Error();
         const blob = await response.blob();
         this.triggerBlobDownload(blob, `${item.displayName}.webp`);
       } catch (e) {
-        const payload = "RIFF_mock_webp_data_by_thumbsync_offline";
-        const blob = new Blob([payload], { type: 'image/webp' });
-        this.triggerBlobDownload(blob, `${item.displayName}.webp`);
+        // SVG representation of mock preview instead of raw string so it downloads a valid mock image
+        const svgContent = `
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
+            <defs>
+              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#181820" />
+                <stop offset="100%" stop-color="#1f2937" />
+              </linearGradient>
+            </defs>
+            <rect width="200" height="300" fill="url(#g)" />
+            <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
+            <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
+              ${item.displayName}
+            </text>
+            <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
+              MOCK PREVIEW
+            </text>
+          </svg>
+        `;
+        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+        this.triggerBlobDownload(blob, `${item.displayName}.svg`);
       }
+      return;
+    }
+
+    if (!item.driveFileId) {
+      alert("Esta miniatura não possui imagem (.webp) no Google Drive para download.");
       return;
     }
 
@@ -857,8 +891,12 @@ class ThumbSyncApp {
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    setTimeout(() => {
+      URL.revokeObjectURL(url);
+    }, 150);
   }
 
   /**
@@ -932,33 +970,89 @@ class ThumbSyncApp {
     if (!isConfirmed) return;
 
     this.addLog(`Removendo '${item.displayName}' do provedor '${item.providerName}'...`);
+    
     const lines = this.state.listContent.split(/\r?\n/);
-    const updatedLines = [];
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
 
-    let insideTargetProvider = false;
-    let deleted = false;
-
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
+    for (const line of lines) {
       const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
       
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-        insideTargetProvider = (this.normalizeName(providerMatch[1].trim()) === this.normalizeName(item.providerName));
-        updatedLines.push(line);
+        if (currentSection) {
+          sections.push(currentSection);
+        }
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
         continue;
       }
-
-      if (insideTargetProvider && this.normalizeName(cleanLine) === item.normalizedName && !deleted) {
-         deleted = true;
-         this.addLog(`Jogo descartado da lista.`);
-         continue;
+      
+      if (currentSection) {
+        if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
+          currentSection.games.push({
+            originalLine: line,
+            cleanGameName: cleanLine,
+            normalizedGameName: this.normalizeName(cleanLine),
+            isBlankOrComment: false
+          });
+        } else {
+          currentSection.games.push({
+            originalLine: line,
+            cleanGameName: cleanLine,
+            normalizedGameName: cleanLine ? this.normalizeName(cleanLine) : '',
+            isBlankOrComment: true
+          });
+        }
+      } else {
+        headerLines.push(line);
       }
-
-      updatedLines.push(line);
+    }
+    if (currentSection) {
+      sections.push(currentSection);
     }
 
-    this.saveUpdatedList(updatedLines.join('\n'));
+    let deleted = false;
+    const targetProviderNormalized = this.normalizeName(item.providerName);
+    
+    for (const sec of sections) {
+      if (sec.providerNameNormalized === targetProviderNormalized) {
+        const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
+        if (idx !== -1) {
+          sec.games.splice(idx, 1);
+          deleted = true;
+          this.addLog(`Jogo descartado da lista.`);
+          break;
+        }
+      }
+    }
+
+    const filteredSections = sections.filter(sec => {
+      const genuineGames = sec.games.filter(g => !g.isBlankOrComment);
+      if (genuineGames.length === 0) {
+        this.addLog(`Provedor '${item.providerName}' não possui mais jogos na lista. Seção removida.`);
+        return false;
+      }
+      return true;
+    });
+
+    const finalLines = [...headerLines];
+    filteredSections.forEach((sec, sIdx) => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') {
+        finalLines.push('');
+      }
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => {
+        finalLines.push(g.originalLine);
+      });
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.saveUpdatedList(cleanedFileContent);
   }
 
   // --- HTML DRAW PIPELINE ---
@@ -1226,26 +1320,26 @@ class ThumbSyncApp {
         </div>
 
         <!-- Filtros -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl select-none">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
           <div class="space-y-1">
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
             <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
-            <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none select-none">
-              <option value="todos" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
+            <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
               ${uniqueProviders.map(p => `
-                <option value="${p}" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
+                <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
               `).join('')}
             </select>
           </div>
           <div class="space-y-1">
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
-            <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none select-none">
-              <option value="todos" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-              <option value="ao_vivo" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
-              <option value="slot" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
+            <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
+              <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
+              <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
             </select>
           </div>
         </div>
