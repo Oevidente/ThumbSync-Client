@@ -595,6 +595,59 @@ class ThumbSyncApp {
   }
 
   /**
+   * Sincroniza apenas o arquivo lista.txt com o Google Drive de forma rápida e independente.
+   */
+  async syncOnlyList() {
+    if (this.state.useMock || !driveClient.isAuthenticated()) {
+      this.addLog("Sincronizando apenas lista.txt no modo off-line...");
+      const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
+      this.state.listContent = cachedList;
+      this.syncLocalCatalog();
+      this.addLog("Lista.txt reatualizada do cache local.");
+      this.render();
+      return;
+    }
+
+    this.state.isLoading = true;
+    this.addLog(`Sincronizando apenas '${this.config.listFileName}' com o Google Drive...`);
+    this.render();
+
+    try {
+      this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
+      const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
+      this.state.thumbsFolderId = folderId;
+
+      this.addLog("Buscando lista.txt dentro da pasta...");
+      const files = await driveClient.listFilesInFolder(folderId);
+
+      const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      if (listFile) {
+        this.addLog(`Baixando catálogo do arquivo '${this.config.listFileName}'...`);
+        this.state.listFileId = listFile.id;
+        const listText = await driveClient.downloadTextFile(listFile.id);
+        this.state.listContent = listText;
+        this.addLog(`Arquivo '${this.config.listFileName}' sincronizado com sucesso (${listText.split('\n').length} linhas).`);
+      } else {
+        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
+        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
+        this.state.listFileId = newFileId;
+        this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
+        this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
+      }
+
+      this.saveStateToStorage();
+      this.syncLocalCatalog();
+      this.addLog("Sincronização de lista concluída.");
+    } catch (e) {
+      this.addLog(`Erro ao sincronizar somente a lista: ${e.message}`);
+      alert(`Falha ao sincronizar somente a lista: ${e.message}`);
+    } finally {
+      this.state.isLoading = false;
+      this.render();
+    }
+  }
+
+  /**
    * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive
    */
   syncLocalCatalog() {
@@ -1450,6 +1503,12 @@ class ThumbSyncApp {
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
           <div class="flex items-center gap-2 self-start sm:self-auto shrink-0 select-none">
+            <button id="btn-sync-list-only" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer">
+              <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0 ${this.state.isLoading ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6.13M12 8V12l3 3" />
+              </svg>
+              <span>Sincronizar Lista</span>
+            </button>
             <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
               <span>Novo Provedor</span>
@@ -1949,6 +2008,13 @@ class ThumbSyncApp {
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
+       const btnSyncListOnly = document.getElementById('btn-sync-list-only');
+       if (btnSyncListOnly) {
+         btnSyncListOnly.addEventListener('click', () => {
+           this.syncOnlyList();
+         });
+       }
+
        const btnAddProvider = document.getElementById('btn-add-provider');
        const providerDialog = document.getElementById('add-provider-dialog');
        if (btnAddProvider && providerDialog) {
