@@ -613,6 +613,10 @@ class ThumbSyncApp {
       this.addLog("Buscando lista.txt dentro da pasta...");
       const files = await driveClient.listFilesInFolder(folderId);
 
+      // Sincroniza apenas os provedores (subpastas), sem listar os arquivos internos (imagens) para manter rápido
+      const subfolders = files.filter(f => f.mimeType === 'application/vnd.google-apps.folder');
+      this.state.driveProviders = subfolders.map(f => f.name);
+
       const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo do arquivo '${this.config.listFileName}'...`);
@@ -1645,7 +1649,15 @@ class ThumbSyncApp {
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div class="lg:col-span-2 space-y-4">
             ${groupsList.length === 0 ? `
-              <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
+              <div class="py-20 flex flex-col items-center justify-center text-center px-4 border border-dashed border-white/[0.05] rounded-2xl bg-white/[0.01]">
+                <div class="w-10 h-10 rounded-full bg-zinc-900/60 flex items-center justify-center mb-3 border border-white/[0.05]">
+                  <svg class="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
+                  </svg>
+                </div>
+                <p class="text-zinc-400 font-bold text-xs">Nenhuma seção de provedor na lista</p>
+                <p class="text-zinc-500 text-[11px] mt-1.5 max-w-xs">Crie uma nova seção clicando em "Novo Provedor" acima, ou toque em "Sincronizar Lista" para ler as seções registradas.</p>
+              </div>
             ` : `
               ${groupsList.map(([providerName, games]) => `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
@@ -1695,7 +1707,7 @@ class ThumbSyncApp {
           <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">Bruto de lista.txt</h3>
+              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">Conteúdo de lista.txt</h3>
               <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
               
               <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
