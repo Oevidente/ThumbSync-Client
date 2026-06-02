@@ -1088,7 +1088,7 @@ class ThumbSyncApp {
               </div>
               <div>
                 <h3 class="text-sm font-black tracking-wide leading-none text-white font-sans">ThumbSync</h3>
-                <span class="text-[9px] text-[#10b981] font-bold uppercase tracking-wider mt-1 block">Sorteador & Sync</span>
+                <span class="text-[9px] text-[#10b981] font-bold uppercase tracking-wider mt-1 block">Download & Demandas</span>
               </div>
             </div>
 
