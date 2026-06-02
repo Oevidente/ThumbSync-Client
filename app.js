@@ -1169,9 +1169,24 @@ class ThumbSyncApp {
 
             <div class="flex items-center gap-3">
               <button id="btn-sync-gdrive" class="flex items-center justify-center gap-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all">
-                <svg id="sync-icon" class="w-3.5 h-3.5 shrink-0 ${this.state.isLoading ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6.13M12 8V12l3 3" />
-                </svg>
+                ${this.state.isLoading ? `
+                  <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <g transform="translate(12,12)">
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.875" transform="rotate(45)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.625" transform="rotate(135)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.375" transform="rotate(225)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
+                      <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
+                    </g>
+                  </svg>
+                ` : `
+                  <svg id="sync-icon" class="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                `}
                 <span>Sincronizar</span>
               </button>
             </div>
@@ -1204,14 +1219,27 @@ class ThumbSyncApp {
       </div>
 
       <!-- Backdrop spinner overlay -->
-      <div id="gdrive-loader" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center pointer-events-auto transition-opacity duration-300 hidden select-none">
-        <div class="flex flex-col items-center justify-center gap-4 text-center p-6">
-          <svg class="w-10 h-10 animate-spin text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6.13M12 8v4l3 3" />
+      <div id="gdrive-loader" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center pointer-events-auto transition-all duration-300 hidden select-none">
+        <div class="bg-[#1c1c1e]/85 backdrop-blur-xl border border-white/[0.08] rounded-3xl p-6 w-60 flex flex-col items-center justify-center text-center shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] gap-4">
+          <svg class="w-9 h-9 animate-spin text-zinc-100" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+            <g transform="translate(12,12)">
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.91" transform="rotate(30)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.83" transform="rotate(60)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.66" transform="rotate(120)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.58" transform="rotate(150)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.41" transform="rotate(210)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.33" transform="rotate(240)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.16" transform="rotate(300)" />
+              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.08" transform="rotate(330)" />
+            </g>
           </svg>
           <div>
-            <p class="text-xs font-bold text-white">Sincronizando Google Drive...</p>
-            <p class="text-[9px] text-zinc-500 font-semibold uppercase tracking-wider mt-1 block">Organizando catalogo e lista.txt</p>
+            <p class="text-[13px] font-semibold text-white tracking-tight">Sincronizando Google Drive</p>
+            <p class="text-[10px] text-zinc-400 mt-1">Organizando catálogo e lista.txt...</p>
           </div>
         </div>
       </div>
@@ -1583,9 +1611,24 @@ class ThumbSyncApp {
           </div>
           <div class="flex items-center gap-2 self-start sm:self-auto shrink-0 select-none">
             <button id="btn-sync-list-only" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer">
-              <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0 ${this.state.isLoading ? 'animate-spin' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 1121.21 6.13M12 8V12l3 3" />
-              </svg>
+              ${this.state.isLoading ? `
+                <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                  <g transform="translate(12,12)">
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.875" transform="rotate(45)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.625" transform="rotate(135)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.375" transform="rotate(225)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
+                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
+                  </g>
+                </svg>
+              ` : `
+                <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                </svg>
+              `}
               <span>Sincronizar Lista</span>
             </button>
             <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
