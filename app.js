@@ -424,7 +424,7 @@ class ThumbSyncApp {
       const savedToken = localStorage.getItem('gdrive_access_token');
       if (savedToken) {
         driveClient.setAccessToken(savedToken);
-        await this.syncWithGoogleDrive();
+        await this.syncOnlyList();
       }
     } catch (err) {
       this.addLog(`Reconexão automática falhou: ${err.message}`);
@@ -758,9 +758,16 @@ class ThumbSyncApp {
     }
   }
 
-  setActiveTab(tab) {
+  async setActiveTab(tab) {
+    const prevTab = this.state.activeTab;
     this.state.activeTab = tab;
     this.render();
+
+    if (tab === 'catalog' && prevTab !== 'catalog') {
+      if (!this.state.useMock && driveClient.isAuthenticated()) {
+        await this.syncWithGoogleDrive();
+      }
+    }
   }
 
   /**
