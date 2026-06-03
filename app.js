@@ -299,6 +299,7 @@ class ThumbSyncApp {
       isAddingGame: false,
       addingGameToProvider: '',
       selectedListKeys: new Set(),
+      catalogPage: 1,
     };
 
     this.config = {
@@ -309,6 +310,7 @@ class ThumbSyncApp {
     };
 
     this.imageCache = new Map(); // fileId -> objectURL
+    this.observers = [];
 
     this.addLog("Inicializando módulo ThumbSync...");
     this.loadStateFromStorage();
@@ -508,19 +510,23 @@ class ThumbSyncApp {
       const allFiles = [...directFiles];
 
       // Busca recursivamente os arquivos (.webp) dentro de cada pasta de provedor
-      for (const subfolder of subfolders) {
-        this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
+      await Promise.all(subfolders.map(async (subfolder) => {
         try {
+          this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
           const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-          subFiles.forEach(sf => {
-            sf.providerName = subfolder.name; // Associa a imagem ao provedor (nome da pasta)
-            allFiles.push(sf);
-          });
-          this.addLog(`Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`);
+          
+          // Sincronizar os resultados de forma segura para o array principal
+          const processedSubFiles = subFiles.map(sf => ({
+            ...sf,
+            providerName: subfolder.name
+          }));
+          
+          allFiles.push(...processedSubFiles);
+          this.addLog(`Provedor '${subfolder.name}': ${processedSubFiles.length} miniaturas carregadas.`);
         } catch (subErr) {
-          this.addLog(`Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
+          this.addLog(`Erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
         }
-      }
+      }));
 
       this.state.driveFiles = allFiles;
       this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
@@ -778,6 +784,7 @@ class ThumbSyncApp {
     this.state.activeTab = tab;
     this.render();
 
+    if (tab === 'catalog') this.state.catalogPage = 1;
     if (tab === 'catalog' && prevTab !== 'catalog') {
       if (!this.state.useMock && driveClient.isAuthenticated()) {
         await this.syncWithGoogleDrive();
@@ -792,6 +799,7 @@ class ThumbSyncApp {
   async loadThumbnailSrc(item, imgEl) {
     if (this.imageCache.has(item.driveFileId)) {
       imgEl.src = this.imageCache.get(item.driveFileId);
+      imgEl.classList.remove('opacity-0');
       return;
     }
 
@@ -800,6 +808,7 @@ class ThumbSyncApp {
       const url = URL.createObjectURL(blob);
       this.imageCache.set(item.driveFileId, url);
       imgEl.src = url;
+      imgEl.classList.remove('opacity-0');
     } catch (e) {
       imgEl.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
     }
@@ -1415,6 +1424,11 @@ class ThumbSyncApp {
       items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
     }
 
+    // Paginação: Limitar itens renderizados para performance
+    const pageSize = 40;
+    const totalItemsCount = items.length;
+    const itemsToShow = items.slice(0, this.state.catalogPage * pageSize);
+
     const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
@@ -1456,7 +1470,7 @@ class ThumbSyncApp {
           <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
         ` : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-            ${items.map(item => {
+            ${itemsToShow.map(item => {
               const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
               const hasWebp = item.hasWebp;
               const tag = this.getGameTag(item);
@@ -1475,7 +1489,11 @@ class ThumbSyncApp {
               return `
                 <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
                   ${hasWebp ? `
-                    <img id="thumb-${item.id}" src="" alt="${item.displayName}" class="w-full h-full object-cover">
+                    <img id="thumb-${item.id}" 
+                         data-catalog-key="${item.id}" 
+                         src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
+                         alt="${item.displayName}" 
+                         class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
                   ` : `
                     <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
                       <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
@@ -1511,19 +1529,14 @@ class ThumbSyncApp {
               `;
             }).join('')}
           </div>
+          ${totalItemsCount > itemsToShow.length ? `
+            <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
+              <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+          ` : ''}
         `}
       </div>
     `;
-
-    // Carregar via lazy load das imagens
-    items.forEach(item => {
-      if (item.hasWebp) {
-        const imgEl = document.getElementById(`thumb-${item.id}`);
-        if (imgEl) {
-          this.loadThumbnailSrc(item, imgEl);
-        }
-      }
-    });
 
     // Registrar Drag and Drop Eventos nos cartões
     const cardElements = container.querySelectorAll('[data-catalog-key]');
@@ -2131,10 +2144,14 @@ class ThumbSyncApp {
     // EVENTS DE CATALOGO
     if (this.state.activeTab === 'catalog') {
        const searchInput = document.getElementById('catalouge-search');
+       
+       this.observers.forEach(obs => obs.disconnect());
+       this.observers = [];
+
        if (searchInput) {
          searchInput.addEventListener('input', (e) => {
            this.state.searchQuery = e.currentTarget.value;
-           clearTimeout(this.debounceTimer);
+           this.state.catalogPage = 1;
            this.debounceTimer = setTimeout(() => {
              this.renderActiveTab();
            }, 300);
@@ -2145,16 +2162,16 @@ class ThumbSyncApp {
        if (providerSelect) {
          providerSelect.addEventListener('change', (e) => {
             this.state.filterProvider = e.currentTarget.value;
+            this.state.catalogPage = 1;
             this.renderActiveTab();
          });
        }
-
-
 
        const tagSelect = document.getElementById('catalouge-tag-filter');
        if (tagSelect) {
          tagSelect.addEventListener('change', (e) => {
             this.state.filterTag = e.currentTarget.value;
+            this.state.catalogPage = 1;
             this.saveStateToStorage();
             this.renderActiveTab();
          });
@@ -2172,6 +2189,40 @@ class ThumbSyncApp {
            }
          });
        });
+
+       // 1. Observer para Lazy Loading de imagens
+       const imgObserver = new IntersectionObserver((entries) => {
+         entries.forEach(entry => {
+           if (entry.isIntersecting) {
+             const img = entry.target;
+             const key = img.getAttribute('data-catalog-key');
+             const item = this.state.catalogItems.find(i => i.id === key);
+             if (item) {
+               this.loadThumbnailSrc(item, img);
+             }
+             imgObserver.unobserve(img);
+           }
+         });
+       }, { rootMargin: '100px' });
+       
+       document.querySelectorAll('img[data-catalog-key]').forEach(img => imgObserver.observe(img));
+       this.observers.push(imgObserver);
+
+       // 2. Observer para Infinite Scroll (Sentinela)
+       const sentinel = document.getElementById('catalog-sentinel');
+       if (sentinel) {
+         const scrollObserver = new IntersectionObserver((entries) => {
+           if (entries[0].isIntersecting) {
+             // Simular pequeno delay para suavizar a entrada de novos itens se necessário
+             // mas aqui incrementamos e renderizamos imediatamente.
+             this.state.catalogPage++;
+             this.renderActiveTab();
+           }
+         }, { threshold: 0.1 });
+         
+         scrollObserver.observe(sentinel);
+         this.observers.push(scrollObserver);
+       }
     }
 
     // EVENTS DE LISTA.TXT
