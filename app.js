@@ -280,12 +280,14 @@ class ThumbSyncApp {
       driveFiles: [],
       listFileId: '',
       thumbsFolderId: '',
+      tagsFileId: '',
       catalogItems: [],
       driveProviders: [],
       
       // UI Helpers
       isLoading: false,
       logs: [],
+      isSavingTag: false,
       filterProvider: 'todos',
       filterStatus: 'todos',
       filterTag: 'todos',
@@ -303,6 +305,7 @@ class ThumbSyncApp {
       clientId: '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
+      tagsFileName: 'tags.json',
     };
 
     this.imageCache = new Map(); // fileId -> objectURL
@@ -325,12 +328,14 @@ class ThumbSyncApp {
     const savedClientId = localStorage.getItem('thumbsync_client_id') || defaultClientId;
     const savedFolderName = localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
     const savedListFileName = localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
+    const savedTagsFileName = localStorage.getItem('thumbsync_tags_file_name') || 'tags.json';
     const cachedList = localStorage.getItem('thumbsync_cached_list_content') || DEFAULT_LIST_CONTENT;
 
     this.config = {
       clientId: savedClientId,
       folderName: savedFolderName,
       listFileName: savedListFileName,
+      tagsFileName: savedTagsFileName,
     };
 
     this.state.listContent = cachedList;
@@ -358,6 +363,7 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_client_id', this.config.clientId);
     localStorage.setItem('thumbsync_folder_name', this.config.folderName);
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
+    localStorage.setItem('thumbsync_tags_file_name', this.config.tagsFileName);
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
     localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
     localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
@@ -519,6 +525,19 @@ class ThumbSyncApp {
       this.state.driveFiles = allFiles;
       this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
 
+      // Sincronizar Tags Personalizadas (tags.json)
+      const tagsFile = allFiles.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      if (tagsFile) {
+        this.addLog(`Baixando metadados de tags (${this.config.tagsFileName})...`);
+        this.state.tagsFileId = tagsFile.id;
+        try {
+          const tagsText = await driveClient.downloadTextFile(tagsFile.id);
+          this.state.customTags = JSON.parse(tagsText);
+        } catch (e) {
+          this.addLog("Aviso: Falha ao processar arquivo de tags. Usando cache local.");
+        }
+      }
+
       const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
@@ -585,6 +604,18 @@ class ThumbSyncApp {
         this.state.listFileId = newFileId;
         this.state.listContent = DEFAULT_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
+      }
+
+      // Sincronizar apenas tags também
+      const tagsFile = files.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      if (tagsFile) {
+        this.state.tagsFileId = tagsFile.id;
+        try {
+          const tagsText = await driveClient.downloadTextFile(tagsFile.id);
+          this.state.customTags = JSON.parse(tagsText);
+        } catch (e) {
+          console.error("Erro ao baixar tags isoladamente", e);
+        }
       }
 
       this.saveStateToStorage();
@@ -703,18 +734,42 @@ class ThumbSyncApp {
     return isLive ? "ao vivo" : "slot";
   }
 
-  updateGameTag(itemId, newTag) {
+  async updateGameTag(itemId, newTag) {
     if (!this.state.customTags) {
       this.state.customTags = {};
     }
+
+    const oldTag = this.state.customTags[itemId];
+    if (oldTag === newTag) return;
+
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
     
+    this.state.isSavingTag = true;
+    this.renderActiveTab();
+    
     const item = this.state.catalogItems.find(i => i.id === itemId);
     if (item) {
-      this.addLog(`Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`);
-      this.renderActiveTab();
       this.renderPreviewModal(item);
+      
+      if (driveClient.isAuthenticated()) {
+        try {
+          this.addLog(`Sincronizando nova tag de '${item.displayName}' com o Drive...`);
+          const content = JSON.stringify(this.state.customTags, null, 2);
+          const fileId = await driveClient.saveTextFile(this.config.tagsFileName, content, this.state.thumbsFolderId, this.state.tagsFileId);
+          this.state.tagsFileId = fileId;
+          this.addLog(`Tag salva globalmente.`);
+        } catch (err) {
+          this.addLog(`Erro ao salvar tag no Drive: ${err.message}`);
+          alert("A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.");
+        } finally {
+          this.state.isSavingTag = false;
+          this.renderActiveTab();
+          this.renderPreviewModal(item);
+        }
+      } else {
+        this.state.isSavingTag = false;
+      }
     }
   }
 
@@ -1961,6 +2016,12 @@ class ThumbSyncApp {
         <div class="space-y-1.5 select-none">
           <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
           <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+            ${this.state.isSavingTag ? `
+              <div class="flex-1 py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
+                <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
+                SALVANDO...
+              </div>
+            ` : `
             <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
               <span class="w-1.5 h-1.5 rounded-full bg-[#ff453a] ${currentTag === 'ao vivo' ? 'animate-pulse' : ''}"></span>
               Ao Vivo
@@ -1969,6 +2030,7 @@ class ThumbSyncApp {
               <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff]"></span>
               Slot
             </button>
+            `}
           </div>
         </div>
 
