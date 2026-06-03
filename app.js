@@ -24,7 +24,7 @@ export class DriveApiClient {
 
   async fetchWithAuth(url, options = {}) {
     if (!this.accessToken) {
-      throw new Error("Usuário não autenticado no Google Drive.");
+      throw new Error('Usuário não autenticado no Google Drive.');
     }
 
     const headers = new Headers(options.headers || {});
@@ -36,7 +36,7 @@ export class DriveApiClient {
       localStorage.removeItem('gdrive_access_token');
       localStorage.removeItem('gdrive_token_expires_at');
       window.dispatchEvent(new Event('gdrive_unauthorized'));
-      throw new Error("Sessão do Google Drive expirada. Faça login novamente.");
+      throw new Error('Sessão do Google Drive expirada. Faça login novamente.');
     }
     return res;
   }
@@ -47,13 +47,13 @@ export class DriveApiClient {
   async findOrCreateFolder(folderName) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar pasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -65,8 +65,8 @@ export class DriveApiClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         name: folderName,
-        mimeType: 'application/vnd.google-apps.folder'
-      })
+        mimeType: 'application/vnd.google-apps.folder',
+      }),
     });
 
     if (!createRes.ok) {
@@ -82,13 +82,13 @@ export class DriveApiClient {
   async findOrCreateSubfolder(folderName, parentFolderId) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar subpasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -101,12 +101,14 @@ export class DriveApiClient {
       body: JSON.stringify({
         name: folderName,
         mimeType: 'application/vnd.google-apps.folder',
-        parents: [parentFolderId]
-      })
+        parents: [parentFolderId],
+      }),
     });
 
     if (!createRes.ok) {
-      throw new Error(`Erro ao criar subpasta no Drive: ${createRes.statusText}`);
+      throw new Error(
+        `Erro ao criar subpasta no Drive: ${createRes.statusText}`,
+      );
     }
     const folder = await createRes.json();
     return folder.id;
@@ -118,7 +120,7 @@ export class DriveApiClient {
   async listFilesInFolder(folderId) {
     const q = `'${folderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink)&pageSize=1000`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao listar arquivos do Drive: ${res.statusText}`);
@@ -146,7 +148,9 @@ export class DriveApiClient {
     const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
-      throw new Error(`Erro ao carregar miniatura do Google Drive: ${res.statusText}`);
+      throw new Error(
+        `Erro ao carregar miniatura do Google Drive: ${res.statusText}`,
+      );
     }
     return await res.blob();
   }
@@ -160,15 +164,19 @@ export class DriveApiClient {
       const res = await this.fetchWithAuth(updateUrl, {
         method: 'PATCH',
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        body: content
+        body: content,
       });
       if (!res.ok) {
-        throw new Error(`Erro ao atualizar arquivo no Drive: ${res.statusText}`);
+        throw new Error(
+          `Erro ao atualizar arquivo no Drive: ${res.statusText}`,
+        );
       }
       return fileId;
     } else {
       if (!parentFolderId) {
-        throw new Error("parentFolderId é obrigatório para criar novos arquivos.");
+        throw new Error(
+          'parentFolderId é obrigatório para criar novos arquivos.',
+        );
       }
 
       // 1. Criar metadados
@@ -179,12 +187,14 @@ export class DriveApiClient {
         body: JSON.stringify({
           name: fileName,
           parents: [parentFolderId],
-          mimeType: 'text/plain'
-        })
+          mimeType: 'text/plain',
+        }),
       });
 
       if (!metaRes.ok) {
-        throw new Error(`Erro ao registrar metadados do arquivo: ${metaRes.statusText}`);
+        throw new Error(
+          `Erro ao registrar metadados do arquivo: ${metaRes.statusText}`,
+        );
       }
       const newFile = await metaRes.json();
       return await this.saveTextFile(fileName, content, undefined, newFile.id);
@@ -203,12 +213,14 @@ export class DriveApiClient {
       body: JSON.stringify({
         name: fileName,
         parents: [parentFolderId],
-        mimeType: 'image/webp'
-      })
+        mimeType: 'image/webp',
+      }),
     });
 
     if (!metaRes.ok) {
-      throw new Error(`Erro ao registrar metadados da imagem: ${metaRes.statusText}`);
+      throw new Error(
+        `Erro ao registrar metadados da imagem: ${metaRes.statusText}`,
+      );
     }
     const newFile = await metaRes.json();
     const newFileId = newFile.id;
@@ -218,23 +230,24 @@ export class DriveApiClient {
     const uploadRes = await this.fetchWithAuth(uploadUrl, {
       method: 'PATCH',
       headers: { 'Content-Type': 'image/webp' },
-      body: blob
+      body: blob,
     });
 
     if (!uploadRes.ok) {
-      throw new Error(`Erro ao enviar bytes da imagem: ${uploadRes.statusText}`);
+      throw new Error(
+        `Erro ao enviar bytes da imagem: ${uploadRes.statusText}`,
+      );
     }
 
     return {
       id: newFileId,
       name: fileName,
-      mimeType: 'image/webp'
+      mimeType: 'image/webp',
     };
   }
 }
 
 export const driveClient = new DriveApiClient();
-
 
 // --- MOCK DATABASE AND CONFIGURATION ASSETS ---
 export const INITIAL_MOCK_LIST_CONTENT = `Provedor: Pragmatic Play
@@ -256,45 +269,124 @@ Spaceman
 Aviator`;
 
 export const MOCK_DRIVE_FILES = [
-  { id: 'mock-gates-of-olympus', name: 'Gates of Olympus.webp', mimeType: 'image/webp', size: '124090', modifiedTime: '2026-05-31T14:20:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sweet-bonanza', name: 'Sweet Bonanza.webp', mimeType: 'image/webp', size: '135921', modifiedTime: '2026-05-30T10:15:20Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sugar-rush', name: 'Sugar Rush.webp', mimeType: 'image/webp', size: '95420', modifiedTime: '2026-05-28T16:05:10Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-starlight-princess', name: 'Starlight Princess.webp', mimeType: 'image/webp', size: '112500', modifiedTime: '2026-05-29T11:45:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-fortune-tiger', name: 'Fortune Tiger.webp', mimeType: 'image/webp', size: '89124', modifiedTime: '2026-05-27T08:30:19Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-ox', name: 'Fortune Ox.webp', mimeType: 'image/webp', size: '79421', modifiedTime: '2026-05-26T09:12:00Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-rabbit', name: 'Fortune Rabbit.webp', mimeType: 'image/webp', size: '82400', modifiedTime: '2026-05-25T13:40:40Z', providerName: 'PG Soft' },
-  { id: 'mock-spaceman', name: 'Spaceman.webp', mimeType: 'image/webp', size: '105120', modifiedTime: '2026-05-24T15:20:11Z', providerName: 'Sem provedor' },
-  { id: 'mock-aviator', name: 'Aviator.webp', mimeType: 'image/webp', size: '72590', modifiedTime: '2026-05-23T12:05:00Z', providerName: 'Sem provedor' }
+  {
+    id: 'mock-gates-of-olympus',
+    name: 'Gates of Olympus.webp',
+    mimeType: 'image/webp',
+    size: '124090',
+    modifiedTime: '2026-05-31T14:20:00Z',
+    providerName: 'Pragmatic Play',
+  },
+  {
+    id: 'mock-sweet-bonanza',
+    name: 'Sweet Bonanza.webp',
+    mimeType: 'image/webp',
+    size: '135921',
+    modifiedTime: '2026-05-30T10:15:20Z',
+    providerName: 'Pragmatic Play',
+  },
+  {
+    id: 'mock-sugar-rush',
+    name: 'Sugar Rush.webp',
+    mimeType: 'image/webp',
+    size: '95420',
+    modifiedTime: '2026-05-28T16:05:10Z',
+    providerName: 'Pragmatic Play',
+  },
+  {
+    id: 'mock-starlight-princess',
+    name: 'Starlight Princess.webp',
+    mimeType: 'image/webp',
+    size: '112500',
+    modifiedTime: '2026-05-29T11:45:00Z',
+    providerName: 'Pragmatic Play',
+  },
+  {
+    id: 'mock-fortune-tiger',
+    name: 'Fortune Tiger.webp',
+    mimeType: 'image/webp',
+    size: '89124',
+    modifiedTime: '2026-05-27T08:30:19Z',
+    providerName: 'PG Soft',
+  },
+  {
+    id: 'mock-fortune-ox',
+    name: 'Fortune Ox.webp',
+    mimeType: 'image/webp',
+    size: '79421',
+    modifiedTime: '2026-05-26T09:12:00Z',
+    providerName: 'PG Soft',
+  },
+  {
+    id: 'mock-fortune-rabbit',
+    name: 'Fortune Rabbit.webp',
+    mimeType: 'image/webp',
+    size: '82400',
+    modifiedTime: '2026-05-25T13:40:40Z',
+    providerName: 'PG Soft',
+  },
+  {
+    id: 'mock-spaceman',
+    name: 'Spaceman.webp',
+    mimeType: 'image/webp',
+    size: '105120',
+    modifiedTime: '2026-05-24T15:20:11Z',
+    providerName: 'Sem provedor',
+  },
+  {
+    id: 'mock-aviator',
+    name: 'Aviator.webp',
+    mimeType: 'image/webp',
+    size: '72590',
+    modifiedTime: '2026-05-23T12:05:00Z',
+    providerName: 'Sem provedor',
+  },
 ];
 
 export const PROVIDER_GRADIENTS = {
   'pragmatic play': 'from-[#0a84ff]/30 via-transparent to-black/80',
   'pg soft': 'from-amber-500/30 via-transparent to-black/80',
   'sem provedor': 'from-purple-500/30 via-transparent to-black/80',
-  'default': 'from-zinc-700/30 via-transparent to-black/80'
+  default: 'from-zinc-700/30 via-transparent to-black/80',
 };
 
 export const PROVIDER_BORDER_GLOWS = {
   'pragmatic play': 'rgba(10, 132, 255, 0.35)',
   'pg soft': 'rgba(245, 158, 11, 0.35)',
   'sem provedor': 'rgba(168, 85, 247, 0.35)',
-  'default': 'rgba(255, 255, 255, 0.15)'
+  default: 'rgba(255, 255, 255, 0.15)',
 };
 
 export const PROVIDER_BADGE_STYLE = {
   'pragmatic play': 'bg-[#0a84ff]/10 text-[#0a84ff] border-[#0a84ff]/20',
   'pg soft': 'bg-amber-500/10 text-amber-500 border-amber-500/20',
   'sem provedor': 'bg-purple-500/10 text-purple-400 border-purple-500/20',
-  'default': 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20'
+  default: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
 };
 
 export const LIVE_KEYWORDS = [
-  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac", 
-  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze", 
-  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing", 
-  "marble race", "war", "super color game"
+  'baccarat',
+  'bac bo',
+  'blackjack',
+  'roulette',
+  'roleta',
+  'sic bac',
+  'trunfo',
+  'time',
+  'dream catcher',
+  'poker',
+  'patti',
+  'mega fire blaze',
+  'andar bahar',
+  'bet on',
+  'live',
+  'heads up hold',
+  'wheel',
+  'ice fishing',
+  'marble race',
+  'war',
+  'super color game',
 ];
-
 
 // --- CORE APPLICATION CONTROLLER CLASS ---
 class ThumbSyncApp {
@@ -313,7 +405,7 @@ class ThumbSyncApp {
       thumbsFolderId: '',
       catalogItems: [],
       driveProviders: [],
-      
+
       // UI Helpers
       isLoading: false,
       logs: [],
@@ -322,31 +414,50 @@ class ThumbSyncApp {
       filterTag: 'todos',
       searchQuery: '',
       customTags: {},
-      
+
       // Modal state
       selectedCatalogItem: null,
       isAddingGame: false,
       addingGameToProvider: '',
+      canInstall: false,
     };
 
     this.config = {
-      clientId: '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
+      clientId:
+        '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
       tagsFileName: 'tags.json',
-      useMock: true
+      useMock: true,
     };
 
     this.imageCache = new Map(); // fileId -> objectURL
 
-    this.addLog("Inicializando módulo ThumbSync...");
+    this.addLog('Inicializando módulo ThumbSync...');
     this.loadStateFromStorage();
     this.initGISAutomatic();
     this.setupLiveSync();
-    
+
+    // Registro do Service Worker para suporte PWA
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .catch(err => console.warn('Falha ao registrar Service Worker:', err));
+      });
+    }
+
+    // Lógica de captura do prompt de instalação PWA
+    this.deferredPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      this.deferredPrompt = e;
+      this.state.canInstall = true;
+      this.render();
+    });
+
     // Fallback listeners para expiração de token
     window.addEventListener('gdrive_unauthorized', () => {
-      this.addLog("Sessão Google desautenticada ou expirada.");
+      this.addLog('Sessão Google desautenticada ou expirada.');
       this.state.gdriveConnected = false;
       this.state.useMock = true;
       this.syncMockWithLocalFiles();
@@ -354,42 +465,53 @@ class ThumbSyncApp {
   }
 
   loadStateFromStorage() {
-    const defaultClientId = '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
-    const savedClientId = localStorage.getItem('thumbsync_client_id') || defaultClientId;
-    const savedFolderName = localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
-    const savedListFileName = localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
+    const defaultClientId =
+      '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
+    const savedClientId =
+      localStorage.getItem('thumbsync_client_id') || defaultClientId;
+    const savedFolderName =
+      localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
+    const savedListFileName =
+      localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
     const savedUseMock = localStorage.getItem('thumbsync_use_mock') !== 'false';
-    const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
+    const cachedList =
+      localStorage.getItem('thumbsync_cached_list_content') ||
+      INITIAL_MOCK_LIST_CONTENT;
 
     this.config = {
       clientId: savedClientId,
       folderName: savedFolderName,
       listFileName: savedListFileName,
-      useMock: savedUseMock
+      useMock: savedUseMock,
     };
 
     this.state.useMock = savedUseMock;
     this.state.listContent = cachedList;
-    this.state.lastListFileModifiedTime = localStorage.getItem('thumbsync_last_list_modified_time') || '';
+    this.state.lastListFileModifiedTime =
+      localStorage.getItem('thumbsync_last_list_modified_time') || '';
 
     const savedToken = localStorage.getItem('gdrive_access_token');
-    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+    const tokenExpiresAt = Number(
+      localStorage.getItem('gdrive_token_expires_at') || '0',
+    );
 
     if (savedToken) {
       driveClient.setAccessToken(savedToken);
       this.state.gdriveConnected = true;
       this.state.useMock = false;
-      this.addLog("Sessão herdada do Google Drive carregada com sucesso.");
+      this.addLog('Sessão herdada do Google Drive carregada com sucesso.');
     } else {
-      this.addLog("Iniciando no modo de demonstração off-line.");
+      this.addLog('Iniciando no modo de demonstração off-line.');
     }
 
     try {
-      this.state.customTags = JSON.parse(localStorage.getItem('thumbsync_custom_tags')) || {};
+      this.state.customTags =
+        JSON.parse(localStorage.getItem('thumbsync_custom_tags')) || {};
     } catch (e) {
       this.state.customTags = {};
     }
-    this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
+    this.state.filterTag =
+      localStorage.getItem('thumbsync_filter_tag') || 'todos';
 
     if (this.state.useMock || !this.state.gdriveConnected) {
       this.syncMockWithLocalFiles();
@@ -402,11 +524,26 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_client_id', this.config.clientId);
     localStorage.setItem('thumbsync_folder_name', this.config.folderName);
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
-    localStorage.setItem('thumbsync_use_mock', this.config.useMock ? 'true' : 'false');
-    localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
-    localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
-    localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
-    localStorage.setItem('thumbsync_last_list_modified_time', this.state.lastListFileModifiedTime || '');
+    localStorage.setItem(
+      'thumbsync_use_mock',
+      this.config.useMock ? 'true' : 'false',
+    );
+    localStorage.setItem(
+      'thumbsync_cached_list_content',
+      this.state.listContent,
+    );
+    localStorage.setItem(
+      'thumbsync_custom_tags',
+      JSON.stringify(this.state.customTags || {}),
+    );
+    localStorage.setItem(
+      'thumbsync_filter_tag',
+      this.state.filterTag || 'todos',
+    );
+    localStorage.setItem(
+      'thumbsync_last_list_modified_time',
+      this.state.lastListFileModifiedTime || '',
+    );
   }
 
   addLog(message) {
@@ -420,7 +557,7 @@ class ThumbSyncApp {
     const checkGIS = setInterval(() => {
       if (typeof window.google !== 'undefined') {
         clearInterval(checkGIS);
-        this.addLog("Google API SDK carregado com sucesso.");
+        this.addLog('Google API SDK carregado com sucesso.');
         if (this.config.clientId && this.state.gdriveConnected) {
           this.reconnectSilent();
         }
@@ -431,8 +568,12 @@ class ThumbSyncApp {
   }
 
   async attemptSilentTokenRefresh() {
-    if (typeof window.google === 'undefined' || !window.google.accounts || !window.google.accounts.oauth2) {
-      this.addLog("Google GSI SDK não carregado para renovação silenciosa.");
+    if (
+      typeof window.google === 'undefined' ||
+      !window.google.accounts ||
+      !window.google.accounts.oauth2
+    ) {
+      this.addLog('Google GSI SDK não carregado para renovação silenciosa.');
       return false;
     }
     return new Promise((resolve) => {
@@ -447,17 +588,20 @@ class ThumbSyncApp {
               resolve(false);
               return;
             }
-            this.addLog("Token do Google Drive renovado silenciosamente.");
+            this.addLog('Token do Google Drive renovado silenciosamente.');
             driveClient.setAccessToken(response.access_token);
             this.state.gdriveConnected = true;
             this.state.useMock = false;
             this.config.useMock = false;
 
             localStorage.setItem('gdrive_access_token', response.access_token);
-            localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
+            localStorage.setItem(
+              'gdrive_token_expires_at',
+              (Date.now() + response.expires_in * 1000).toString(),
+            );
             this.saveStateToStorage();
             resolve(true);
-          }
+          },
         });
         client.requestAccessToken({ prompt: 'none' });
       } catch (e) {
@@ -469,34 +613,42 @@ class ThumbSyncApp {
 
   async ensureActiveSession() {
     const savedToken = localStorage.getItem('gdrive_access_token');
-    
+
     if (!savedToken) {
-      alert("⚠️ Aviso: Sua conta Google não está conectada!\n\nPor favor, conecte a sua conta do Google Drive no botão lateral 'Conectar Google Drive' ou na aba 'Configurações' para poder usar a sincronização em nuvem.");
+      alert(
+        "⚠️ Aviso: Sua conta Google não está conectada!\n\nPor favor, conecte a sua conta do Google Drive no botão lateral 'Conectar Google Drive' ou na aba 'Configurações' para poder usar a sincronização em nuvem.",
+      );
       this.setActiveTab('settings');
       return false;
     }
 
-    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+    const tokenExpiresAt = Number(
+      localStorage.getItem('gdrive_token_expires_at') || '0',
+    );
     if (tokenExpiresAt <= Date.now()) {
-      this.addLog("Token vencido detectado. Tentando renovação silenciosa no Google...");
+      this.addLog(
+        'Token vencido detectado. Tentando renovação silenciosa no Google...',
+      );
       this.state.isLoading = true;
       this.render();
-      
+
       const refreshed = await this.attemptSilentTokenRefresh();
       this.state.isLoading = false;
       this.render();
-      
+
       if (!refreshed) {
-        const confirmLogin = confirm("⚠️ Sua sessão de segurança com o Google Drive de 1 hora expirou.\n\nDeseja realizar a reconexão rápida agora para sincronizar e enviar seus arquivos?");
+        const confirmLogin = confirm(
+          '⚠️ Sua sessão de segurança com o Google Drive de 1 hora expirou.\n\nDeseja realizar a reconexão rápida agora para sincronizar e enviar seus arquivos?',
+        );
         if (confirmLogin) {
           this.handleGoogleLogin();
         } else {
-          this.addLog("Operação cancelada por falta de credenciais renovadas.");
+          this.addLog('Operação cancelada por falta de credenciais renovadas.');
         }
         return false;
       }
     }
-    
+
     // Garante que o token utilizável esteja no driveClient e no estado geral
     const freshToken = localStorage.getItem('gdrive_access_token');
     if (freshToken) {
@@ -511,16 +663,22 @@ class ThumbSyncApp {
   async reconnectSilent() {
     try {
       const savedToken = localStorage.getItem('gdrive_access_token');
-      const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
-      
+      const tokenExpiresAt = Number(
+        localStorage.getItem('gdrive_token_expires_at') || '0',
+      );
+
       if (savedToken) {
         if (tokenExpiresAt <= Date.now()) {
-          this.addLog("Reconexão pós-boot: Token expirado. Buscando renovação silenciosa...");
+          this.addLog(
+            'Reconexão pós-boot: Token expirado. Buscando renovação silenciosa...',
+          );
           const refreshed = await this.attemptSilentTokenRefresh();
           if (refreshed) {
             await this.syncWithGoogleDrive();
           } else {
-            this.addLog("Reconexão silenciosa no boot não pôde ser completada.");
+            this.addLog(
+              'Reconexão silenciosa no boot não pôde ser completada.',
+            );
           }
         } else {
           driveClient.setAccessToken(savedToken);
@@ -537,15 +695,17 @@ class ThumbSyncApp {
    */
   handleGoogleLogin() {
     if (!this.config.clientId) {
-      this.addLog("Erro: Client ID do Google Cloud não configurado!");
+      this.addLog('Erro: Client ID do Google Cloud não configurado!');
       this.setActiveTab('settings');
       this.render();
-      alert("Por favor, configure o seu Client ID do Google Cloud antes de conectar.");
+      alert(
+        'Por favor, configure o seu Client ID do Google Cloud antes de conectar.',
+      );
       return;
     }
 
     this.state.isLoading = true;
-    this.addLog("Iniciando popup do Google Account...");
+    this.addLog('Iniciando popup do Google Account...');
     this.render();
 
     try {
@@ -560,14 +720,17 @@ class ThumbSyncApp {
             return;
           }
 
-          this.addLog("Acesso concedido. Sincronizando dados...");
+          this.addLog('Acesso concedido. Sincronizando dados...');
           driveClient.setAccessToken(response.access_token);
           this.state.gdriveConnected = true;
           this.state.useMock = false;
           this.config.useMock = false;
 
           localStorage.setItem('gdrive_access_token', response.access_token);
-          localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
+          localStorage.setItem(
+            'gdrive_token_expires_at',
+            (Date.now() + response.expires_in * 1000).toString(),
+          );
           this.saveStateToStorage();
 
           await this.syncWithGoogleDrive();
@@ -584,7 +747,7 @@ class ThumbSyncApp {
   }
 
   handleGoogleLogout() {
-    this.addLog("Sessão Google Drive desconectada.");
+    this.addLog('Sessão Google Drive desconectada.');
     driveClient.setAccessToken('');
     this.state.gdriveConnected = false;
     this.state.useMock = true;
@@ -593,7 +756,7 @@ class ThumbSyncApp {
     localStorage.removeItem('gdrive_token_expires_at');
     this.saveStateToStorage();
 
-    this.imageCache.forEach(url => URL.revokeObjectURL(url));
+    this.imageCache.forEach((url) => URL.revokeObjectURL(url));
     this.imageCache.clear();
 
     this.syncMockWithLocalFiles();
@@ -612,17 +775,23 @@ class ThumbSyncApp {
 
     try {
       this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
-      const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
+      const folderId = await driveClient.findOrCreateFolder(
+        this.config.folderName,
+      );
       this.state.thumbsFolderId = folderId;
-      this.addLog(`Pasta '${this.config.folderName}' ativa (ID: ${folderId.substring(0, 8)}...)`);
+      this.addLog(
+        `Pasta '${this.config.folderName}' ativa (ID: ${folderId.substring(0, 8)}...)`,
+      );
 
-      this.addLog("Escaneando arquivos raiz e pastas de provedores dentro da pasta...");
+      this.addLog(
+        'Escaneando arquivos raiz e pastas de provedores dentro da pasta...',
+      );
       const files = await driveClient.listFilesInFolder(folderId);
 
       const directFiles = [];
       const subfolders = [];
 
-      files.forEach(f => {
+      files.forEach((f) => {
         if (f.mimeType === 'application/vnd.google-apps.folder') {
           subfolders.push(f);
         } else {
@@ -630,9 +799,11 @@ class ThumbSyncApp {
         }
       });
 
-      this.state.driveProviders = subfolders.map(f => f.name);
+      this.state.driveProviders = subfolders.map((f) => f.name);
 
-      this.addLog(`Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`);
+      this.addLog(
+        `Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`,
+      );
 
       const allFiles = [...directFiles];
 
@@ -641,58 +812,90 @@ class ThumbSyncApp {
         this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
         try {
           const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-          subFiles.forEach(sf => {
+          subFiles.forEach((sf) => {
             sf.providerName = subfolder.name; // Associa a imagem ao provedor (nome da pasta)
             allFiles.push(sf);
           });
-          this.addLog(`Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`);
+          this.addLog(
+            `Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`,
+          );
         } catch (subErr) {
-          this.addLog(`Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
+          this.addLog(
+            `Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`,
+          );
         }
       }
 
       this.state.driveFiles = allFiles;
-      this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
+      this.addLog(
+        `Total: ${allFiles.length} arquivos indexados do Google Drive.`,
+      );
 
-      const tagsFile = allFiles.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      const tagsFile = allFiles.find(
+        (f) => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase(),
+      );
       if (tagsFile) {
-        this.addLog(`Sincronizando banco de tags em '${this.config.tagsFileName}'...`);
+        this.addLog(
+          `Sincronizando banco de tags em '${this.config.tagsFileName}'...`,
+        );
         this.state.tagsFileId = tagsFile.id;
         try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${tagsFile.id}?fields=modifiedTime`);
+          const resMeta = await driveClient.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${tagsFile.id}?fields=modifiedTime`,
+          );
           if (resMeta.ok) {
-            this.state.lastTagsFileModifiedTime = (await resMeta.json()).modifiedTime;
+            this.state.lastTagsFileModifiedTime = (
+              await resMeta.json()
+            ).modifiedTime;
           }
         } catch (e) {}
         try {
           const tagsText = await driveClient.downloadTextFile(tagsFile.id);
           const parsed = JSON.parse(tagsText);
           if (parsed && typeof parsed === 'object') {
-             this.state.customTags = parsed;
+            this.state.customTags = parsed;
           }
         } catch (err) {
           this.addLog(`Aviso: Falha ao ler tags.json: ${err.message}`);
         }
       } else {
         this.addLog(`Criando banco de tags '${this.config.tagsFileName}'...`);
-        const newTagsId = await driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags || {}), folderId);
+        const newTagsId = await driveClient.saveTextFile(
+          this.config.tagsFileName,
+          JSON.stringify(this.state.customTags || {}),
+          folderId,
+        );
         this.state.tagsFileId = newTagsId;
       }
 
-      const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      const listFile = allFiles.find(
+        (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
+      );
       if (listFile) {
-        this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
+        this.addLog(
+          `Baixando catálogo contido no arquivo '${this.config.listFileName}'...`,
+        );
         this.state.listFileId = listFile.id;
         this.state.lastListFileModifiedTime = listFile.modifiedTime || '';
         const listText = await driveClient.downloadTextFile(listFile.id);
         this.state.listContent = listText;
-        this.addLog(`Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`);
+        this.addLog(
+          `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
+        );
       } else {
-        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
-        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
+        this.addLog(
+          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`,
+        );
+        const newFileId = await driveClient.saveTextFile(
+          this.config.listFileName,
+          INITIAL_MOCK_LIST_CONTENT,
+          folderId,
+        );
         this.state.listFileId = newFileId;
         try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`);
+          const resMeta = await driveClient.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`,
+          );
           if (resMeta.ok) {
             const dataMeta = await resMeta.json();
             this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
@@ -704,7 +907,7 @@ class ThumbSyncApp {
 
       this.saveStateToStorage();
       this.syncLocalCatalog();
-      this.addLog("Sincronização com o Google Drive concluída.");
+      this.addLog('Sincronização com o Google Drive concluída.');
     } catch (e) {
       this.addLog(`Erro ao sincronizar: ${e.message}`);
       this.state.useMock = true;
@@ -720,7 +923,10 @@ class ThumbSyncApp {
     this.render();
     try {
       // 1. Fetch fresh list from mock_data ONLY if we don't have user edits
-      if (!this.state.listContent || this.state.listContent.includes("Zeus vs Hades")) {
+      if (
+        !this.state.listContent ||
+        this.state.listContent.includes('Zeus vs Hades')
+      ) {
         const res = await fetch('./mock_data/lista.txt');
         if (res.ok) {
           this.state.listContent = await res.text();
@@ -730,17 +936,20 @@ class ThumbSyncApp {
 
       // 2. Determine games from the list
       const lines = this.state.listContent.split(/\r?\n/);
-      let currentProvider = "Sem provedor";
+      let currentProvider = 'Sem provedor';
       const listGames = [];
       const driveFiles = [];
-      
+
       for (const line of lines) {
-        const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+        const clean = line
+          .replace(/^\uFEFF/, '')
+          .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+          .trim();
         if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
         const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
         if (providerMatch) {
-           currentProvider = providerMatch[1].trim();
-           continue;
+          currentProvider = providerMatch[1].trim();
+          continue;
         }
         if (/^provedor\s*:/i.test(clean)) continue;
         listGames.push({ displayName: clean, providerName: currentProvider });
@@ -748,7 +957,8 @@ class ThumbSyncApp {
 
       // 3. For each game, sequentially do a HEAD request to see if it is in the provider's folder
       for (const game of listGames) {
-        const providerPath = game.providerName === "Sem provedor" ? "" : game.providerName + "/";
+        const providerPath =
+          game.providerName === 'Sem provedor' ? '' : game.providerName + '/';
         const url = `./mock_data/source/${providerPath}${game.displayName}.webp`;
         try {
           const req = await fetch(url, { method: 'HEAD' });
@@ -759,7 +969,7 @@ class ThumbSyncApp {
               mimeType: 'image/webp',
               size: '100000',
               modifiedTime: new Date().toISOString(),
-              providerName: game.providerName
+              providerName: game.providerName,
             });
           }
         } catch (e) {}
@@ -767,7 +977,7 @@ class ThumbSyncApp {
 
       // 4. Overwrite system's mock tracking
       this.state.driveFiles = driveFiles;
-      
+
       // We do not save mock file array to storage, we just trigger syncLocalCatalog
       this.syncLocalCatalog();
     } catch (e) {
@@ -784,31 +994,34 @@ class ThumbSyncApp {
   syncLocalCatalog() {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
-    let currentProvider = "Sem provedor";
+
+    let currentProvider = 'Sem provedor';
     for (const line of lines) {
-      const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      const clean = line
+        .replace(/^\uFEFF/, '')
+        .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+        .trim();
       if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider
+        providerName: currentProvider,
       });
     }
 
     const driveFiles = this.state.driveFiles;
     const itemsMap = new Map();
 
-    listGames.forEach(game => {
+    listGames.forEach((game) => {
       const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
       itemsMap.set(key, {
         id: key,
@@ -816,17 +1029,17 @@ class ThumbSyncApp {
         normalizedName: game.normalizedName,
         providerName: game.providerName,
         isListed: true,
-        hasWebp: false
+        hasWebp: false,
       });
     });
 
-    driveFiles.forEach(file => {
+    driveFiles.forEach((file) => {
       if (file.mimeType !== 'image/webp') return;
 
       const baseName = file.name.replace(/\.webp$/i, '');
       const normName = this.normalizeName(baseName);
-      
-      let fileProvider = "Sem provedor";
+
+      let fileProvider = 'Sem provedor';
       if (file.providerName) {
         fileProvider = file.providerName;
       }
@@ -848,7 +1061,7 @@ class ThumbSyncApp {
           hasWebp: true,
           driveFileId: file.id,
           fileSize: file.size,
-          modifiedTime: file.modifiedTime
+          modifiedTime: file.modifiedTime,
         });
       }
     });
@@ -873,8 +1086,8 @@ class ThumbSyncApp {
       return this.state.customTags[item.id];
     }
     const norm = this.normalizeName(item.displayName);
-    const isLive = LIVE_KEYWORDS.some(kw => norm.includes(kw));
-    return isLive ? "ao vivo" : "slot";
+    const isLive = LIVE_KEYWORDS.some((kw) => norm.includes(kw));
+    return isLive ? 'ao vivo' : 'slot';
   }
 
   updateGameTag(itemId, newTag) {
@@ -883,22 +1096,38 @@ class ThumbSyncApp {
     }
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
-    
-    if (!this.state.useMock && driveClient.isAuthenticated() && this.state.tagsFileId) {
-      driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags), undefined, this.state.tagsFileId).then(async () => {
-         try {
-            const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`);
+
+    if (
+      !this.state.useMock &&
+      driveClient.isAuthenticated() &&
+      this.state.tagsFileId
+    ) {
+      driveClient
+        .saveTextFile(
+          this.config.tagsFileName,
+          JSON.stringify(this.state.customTags),
+          undefined,
+          this.state.tagsFileId,
+        )
+        .then(async () => {
+          try {
+            const resMeta = await driveClient.fetchWithAuth(
+              `https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`,
+            );
             if (resMeta.ok) {
               const dataMeta = await resMeta.json();
               this.state.lastTagsFileModifiedTime = dataMeta.modifiedTime;
             }
-         } catch(e) {}
-      }).catch(console.error);
+          } catch (e) {}
+        })
+        .catch(console.error);
     }
 
-    const item = this.state.catalogItems.find(i => i.id === itemId);
+    const item = this.state.catalogItems.find((i) => i.id === itemId);
     if (item) {
-      this.addLog(`Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`);
+      this.addLog(
+        `Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`,
+      );
       this.renderActiveTab();
       this.renderPreviewModal(item);
     }
@@ -922,15 +1151,15 @@ class ThumbSyncApp {
    */
   async loadThumbnailSrc(item, imgEl) {
     if (this.state.useMock) {
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
+      let providerPath = '';
+      if (item.providerName && item.providerName !== 'Sem provedor') {
+        providerPath = item.providerName + '/';
       }
-      
+
       const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
       const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
       imgEl.src = localUrl;
-      
+
       let triedFallback = false;
       imgEl.onerror = () => {
         if (!triedFallback) {
@@ -939,7 +1168,9 @@ class ThumbSyncApp {
           return;
         }
         imgEl.onerror = null;
-        imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
+        imgEl.src =
+          'data:image/svg+xml;base64,' +
+          btoa(`
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
             <defs>
               <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
@@ -972,7 +1203,8 @@ class ThumbSyncApp {
       this.imageCache.set(item.driveFileId, url);
       imgEl.src = url;
     } catch (e) {
-      imgEl.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
+      imgEl.src =
+        'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
     }
   }
 
@@ -982,10 +1214,10 @@ class ThumbSyncApp {
   async handleDownloadFile(item) {
     if (this.state.useMock) {
       this.addLog(`Download simulado para: ${item.displayName}.webp`);
-      
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
+
+      let providerPath = '';
+      if (item.providerName && item.providerName !== 'Sem provedor') {
+        providerPath = item.providerName + '/';
       }
       const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
       const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
@@ -1025,14 +1257,18 @@ class ThumbSyncApp {
     }
 
     if (!item.driveFileId) {
-      alert("Esta miniatura não possui imagem (.webp) no Google Drive para download.");
+      alert(
+        'Esta miniatura não possui imagem (.webp) no Google Drive para download.',
+      );
       return;
     }
 
     const sessionOk = await this.ensureActiveSession();
     if (!sessionOk) return;
 
-    this.addLog(`Baixando miniatura do Google Drive: ${item.displayName}.webp...`);
+    this.addLog(
+      `Baixando miniatura do Google Drive: ${item.displayName}.webp...`,
+    );
     try {
       const blob = await driveClient.downloadBinaryFile(item.driveFileId);
       this.triggerBlobDownload(blob, `${item.displayName}.webp`);
@@ -1066,13 +1302,26 @@ class ThumbSyncApp {
       this.state.listContent = newContent;
       this.saveStateToStorage();
 
-      if (!this.state.useMock && driveClient.isAuthenticated() && this.state.listFileId) {
-        this.addLog(`Escrevendo alterações no arquivo lista.txt do Google Drive...`);
-        await driveClient.saveTextFile(this.config.listFileName, newContent, undefined, this.state.listFileId);
+      if (
+        !this.state.useMock &&
+        driveClient.isAuthenticated() &&
+        this.state.listFileId
+      ) {
+        this.addLog(
+          `Escrevendo alterações no arquivo lista.txt do Google Drive...`,
+        );
+        await driveClient.saveTextFile(
+          this.config.listFileName,
+          newContent,
+          undefined,
+          this.state.listFileId,
+        );
         this.addLog(`lista.txt atualizada e gravada com sucesso na sua conta.`);
-        
+
         try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`);
+          const resMeta = await driveClient.fetchWithAuth(
+            `https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`,
+          );
           if (resMeta.ok) {
             const dataMeta = await resMeta.json();
             this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
@@ -1086,7 +1335,9 @@ class ThumbSyncApp {
       }
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
-      alert("Falha ao salvar as alterações. Verifique sua conexão e tente novamente.");
+      alert(
+        'Falha ao salvar as alterações. Verifique sua conexão e tente novamente.',
+      );
     } finally {
       this.state.isLoading = false;
       this.render();
@@ -1097,9 +1348,13 @@ class ThumbSyncApp {
     if (this.liveSyncInterval) {
       clearInterval(this.liveSyncInterval);
     }
-    
+
     this.liveSyncInterval = setInterval(async () => {
-      if (!this.state.isLoading && !this.state.useMock && this.state.gdriveConnected) {
+      if (
+        !this.state.isLoading &&
+        !this.state.useMock &&
+        this.state.gdriveConnected
+      ) {
         try {
           let listUpdated = false;
           let tagsUpdated = false;
@@ -1109,8 +1364,13 @@ class ThumbSyncApp {
             const res = await driveClient.fetchWithAuth(url);
             if (res.ok) {
               const meta = await res.json();
-              if (this.state.lastListFileModifiedTime && meta.modifiedTime !== this.state.lastListFileModifiedTime) {
-                const updatedText = await driveClient.downloadTextFile(this.state.listFileId);
+              if (
+                this.state.lastListFileModifiedTime &&
+                meta.modifiedTime !== this.state.lastListFileModifiedTime
+              ) {
+                const updatedText = await driveClient.downloadTextFile(
+                  this.state.listFileId,
+                );
                 this.state.listContent = updatedText;
                 this.state.lastListFileModifiedTime = meta.modifiedTime;
                 listUpdated = true;
@@ -1124,8 +1384,13 @@ class ThumbSyncApp {
             const resTags = await driveClient.fetchWithAuth(urlTags);
             if (resTags.ok) {
               const metaTags = await resTags.json();
-              if (this.state.lastTagsFileModifiedTime && metaTags.modifiedTime !== this.state.lastTagsFileModifiedTime) {
-                const tagsText = await driveClient.downloadTextFile(this.state.tagsFileId);
+              if (
+                this.state.lastTagsFileModifiedTime &&
+                metaTags.modifiedTime !== this.state.lastTagsFileModifiedTime
+              ) {
+                const tagsText = await driveClient.downloadTextFile(
+                  this.state.tagsFileId,
+                );
                 try {
                   const parsed = JSON.parse(tagsText);
                   if (parsed && typeof parsed === 'object') {
@@ -1134,46 +1399,67 @@ class ThumbSyncApp {
                     tagsUpdated = true;
                     this.saveStateToStorage();
                   }
-                } catch(e) {}
+                } catch (e) {}
               }
             }
           }
 
           if (listUpdated || tagsUpdated) {
-            const liveIndicator = document.getElementById('live-indicator-wrapper');
+            const liveIndicator = document.getElementById(
+              'live-indicator-wrapper',
+            );
             if (liveIndicator) {
-              liveIndicator.classList.add('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+              liveIndicator.classList.add(
+                'bg-blue-600/10',
+                'border-blue-500/30',
+                'scale-[1.03]',
+              );
               setTimeout(() => {
-                liveIndicator.classList.remove('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
+                liveIndicator.classList.remove(
+                  'bg-blue-600/10',
+                  'border-blue-500/30',
+                  'scale-[1.03]',
+                );
               }, 1500);
             }
-            
+
             this.syncLocalCatalog();
             this.renderActiveTab();
-            
-            if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
+
+            if (
+              document.visibilityState !== 'visible' &&
+              'Notification' in window &&
+              Notification.permission === 'granted'
+            ) {
               new Notification('ThumbSync Atualizado', {
-                body: listUpdated ? 'A lista de jogos foi atualizada por outro usuário.' : 'As tags dos jogos foram atualizadas.',
-                icon: '/favicon.png'
+                body: listUpdated
+                  ? 'A lista de jogos foi atualizada por outro usuário.'
+                  : 'As tags dos jogos foram atualizadas.',
+                icon: '/favicon.png',
               });
             }
           }
         } catch (e) {
-          console.warn("Checagem live automática falhou:", e.message);
+          console.warn('Checagem live automática falhou:', e.message);
         }
       }
     }, 7000);
   }
 
   handleAddGamesToList(providerName, gameNames) {
-    const validGames = gameNames.map(g => g.trim()).filter(Boolean);
+    const validGames = gameNames.map((g) => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
 
-    this.addLog(`Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`);
-    
+    this.addLog(
+      `Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`,
+    );
+
     const lines = this.state.listContent.split(/\r?\n/);
-    const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i');
-    
+    const targetHeaderRegex = new RegExp(
+      `^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`,
+      'i',
+    );
+
     let injected = false;
     const updatedLines = [];
 
@@ -1182,19 +1468,22 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-         validGames.forEach(gameName => {
-           updatedLines.push(gameName);
-         });
-         injected = true;
+        validGames.forEach((gameName) => {
+          updatedLines.push(gameName);
+        });
+        injected = true;
       }
     }
 
     if (!injected) {
-      if (updatedLines.length > 0 && updatedLines[updatedLines.length - 1].trim() !== '') {
+      if (
+        updatedLines.length > 0 &&
+        updatedLines[updatedLines.length - 1].trim() !== ''
+      ) {
         updatedLines.push('');
       }
       updatedLines.push(`Provedor: ${providerName}`);
-      validGames.forEach(gameName => {
+      validGames.forEach((gameName) => {
         updatedLines.push(gameName);
       });
     }
@@ -1203,19 +1492,26 @@ class ThumbSyncApp {
   }
 
   handleExcludeGameFromList(item) {
-    const isConfirmed = confirm(`Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo list.txt.`);
+    const isConfirmed = confirm(
+      `Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo list.txt.`,
+    );
     if (!isConfirmed) return;
 
-    this.addLog(`Removendo '${item.displayName}' do provedor '${item.providerName}'...`);
-    
+    this.addLog(
+      `Removendo '${item.displayName}' do provedor '${item.providerName}'...`,
+    );
+
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
     let currentSection = null;
     const headerLines = [];
 
     for (const line of lines) {
-      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      
+      const cleanLine = line
+        .replace(/^\uFEFF/, '')
+        .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+        .trim();
+
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
         if (currentSection) {
@@ -1224,25 +1520,29 @@ class ThumbSyncApp {
         currentSection = {
           providerLine: line,
           providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
-          games: []
+          games: [],
         };
         continue;
       }
-      
+
       if (currentSection) {
-        if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
+        if (
+          cleanLine &&
+          !cleanLine.startsWith('#') &&
+          !cleanLine.includes('?')
+        ) {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
             normalizedGameName: this.normalizeName(cleanLine),
-            isBlankOrComment: false
+            isBlankOrComment: false,
           });
         } else {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
             normalizedGameName: cleanLine ? this.normalizeName(cleanLine) : '',
-            isBlankOrComment: true
+            isBlankOrComment: true,
           });
         }
       } else {
@@ -1255,10 +1555,13 @@ class ThumbSyncApp {
 
     let deleted = false;
     const targetProviderNormalized = this.normalizeName(item.providerName);
-    
+
     for (const sec of sections) {
       if (sec.providerNameNormalized === targetProviderNormalized) {
-        const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
+        const idx = sec.games.findIndex(
+          (g) =>
+            !g.isBlankOrComment && g.normalizedGameName === item.normalizedName,
+        );
         if (idx !== -1) {
           sec.games.splice(idx, 1);
           deleted = true;
@@ -1268,10 +1571,12 @@ class ThumbSyncApp {
       }
     }
 
-    const filteredSections = sections.filter(sec => {
-      const genuineGames = sec.games.filter(g => !g.isBlankOrComment);
+    const filteredSections = sections.filter((sec) => {
+      const genuineGames = sec.games.filter((g) => !g.isBlankOrComment);
       if (genuineGames.length === 0) {
-        this.addLog(`Provedor '${item.providerName}' não possui mais jogos na lista. Seção removida.`);
+        this.addLog(
+          `Provedor '${item.providerName}' não possui mais jogos na lista. Seção removida.`,
+        );
         return false;
       }
       return true;
@@ -1279,16 +1584,22 @@ class ThumbSyncApp {
 
     const finalLines = [...headerLines];
     filteredSections.forEach((sec, sIdx) => {
-      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') {
+      if (
+        finalLines.length > 0 &&
+        finalLines[finalLines.length - 1].trim() !== ''
+      ) {
         finalLines.push('');
       }
       finalLines.push(sec.providerLine);
-      sec.games.forEach(g => {
+      sec.games.forEach((g) => {
         finalLines.push(g.originalLine);
       });
     });
 
-    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    const cleanedFileContent = finalLines
+      .join('\n')
+      .replace(/\n\s*\n\s*\n/g, '\n\n')
+      .trim();
     this.saveUpdatedList(cleanedFileContent);
   }
 
@@ -1297,8 +1608,8 @@ class ThumbSyncApp {
     const root = document.getElementById('root');
     if (!root) return;
 
-    const listedItems = this.state.catalogItems.filter(i => i.isListed);
-    const completedGames = listedItems.filter(i => i.hasWebp).length;
+    const listedItems = this.state.catalogItems.filter((i) => i.isListed);
+    const completedGames = listedItems.filter((i) => i.hasWebp).length;
     const totalListedCount = listedItems.length;
     const pendingGamesCount = totalListedCount - completedGames;
 
@@ -1337,30 +1648,45 @@ class ThumbSyncApp {
 
             <!-- Side Nav Tabs -->
             <nav class="space-y-1">
-              ${this.renderNavItem('catalog', 'Miniaturas', `
+              ${this.renderNavItem(
+                'catalog',
+                'Miniaturas',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
-              `, `
-                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i=>i.hasWebp).length}</span>
-              `)}
-              ${this.renderNavItem('list_manager', 'Lista de Jogos', `
+              `,
+                `
+                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter((i) => i.hasWebp).length}</span>
+              `,
+              )}
+              ${this.renderNavItem(
+                'list_manager',
+                'Lista de Jogos',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
-              `)}
-              ${this.renderNavItem('settings', 'Configurações', `
+              `,
+              )}
+              ${this.renderNavItem(
+                'settings',
+                'Configurações',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
                 </svg>
-              `)}
+              `,
+              )}
             </nav>
           </div>
 
           <!-- Bottom account control -->
           <div class="border-t border-white/[0.05] pt-4 flex flex-col gap-2 relative z-10 w-full select-none">
-            ${this.state.gdriveConnected ? `
+            ${
+              this.state.gdriveConnected
+                ? `
               <div class="flex items-center gap-3 bg-white/[0.015] border border-white/[0.04] p-2.5 rounded-2xl w-full">
                 <div class="w-8 h-8 rounded-full bg-blue-600 flex items-center justify-center font-bold text-xs text-white uppercase shadow-sm select-none">G</div>
                 <div class="min-w-0 flex-1">
@@ -1371,11 +1697,13 @@ class ThumbSyncApp {
               <button id="btn-logout" class="flex items-center justify-center gap-2 text-xs font-bold py-2 px-3 text-center rounded-xl w-full text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer">
                 Desconectar Google
               </button>
-            ` : `
+            `
+                : `
               <button id="btn-login" class="flex items-center justify-center gap-2 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md w-full transition-all cursor-pointer">
                 Conectar Google Drive
               </button>
-            `}
+            `
+            }
           </div>
         </aside>
 
@@ -1387,10 +1715,12 @@ class ThumbSyncApp {
             <div id="live-indicator-wrapper" class="flex items-center gap-2.5 transition-all duration-300 rounded-2xl border border-transparent px-2 py-1">
               <span class="text-[10px] sm:text-xs text-zinc-550 font-bold uppercase tracking-wider relative">Status</span>
               <span class="px-2.5 py-0.5 rounded-full text-[8px] font-black tracking-wider ${this.state.useMock ? 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/15' : 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15'} shadow-sm">
-                ${this.state.useMock ? "OFF-LINE DEMO" : "CONECTADO"}
+                ${this.state.useMock ? 'OFF-LINE DEMO' : 'CONECTADO'}
               </span>
               
-              ${!this.state.useMock && this.state.gdriveConnected ? `
+              ${
+                !this.state.useMock && this.state.gdriveConnected
+                  ? `
                 <div class="flex items-center gap-1.5 bg-emerald-500/5 px-2.5 py-1 rounded-xl border border-emerald-500/10 transition-all duration-300">
                   <span class="relative flex h-1.5 w-1.5 shrink-0">
                     <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
@@ -1398,7 +1728,9 @@ class ThumbSyncApp {
                   </span>
                   <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest font-mono">Ao Vivo</span>
                 </div>
-              ` : ''}
+              `
+                  : ''
+              }
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
@@ -1408,7 +1740,9 @@ class ThumbSyncApp {
 
             <div class="flex items-center gap-3">
               <button id="btn-sync-gdrive" class="flex items-center justify-center gap-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all">
-                ${this.state.isLoading ? `
+                ${
+                  this.state.isLoading
+                    ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
                       <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
@@ -1421,11 +1755,13 @@ class ThumbSyncApp {
                       <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
                     </g>
                   </svg>
-                ` : `
+                `
+                    : `
                   <svg id="sync-icon" class="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
-                `}
+                `
+                }
                 <span>Sincronizar</span>
               </button>
             </div>
@@ -1439,21 +1775,33 @@ class ThumbSyncApp {
 
         <!-- MOBILE TAB BAR -->
         <nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0c0c0f]/90 backdrop-blur-md border-t border-white/[0.06] flex items-center justify-around z-30">
-          ${this.renderMobileNavItem('catalog', 'Miniaturas', `
+          ${this.renderMobileNavItem(
+            'catalog',
+            'Miniaturas',
+            `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
-          `)}
-          ${this.renderMobileNavItem('list_manager', 'Mural', `
+          `,
+          )}
+          ${this.renderMobileNavItem(
+            'list_manager',
+            'Mural',
+            `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
-          `)}
-          ${this.renderMobileNavItem('settings', 'Ajustes', `
+          `,
+          )}
+          ${this.renderMobileNavItem(
+            'settings',
+            'Ajustes',
+            `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
-          `)}
+          `,
+          )}
         </nav>
       </div>
 
@@ -1501,7 +1849,7 @@ class ThumbSyncApp {
   renderNavItem(tab, label, iconHtml, badgeHtml = '') {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]' }">
+      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}">
         ${iconHtml}
         <span>${label}</span>
         ${badgeHtml}
@@ -1512,7 +1860,7 @@ class ThumbSyncApp {
   renderMobileNavItem(tab, label, iconHtml) {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500' }">
+      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500'}">
         <div class="px-3 py-1 rounded-full ${isActive ? 'bg-blue-500/10 text-blue-500' : 'text-zinc-400'}">
           ${iconHtml}
         </div>
@@ -1555,35 +1903,47 @@ class ThumbSyncApp {
     let items = [...this.state.catalogItems];
 
     if (this.state.filterProvider !== 'todos') {
-      items = items.filter(i => this.normalizeName(i.providerName) === this.normalizeName(this.state.filterProvider));
+      items = items.filter(
+        (i) =>
+          this.normalizeName(i.providerName) ===
+          this.normalizeName(this.state.filterProvider),
+      );
     }
 
     if (this.state.filterStatus !== 'todos') {
       if (this.state.filterStatus === 'com_arte') {
-        items = items.filter(i => i.hasWebp);
+        items = items.filter((i) => i.hasWebp);
       } else if (this.state.filterStatus === 'sem_arte') {
-        items = items.filter(i => !i.hasWebp);
+        items = items.filter((i) => !i.hasWebp);
       } else if (this.state.filterStatus === 'listados') {
-        items = items.filter(i => i.isListed);
+        items = items.filter((i) => i.isListed);
       } else if (this.state.filterStatus === 'nao_listados') {
-        items = items.filter(i => !i.isListed);
+        items = items.filter((i) => !i.isListed);
       }
     }
 
     if (this.state.filterTag !== 'todos') {
       if (this.state.filterTag === 'ao_vivo') {
-        items = items.filter(i => this.getGameTag(i) === 'ao vivo');
+        items = items.filter((i) => this.getGameTag(i) === 'ao vivo');
       } else if (this.state.filterTag === 'slot') {
-        items = items.filter(i => this.getGameTag(i) === 'slot');
+        items = items.filter((i) => this.getGameTag(i) === 'slot');
       }
     }
 
     if (this.state.searchQuery.trim() !== '') {
       const q = this.normalizeName(this.state.searchQuery);
-      items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
+      items = items.filter(
+        (i) =>
+          this.normalizeName(i.displayName).includes(q) ||
+          this.normalizeName(i.providerName).includes(q),
+      );
     }
 
-    const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    const uniqueProviders = Array.from(
+      new Set(this.state.catalogItems.map((i) => i.providerName)),
+    )
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
       <div class="space-y-6 text-left select-none relative">
@@ -1604,9 +1964,13 @@ class ThumbSyncApp {
             <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
             <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
               <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
-              ${uniqueProviders.map(p => `
+              ${uniqueProviders
+                .map(
+                  (p) => `
                 <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
-              `).join('')}
+              `,
+                )
+                .join('')}
             </select>
           </div>
           <div class="space-y-1">
@@ -1620,31 +1984,43 @@ class ThumbSyncApp {
         </div>
 
         <!-- Catalogo em Grid -->
-        ${items.length === 0 ? `
+        ${
+          items.length === 0
+            ? `
           <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
-        ` : `
+        `
+            : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-            ${items.map(item => {
-              const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
-              const hasWebp = item.hasWebp;
-              const tag = this.getGameTag(item);
-              const tagHtml = tag === "ao vivo" ? `
+            ${items
+              .map((item) => {
+                const gradient =
+                  PROVIDER_GRADIENTS[item.providerName.toLowerCase()] ||
+                  PROVIDER_GRADIENTS['default'];
+                const hasWebp = item.hasWebp;
+                const tag = this.getGameTag(item);
+                const tagHtml =
+                  tag === 'ao vivo'
+                    ? `
                 <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
                   <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
                   Ao Vivo
                 </span>
-              ` : `
+              `
+                    : `
                 <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
                   <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
                   Slot
                 </span>
               `;
 
-              return `
+                return `
                 <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
-                  ${hasWebp ? `
+                  ${
+                    hasWebp
+                      ? `
                     <img id="thumb-${item.id}" src="" alt="${item.displayName}" class="w-full h-full object-cover">
-                  ` : `
+                  `
+                      : `
                     <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
                       <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
                         PENDENTE
@@ -1655,7 +2031,8 @@ class ThumbSyncApp {
                         <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
                       </div>
                     </div>
-                  `}
+                  `
+                  }
 
                   <div class="absolute top-3 right-3 z-20">
                     ${tagHtml}
@@ -1663,12 +2040,16 @@ class ThumbSyncApp {
 
                   <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
                   
-                  ${hasWebp ? `
+                  ${
+                    hasWebp
+                      ? `
                     <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
                       <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
                       <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
                     </div>
-                  ` : ''}
+                  `
+                      : ''
+                  }
 
                   <!-- Visual Drag and Drop Upload Drop-Zone indicators -->
                   <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
@@ -1677,14 +2058,16 @@ class ThumbSyncApp {
                   </div>
                 </div>
               `;
-            }).join('')}
+              })
+              .join('')}
           </div>
-        `}
+        `
+        }
       </div>
     `;
 
     // Carregar via lazy load das imagens
-    items.forEach(item => {
+    items.forEach((item) => {
       if (item.hasWebp) {
         const imgEl = document.getElementById(`thumb-${item.id}`);
         if (imgEl) {
@@ -1695,9 +2078,9 @@ class ThumbSyncApp {
 
     // Registrar Drag and Drop Eventos nos cartões
     const cardElements = container.querySelectorAll('[data-catalog-key]');
-    cardElements.forEach(card => {
+    cardElements.forEach((card) => {
       const key = card.getAttribute('data-catalog-key');
-      const item = this.state.catalogItems.find(i => i.id === key);
+      const item = this.state.catalogItems.find((i) => i.id === key);
       if (!item) return;
 
       // Eventos de Drag
@@ -1725,30 +2108,45 @@ class ThumbSyncApp {
 
         const file = files[0];
         if (!file.name.toLowerCase().endsWith('.webp')) {
-          alert("Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.");
+          alert(
+            'Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.',
+          );
           return;
         }
 
         // Fazer Upload
-        this.addLog(`Preparando upload de '${file.name}' (${Math.round(file.size/1024)} KB) p/ Drive...`);
+        this.addLog(
+          `Preparando upload de '${file.name}' (${Math.round(file.size / 1024)} KB) p/ Drive...`,
+        );
         this.state.isLoading = true;
         this.render();
 
         try {
           let targetFolderId = this.state.thumbsFolderId;
-          const providerName = item.providerName || "Sem provedor";
+          const providerName = item.providerName || 'Sem provedor';
 
-          if (providerName && providerName !== "Sem provedor") {
-            this.addLog(`Resolvendo pasta do provedor '${providerName}' no Drive...`);
-            targetFolderId = await driveClient.findOrCreateSubfolder(providerName, this.state.thumbsFolderId);
+          if (providerName && providerName !== 'Sem provedor') {
+            this.addLog(
+              `Resolvendo pasta do provedor '${providerName}' no Drive...`,
+            );
+            targetFolderId = await driveClient.findOrCreateSubfolder(
+              providerName,
+              this.state.thumbsFolderId,
+            );
           }
 
           const fileName = `${item.displayName}.webp`;
 
           // Fazer upload de imagem via Drive CLIENT
-          const uploadedFile = await driveClient.uploadImage(fileName, file, targetFolderId);
-          this.addLog(`Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0,8)}...)`);
-          
+          const uploadedFile = await driveClient.uploadImage(
+            fileName,
+            file,
+            targetFolderId,
+          );
+          this.addLog(
+            `Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0, 8)}...)`,
+          );
+
           await this.syncWithGoogleDrive();
         } catch (uploadError) {
           this.addLog(`Incorreto ao enviar imagem: ${uploadError.message}`);
@@ -1767,29 +2165,32 @@ class ThumbSyncApp {
   renderListManager(container) {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
-    let currentProvider = "Sem provedor";
+
+    let currentProvider = 'Sem provedor';
     for (const line of lines) {
-      const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      const clean = line
+        .replace(/^\uFEFF/, '')
+        .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+        .trim();
       if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider
+        providerName: currentProvider,
       });
     }
 
     const groupsMap = new Map();
-    listGames.forEach(g => {
+    listGames.forEach((g) => {
       const arr = groupsMap.get(g.providerName) || [];
       arr.push(g);
       groupsMap.set(g.providerName, arr);
@@ -1799,18 +2200,18 @@ class ThumbSyncApp {
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
-    
+
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
-      if (prov && prov !== "Sem provedor") {
+      if (prov && prov !== 'Sem provedor') {
         modalProvidersSet.add(prov);
       }
     });
 
     // 2. Das subpastas físicas sincronizadas do Drive
     if (this.state.driveProviders && this.state.driveProviders.length > 0) {
-      this.state.driveProviders.forEach(p => {
-        if (p && p !== "Sem provedor") {
+      this.state.driveProviders.forEach((p) => {
+        if (p && p !== 'Sem provedor') {
           modalProvidersSet.add(p);
         }
       });
@@ -1818,8 +2219,8 @@ class ThumbSyncApp {
 
     // 3. Dos arquivos que contêm provedores definidos
     if (this.state.driveFiles) {
-      this.state.driveFiles.forEach(f => {
-        if (f.providerName && f.providerName !== "Sem provedor") {
+      this.state.driveFiles.forEach((f) => {
+        if (f.providerName && f.providerName !== 'Sem provedor') {
           modalProvidersSet.add(f.providerName);
         }
       });
@@ -1827,17 +2228,19 @@ class ThumbSyncApp {
 
     // 4. Se estiver no modo off-line / Mock, garante os de mock tradicionais
     if (this.state.useMock) {
-      modalProvidersSet.add("PG Soft");
-      modalProvidersSet.add("Pragmatic Play");
+      modalProvidersSet.add('PG Soft');
+      modalProvidersSet.add('Pragmatic Play');
     }
 
     // Se estiver totalmente vazio (por garantia extrema), adiciona um padrão ou Sem Provedor
     if (modalProvidersSet.size === 0) {
-      modalProvidersSet.add("PG Soft");
-      modalProvidersSet.add("Pragmatic Play");
+      modalProvidersSet.add('PG Soft');
+      modalProvidersSet.add('Pragmatic Play');
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
+    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) =>
+      a.localeCompare(b),
+    );
 
     container.innerHTML = `
       <div class="space-y-6 text-left select-none relative">
@@ -1848,7 +2251,9 @@ class ThumbSyncApp {
           </div>
           <div class="flex items-center gap-2 self-start sm:self-auto shrink-0 select-none">
             <button id="btn-sync-list-only" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer">
-              ${this.state.isLoading ? `
+              ${
+                this.state.isLoading
+                  ? `
                 <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <g transform="translate(12,12)">
                     <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
@@ -1861,11 +2266,13 @@ class ThumbSyncApp {
                     <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
                   </g>
                 </svg>
-              ` : `
+              `
+                  : `
                 <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
-              `}
+              `
+              }
               <span>Sincronizar Lista</span>
             </button>
             <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
@@ -1881,7 +2288,9 @@ class ThumbSyncApp {
 
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           <div class="lg:col-span-2 space-y-4">
-            ${groupsList.length === 0 ? `
+            ${
+              groupsList.length === 0
+                ? `
               <div class="py-20 flex flex-col items-center justify-center text-center px-4 border border-dashed border-white/[0.05] rounded-2xl bg-white/[0.01]">
                 <div class="w-10 h-10 rounded-full bg-zinc-900/60 flex items-center justify-center mb-3 border border-white/[0.05]">
                   <svg class="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1891,8 +2300,11 @@ class ThumbSyncApp {
                 <p class="text-zinc-400 font-bold text-xs">Nenhuma seção de provedor na lista</p>
                 <p class="text-zinc-500 text-[11px] mt-1.5 max-w-xs">Crie uma nova seção clicando em "Novo Provedor" acima, ou toque em "Sincronizar Lista" para ler as seções registradas.</p>
               </div>
-            ` : `
-              ${groupsList.map(([providerName, games]) => `
+            `
+                : `
+              ${groupsList
+                .map(
+                  ([providerName, games]) => `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
                   <div class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02]">
                     <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
@@ -1910,12 +2322,15 @@ class ThumbSyncApp {
                   </div>
 
                   <div class="p-2 bg-[#09090c]/40 space-y-1.5">
-                    ${games.map(game => {
-                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-                      const hasWebp = catalogItem?.hasWebp || false;
+                    ${games
+                      .map((game) => {
+                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                        const catalogItem = this.state.catalogItems.find(
+                          (i) => i.id === key,
+                        );
+                        const hasWebp = catalogItem?.hasWebp || false;
 
-                      return `
+                        return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
                           <div class="flex items-center gap-2.5">
                             <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
@@ -1929,11 +2344,15 @@ class ThumbSyncApp {
                           </button>
                         </div>
                       `;
-                    }).join('')}
+                      })
+                      .join('')}
                   </div>
                 </div>
-              `).join('')}
-            `}
+              `,
+                )
+                .join('')}
+            `
+            }
           </div>
 
           <!-- Raw Live File Preview -->
@@ -1950,7 +2369,9 @@ class ThumbSyncApp {
       </div>
 
       <!-- Add Game Modal -->
-      ${this.state.isAddingGame ? `
+      ${
+        this.state.isAddingGame
+          ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
@@ -1958,9 +2379,13 @@ class ThumbSyncApp {
             <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-add-game-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
-                ${modalProvidersList.map(prov => `
+                ${modalProvidersList
+                  .map(
+                    (prov) => `
                   <option value="${prov}" ${prov === this.state.addingGameToProvider ? 'selected' : ''}>${prov}</option>
-                `).join('')}
+                `,
+                  )
+                  .join('')}
               </select>
             </div>
 
@@ -1975,7 +2400,9 @@ class ThumbSyncApp {
             </div>
           </div>
         </div>
-      ` : ''}
+      `
+          : ''
+      }
 
       <!-- Add Provider Modal -->
       <div id="add-provider-dialog" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
@@ -1993,8 +2420,6 @@ class ThumbSyncApp {
       </div>
     `;
   }
-
-
 
   /**
    * TELA CONFIGURAÇÃO (GOOGLE CLIENT ID)
@@ -2032,7 +2457,9 @@ class ThumbSyncApp {
                 </div>
               </div>
 
-              ${this.state.gdriveConnected ? `
+              ${
+                this.state.gdriveConnected
+                  ? `
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                   <div class="min-w-0">
                     <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
@@ -2042,7 +2469,8 @@ class ThumbSyncApp {
                     Sair do Google Drive
                   </button>
                 </div>
-              ` : `
+              `
+                  : `
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                   <div class="max-w-md">
                     <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
@@ -2058,7 +2486,8 @@ class ThumbSyncApp {
                     <span>Entrar com o Google</span>
                   </button>
                 </div>
-              `}
+              `
+              }
             </div>
 
             <div class="rounded-3xl bg-white/[0.01] border border-white/[0.04] p-6 space-y-5 h-fit">
@@ -2147,10 +2576,21 @@ class ThumbSyncApp {
     const child = modal.firstElementChild;
     if (child) child.classList.remove('scale-95');
 
-    const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
-    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'Simulado / Local';
+    const fileSizeStr = item.fileSize
+      ? `${Math.round(Number(item.fileSize) / 1024)} KB`
+      : 'Indeterminado';
+    const modifiedStr = item.modifiedTime
+      ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', {
+          day: 'numeric',
+          month: 'short',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
+      : 'Simulado / Local';
 
-    const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
+    const pBadgeStyle =
+      PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] ||
+      PROVIDER_BADGE_STYLE['default'];
     const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
@@ -2218,7 +2658,7 @@ class ThumbSyncApp {
 
     const tagLiveBtn = document.getElementById('tag-btn-ao-vivo');
     const tagSlotBtn = document.getElementById('tag-btn-slot');
-    
+
     if (tagLiveBtn) {
       tagLiveBtn.addEventListener('click', () => {
         this.updateGameTag(item.id, 'ao vivo');
@@ -2240,8 +2680,10 @@ class ThumbSyncApp {
   }
 
   bindGlobalEvents() {
-    const navButtons = document.querySelectorAll('aside nav button, [data-mobile-tab-btn]');
-    navButtons.forEach(btn => {
+    const navButtons = document.querySelectorAll(
+      'aside nav button, [data-mobile-tab-btn]',
+    );
+    navButtons.forEach((btn) => {
       btn.addEventListener('click', (e) => {
         const tab = e.currentTarget.getAttribute('data-tab');
         if (tab) {
@@ -2260,14 +2702,14 @@ class ThumbSyncApp {
     const btnLogin = document.getElementById('btn-login');
     if (btnLogin) {
       btnLogin.addEventListener('click', () => {
-         this.handleGoogleLogin();
+        this.handleGoogleLogin();
       });
     }
 
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
       btnLogout.addEventListener('click', () => {
-         this.handleGoogleLogout();
+        this.handleGoogleLogout();
       });
     }
 
@@ -2291,171 +2733,189 @@ class ThumbSyncApp {
   bindTabEvents() {
     // EVENTS DE CATALOGO
     if (this.state.activeTab === 'catalog') {
-       const searchInput = document.getElementById('catalouge-search');
-       if (searchInput) {
-         searchInput.addEventListener('input', (e) => {
-           this.state.searchQuery = e.currentTarget.value;
-           clearTimeout(this.debounceTimer);
-           this.debounceTimer = setTimeout(() => {
-             this.renderActiveTab();
-           }, 300);
-         });
-       }
-
-       const providerSelect = document.getElementById('catalouge-provider-filter');
-       if (providerSelect) {
-         providerSelect.addEventListener('change', (e) => {
-            this.state.filterProvider = e.currentTarget.value;
+      const searchInput = document.getElementById('catalouge-search');
+      if (searchInput) {
+        searchInput.addEventListener('input', (e) => {
+          this.state.searchQuery = e.currentTarget.value;
+          clearTimeout(this.debounceTimer);
+          this.debounceTimer = setTimeout(() => {
             this.renderActiveTab();
-         });
-       }
+          }, 300);
+        });
+      }
 
+      const providerSelect = document.getElementById(
+        'catalouge-provider-filter',
+      );
+      if (providerSelect) {
+        providerSelect.addEventListener('change', (e) => {
+          this.state.filterProvider = e.currentTarget.value;
+          this.renderActiveTab();
+        });
+      }
 
+      const tagSelect = document.getElementById('catalouge-tag-filter');
+      if (tagSelect) {
+        tagSelect.addEventListener('change', (e) => {
+          this.state.filterTag = e.currentTarget.value;
+          this.saveStateToStorage();
+          this.renderActiveTab();
+        });
+      }
 
-       const tagSelect = document.getElementById('catalouge-tag-filter');
-       if (tagSelect) {
-         tagSelect.addEventListener('change', (e) => {
-            this.state.filterTag = e.currentTarget.value;
-            this.saveStateToStorage();
-            this.renderActiveTab();
-         });
-       }
-
-       const cardElements = document.querySelectorAll('[data-catalog-key]');
-       cardElements.forEach(card => {
-         card.addEventListener('click', (e) => {
-           if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
-           const key = e.currentTarget.getAttribute('data-catalog-key');
-           const item = this.state.catalogItems.find(i => i.id === key);
-           if (item) {
-             this.state.selectedCatalogItem = item;
-             this.renderPreviewModal(item);
-           }
-         });
-       });
+      const cardElements = document.querySelectorAll('[data-catalog-key]');
+      cardElements.forEach((card) => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
+          const key = e.currentTarget.getAttribute('data-catalog-key');
+          const item = this.state.catalogItems.find((i) => i.id === key);
+          if (item) {
+            this.state.selectedCatalogItem = item;
+            this.renderPreviewModal(item);
+          }
+        });
+      });
     }
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
-       const btnSyncListOnly = document.getElementById('btn-sync-list-only');
-       if (btnSyncListOnly) {
-         btnSyncListOnly.addEventListener('click', () => {
-           if (this.state.useMock || !this.state.gdriveConnected) {
-             this.addLog('Atualizando a partir dos arquivos locais...');
-             this.syncMockWithLocalFiles();
-           } else {
-             this.syncWithGoogleDrive();
-           }
-         });
-       }
+      const btnSyncListOnly = document.getElementById('btn-sync-list-only');
+      if (btnSyncListOnly) {
+        btnSyncListOnly.addEventListener('click', () => {
+          if (this.state.useMock || !this.state.gdriveConnected) {
+            this.addLog('Atualizando a partir dos arquivos locais...');
+            this.syncMockWithLocalFiles();
+          } else {
+            this.syncWithGoogleDrive();
+          }
+        });
+      }
 
-       const btnAddProvider = document.getElementById('btn-add-provider');
-       const providerDialog = document.getElementById('add-provider-dialog');
-       if (btnAddProvider && providerDialog) {
-         btnAddProvider.addEventListener('click', () => {
-           providerDialog.classList.remove('hidden');
-         });
-       }
+      const btnAddProvider = document.getElementById('btn-add-provider');
+      const providerDialog = document.getElementById('add-provider-dialog');
+      if (btnAddProvider && providerDialog) {
+        btnAddProvider.addEventListener('click', () => {
+          providerDialog.classList.remove('hidden');
+        });
+      }
 
-       const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
-       if (btnCancelProvider && providerDialog) {
-         btnCancelProvider.addEventListener('click', () => {
-           providerDialog.classList.add('hidden');
-         });
-       }
+      const btnCancelProvider = document.getElementById(
+        'dialog-add-provider-cancel',
+      );
+      if (btnCancelProvider && providerDialog) {
+        btnCancelProvider.addEventListener('click', () => {
+          providerDialog.classList.add('hidden');
+        });
+      }
 
-       const btnCreateProvider = document.getElementById('dialog-add-provider-confirm');
-       if (btnCreateProvider && providerDialog) {
-         btnCreateProvider.addEventListener('click', () => {
-           const input = document.getElementById('new-provider-name');
-           if (input && input.value.trim() !== '') {
-              const name = input.value.trim();
-              
-              const lines = this.state.listContent.split(/\r?\n/);
-              if (lines.length > 0 && lines[lines.length-1].trim() !== '') {
-                lines.push('');
-              }
-              lines.push(`Provedor: ${name}`);
-              this.saveUpdatedList(lines.join('\n'));
-              providerDialog.classList.add('hidden');
-              input.value = '';
-           }
-         });
-       }
+      const btnCreateProvider = document.getElementById(
+        'dialog-add-provider-confirm',
+      );
+      if (btnCreateProvider && providerDialog) {
+        btnCreateProvider.addEventListener('click', () => {
+          const input = document.getElementById('new-provider-name');
+          if (input && input.value.trim() !== '') {
+            const name = input.value.trim();
 
-       const btnAddGamesMain = document.getElementById('btn-add-games-main');
-       if (btnAddGamesMain) {
-         btnAddGamesMain.addEventListener('click', () => {
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = '';
-           this.renderActiveTab();
-         });
-       }
+            const lines = this.state.listContent.split(/\r?\n/);
+            if (lines.length > 0 && lines[lines.length - 1].trim() !== '') {
+              lines.push('');
+            }
+            lines.push(`Provedor: ${name}`);
+            this.saveUpdatedList(lines.join('\n'));
+            providerDialog.classList.add('hidden');
+            input.value = '';
+          }
+        });
+      }
 
-       const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
-       addGameTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = provider;
-           this.renderActiveTab();
-         });
-       });
+      const btnAddGamesMain = document.getElementById('btn-add-games-main');
+      if (btnAddGamesMain) {
+        btnAddGamesMain.addEventListener('click', () => {
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = '';
+          this.renderActiveTab();
+        });
+      }
 
-       const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
-       if (btnAddGameCancel) {
-         btnAddGameCancel.addEventListener('click', () => {
-           this.state.isAddingGame = false;
-           this.renderActiveTab();
-         });
-       }
+      const addGameTriggers = document.querySelectorAll(
+        '[data-trigger-add-game]',
+      );
+      addGameTriggers.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const provider =
+            e.currentTarget.getAttribute('data-trigger-add-game') || '';
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = provider;
+          this.renderActiveTab();
+        });
+      });
 
-       const btnAddGameConfirm = document.getElementById('modal-add-game-confirm');
-       if (btnAddGameConfirm) {
-         btnAddGameConfirm.addEventListener('click', () => {
-           const providerSelect = document.getElementById('modal-add-game-provider-select');
-           const textarea = document.getElementById('new-game-displayNames');
-           
-           const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
-           const textValue = textarea ? textarea.value.trim() : '';
+      const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
+      if (btnAddGameCancel) {
+        btnAddGameCancel.addEventListener('click', () => {
+          this.state.isAddingGame = false;
+          this.renderActiveTab();
+        });
+      }
 
-           if (textValue !== '' && selectedProvider) {
-              const gameLines = textValue.split('\n').map(l => l.trim()).filter(Boolean);
-              if (gameLines.length > 0) {
-                this.handleAddGamesToList(selectedProvider, gameLines);
-              }
-              this.state.isAddingGame = false;
-              this.renderActiveTab();
-           }
-         });
-       }
+      const btnAddGameConfirm = document.getElementById(
+        'modal-add-game-confirm',
+      );
+      if (btnAddGameConfirm) {
+        btnAddGameConfirm.addEventListener('click', () => {
+          const providerSelect = document.getElementById(
+            'modal-add-game-provider-select',
+          );
+          const textarea = document.getElementById('new-game-displayNames');
 
-       const deleteTriggers = document.querySelectorAll('[data-delete-catalog-key]');
-       deleteTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const key = e.currentTarget.getAttribute('data-delete-catalog-key');
-           const catalogItem = this.state.catalogItems.find(i => i.id === key);
-           if (catalogItem) {
-             this.handleExcludeGameFromList(catalogItem);
-           }
-         });
-       });
+          const selectedProvider = providerSelect
+            ? providerSelect.value
+            : this.state.addingGameToProvider;
+          const textValue = textarea ? textarea.value.trim() : '';
+
+          if (textValue !== '' && selectedProvider) {
+            const gameLines = textValue
+              .split('\n')
+              .map((l) => l.trim())
+              .filter(Boolean);
+            if (gameLines.length > 0) {
+              this.handleAddGamesToList(selectedProvider, gameLines);
+            }
+            this.state.isAddingGame = false;
+            this.renderActiveTab();
+          }
+        });
+      }
+
+      const deleteTriggers = document.querySelectorAll(
+        '[data-delete-catalog-key]',
+      );
+      deleteTriggers.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-delete-catalog-key');
+          const catalogItem = this.state.catalogItems.find((i) => i.id === key);
+          if (catalogItem) {
+            this.handleExcludeGameFromList(catalogItem);
+          }
+        });
+      });
     }
 
     // EVENTS DE CONFIGURAÇÕES
     if (this.state.activeTab === 'settings') {
       const btnLogins = document.querySelectorAll('.btn-login-action');
-      btnLogins.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogin();
-         });
+      btnLogins.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogin();
+        });
       });
 
       const btnLogouts = document.querySelectorAll('.btn-logout-action');
-      btnLogouts.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogout();
-         });
+      btnLogouts.forEach((btn) => {
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogout();
+        });
       });
 
       const btnSaveConfig = document.getElementById('btn-save-config');
@@ -2466,11 +2926,14 @@ class ThumbSyncApp {
           const fileInput = document.getElementById('conf-file');
 
           if (clientIdInput && folderInput && fileInput) {
-            const defaultClientId = '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
+            const defaultClientId =
+              '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com';
             const newClientId = clientIdInput.value.trim();
 
             if (newClientId !== defaultClientId && newClientId !== '') {
-              const proceed = confirm("⚠️ ATENÇÃO & CUIDADO:\nVocê está alterando o Google Client ID padrão homologado para esta aplicação.\n\nFazer isso pode comprometer a autenticação e interromper totalmente o sincronismo automático de imagens com o Google Drive.\n\nDeseja realmente prosseguir com a alteração do Client ID?");
+              const proceed = confirm(
+                '⚠️ ATENÇÃO & CUIDADO:\nVocê está alterando o Google Client ID padrão homologado para esta aplicação.\n\nFazer isso pode comprometer a autenticação e interromper totalmente o sincronismo automático de imagens com o Google Drive.\n\nDeseja realmente prosseguir com a alteração do Client ID?',
+              );
               if (!proceed) {
                 clientIdInput.value = defaultClientId;
                 return;
@@ -2480,13 +2943,15 @@ class ThumbSyncApp {
             this.config.clientId = newClientId;
             this.config.folderName = folderInput.value.trim() || 'Thumbs';
             this.config.listFileName = fileInput.value.trim() || 'lista.txt';
-            
+
             this.saveStateToStorage();
-            this.addLog("Configurações atualizadas localmente.");
-            
+            this.addLog('Configurações atualizadas localmente.');
+
             this.initGISAutomatic();
-            
-            alert("Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.");
+
+            alert(
+              'Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.',
+            );
             this.render();
           }
         });

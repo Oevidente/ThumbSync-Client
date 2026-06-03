@@ -1,0 +1,29 @@
+{
+  "name": "ThumbSync Client",
+  "short_name": "ThumbSync",
+  "description": "Sincronização de miniaturas de jogos com Google Drive",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0c0c0e",
+  "theme_color": "#070709",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "favicon.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "favicon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "logodosite.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ]
+}
