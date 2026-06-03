@@ -296,6 +296,7 @@ class ThumbSyncApp {
       selectedCatalogItem: null,
       isAddingGame: false,
       addingGameToProvider: '',
+      selectedListKeys: new Set(),
     };
 
     this.config = {
@@ -1012,6 +1013,72 @@ class ThumbSyncApp {
     this.saveUpdatedList(cleanedFileContent);
   }
 
+  /**
+   * Remove múltiplos jogos selecionados da lista.txt.
+   */
+  handleDeleteSelectedGames() {
+    const selectedCount = this.state.selectedListKeys.size;
+    if (selectedCount === 0) return;
+
+    const isConfirmed = confirm(`Excluir os ${selectedCount} jogos selecionados da lista de provedores?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`);
+    if (!isConfirmed) return;
+
+    this.addLog(`Removendo ${selectedCount} jogos selecionados...`);
+    
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+      
+      if (currentSection) {
+        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          isBlankOrComment: !isGame
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    sections.forEach(sec => {
+      sec.games = sec.games.filter(g => {
+        if (g.isBlankOrComment) return true;
+        const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
+        return !this.state.selectedListKeys.has(key);
+      });
+    });
+
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+
+    const finalLines = [...headerLines];
+    filteredSections.forEach(sec => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => finalLines.push(g.originalLine));
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.state.selectedListKeys.clear();
+    this.saveUpdatedList(cleanedFileContent);
+  }
+
   // --- HTML DRAW PIPELINE ---
   render() {
     const root = document.getElementById('root');
@@ -1579,6 +1646,12 @@ class ThumbSyncApp {
               </svg>
               <span>Limpar Jogos Feitos</span>
             </button>
+            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer">
+              <svg class="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span>Excluir Selecionados (<span id="selected-count">${this.state.selectedListKeys.size}</span>)</span>
+            </button>
             <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
               <span>Novo Provedor</span>
@@ -1621,6 +1694,7 @@ class ThumbSyncApp {
                       return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
                           <div class="flex items-center gap-2.5">
+                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer">
                             <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
                             <span class="text-xs font-medium text-zinc-100">${game.displayName}</span>
                             <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
@@ -2053,6 +2127,38 @@ class ThumbSyncApp {
            this.handleClearFinishedGames();
          });
        }
+
+       const bulkDeleteBtn = document.getElementById('btn-delete-selected');
+       if (bulkDeleteBtn) {
+         bulkDeleteBtn.addEventListener('click', () => {
+           this.handleDeleteSelectedGames();
+         });
+       }
+
+       const selectors = document.querySelectorAll('.game-selector');
+       selectors.forEach(cb => {
+         cb.addEventListener('change', (e) => {
+           const key = e.target.getAttribute('data-select-key');
+           if (e.target.checked) {
+             this.state.selectedListKeys.add(key);
+           } else {
+             this.state.selectedListKeys.delete(key);
+           }
+           
+           const countEl = document.getElementById('selected-count');
+           if (countEl) countEl.innerText = this.state.selectedListKeys.size;
+           
+           if (bulkDeleteBtn) {
+             if (this.state.selectedListKeys.size > 0) {
+               bulkDeleteBtn.classList.remove('hidden');
+               bulkDeleteBtn.classList.add('flex');
+             } else {
+               bulkDeleteBtn.classList.add('hidden');
+               bulkDeleteBtn.classList.remove('flex');
+             }
+           }
+         });
+       });
 
        const btnAddProvider = document.getElementById('btn-add-provider');
        const providerDialog = document.getElementById('add-provider-dialog');
