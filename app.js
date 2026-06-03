@@ -628,7 +628,7 @@ class ThumbSyncApp {
       this.state.driveFiles = allFiles;
       this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
 
-      const tagsFile = allFiles.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      const tagsFile = allFiles.find(f => f && f.name && typeof f.name === 'string' && f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
       if (tagsFile) {
         this.addLog(`Sincronizando banco de tags em '${this.config.tagsFileName}'...`);
         this.state.tagsFileId = tagsFile.id;
@@ -653,7 +653,7 @@ class ThumbSyncApp {
         this.state.tagsFileId = newTagsId;
       }
 
-      const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      const listFile = allFiles.find(f => f && f.name && typeof f.name === 'string' && f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
@@ -1519,7 +1519,7 @@ class ThumbSyncApp {
         ` : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
             ${items.map(item => {
-              const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
+              const gradient = PROVIDER_GRADIENTS[(item.providerName || '').toLowerCase()] || PROVIDER_GRADIENTS['default'];
               const hasWebp = item.hasWebp;
               const tag = this.getGameTag(item);
               const tagHtml = tag === "ao vivo" ? `
@@ -2066,7 +2066,7 @@ class ThumbSyncApp {
     const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
     const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'Simulado / Local';
 
-    const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
+    const pBadgeStyle = PROVIDER_BADGE_STYLE[(item.providerName || '').toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
     const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
