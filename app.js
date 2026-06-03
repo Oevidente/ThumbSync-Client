@@ -47,13 +47,13 @@ export class DriveApiClient {
   async findOrCreateFolder(folderName) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar pasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -82,13 +82,13 @@ export class DriveApiClient {
   async findOrCreateSubfolder(folderName, parentFolderId) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar subpasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -118,7 +118,7 @@ export class DriveApiClient {
   async listFilesInFolder(folderId) {
     const q = `'${folderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink)&pageSize=1000`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao listar arquivos do Drive: ${res.statusText}`);
@@ -262,9 +262,9 @@ export const PROVIDER_BADGE_STYLE = {
 };
 
 export const LIVE_KEYWORDS = [
-  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac", 
-  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze", 
-  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing", 
+  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac",
+  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze",
+  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing",
   "marble race", "war", "super color game"
 ];
 
@@ -283,7 +283,7 @@ class ThumbSyncApp {
       tagsFileId: '',
       catalogItems: [],
       driveProviders: [],
-      
+
       // UI Helpers
       isLoading: false,
       logs: [],
@@ -293,7 +293,7 @@ class ThumbSyncApp {
       filterTag: 'todos',
       searchQuery: '',
       customTags: {},
-      
+
       // Modal state
       selectedCatalogItem: null,
       isAddingGame: false,
@@ -315,7 +315,7 @@ class ThumbSyncApp {
     this.addLog("Inicializando módulo ThumbSync...");
     this.loadStateFromStorage();
     this.initGISAutomatic();
-    
+
     // Fallback listeners para expiração de token
     window.addEventListener('gdrive_unauthorized', () => {
       this.addLog("Sessão Google desautenticada ou expirada.");
@@ -514,13 +514,13 @@ class ThumbSyncApp {
         try {
           this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
           const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-          
+
           // Sincronizar os resultados de forma segura para o array principal
           const processedSubFiles = subFiles.map(sf => ({
             ...sf,
             providerName: subfolder.name
           }));
-          
+
           allFiles.push(...processedSubFiles);
           this.addLog(`Provedor '${subfolder.name}': ${processedSubFiles.length} miniaturas carregadas.`);
         } catch (subErr) {
@@ -642,7 +642,7 @@ class ThumbSyncApp {
   syncLocalCatalog() {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
+
     let currentProvider = "Sem provedor";
     for (const line of lines) {
       const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
@@ -650,10 +650,10 @@ class ThumbSyncApp {
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
@@ -683,7 +683,7 @@ class ThumbSyncApp {
 
       const baseName = file.name.replace(/\.webp$/i, '');
       const normName = this.normalizeName(baseName);
-      
+
       let fileProvider = "Sem provedor";
       if (file.providerName) {
         fileProvider = file.providerName;
@@ -750,14 +750,14 @@ class ThumbSyncApp {
 
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
-    
+
     this.state.isSavingTag = true;
     this.renderActiveTab();
-    
+
     const item = this.state.catalogItems.find(i => i.id === itemId);
     if (item) {
       this.renderPreviewModal(item);
-      
+
       if (driveClient.isAuthenticated()) {
         try {
           this.addLog(`Sincronizando nova tag de '${item.displayName}' com o Drive...`);
@@ -880,10 +880,10 @@ class ThumbSyncApp {
     if (validGames.length === 0) return;
 
     this.addLog(`Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`);
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i');
-    
+
     let injected = false;
     const updatedLines = [];
 
@@ -892,10 +892,10 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-         validGames.forEach(gameName => {
-           updatedLines.push(gameName);
-         });
-         injected = true;
+        validGames.forEach(gameName => {
+          updatedLines.push(gameName);
+        });
+        injected = true;
       }
     }
 
@@ -917,7 +917,7 @@ class ThumbSyncApp {
     if (!isConfirmed) return;
 
     this.addLog(`Removendo '${item.displayName}' do provedor '${item.providerName}'...`);
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
     let currentSection = null;
@@ -925,7 +925,7 @@ class ThumbSyncApp {
 
     for (const line of lines) {
       const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      
+
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
         if (currentSection) {
@@ -938,7 +938,7 @@ class ThumbSyncApp {
         };
         continue;
       }
-      
+
       if (currentSection) {
         if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
           currentSection.games.push({
@@ -965,7 +965,7 @@ class ThumbSyncApp {
 
     let deleted = false;
     const targetProviderNormalized = this.normalizeName(item.providerName);
-    
+
     for (const sec of sections) {
       if (sec.providerNameNormalized === targetProviderNormalized) {
         const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
@@ -1010,7 +1010,7 @@ class ThumbSyncApp {
     if (!isConfirmed) return;
 
     this.addLog("Iniciando limpeza de jogos concluídos...");
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
     let currentSection = null;
@@ -1018,7 +1018,7 @@ class ThumbSyncApp {
 
     for (const line of lines) {
       const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      
+
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
         if (currentSection) sections.push(currentSection);
@@ -1029,7 +1029,7 @@ class ThumbSyncApp {
         };
         continue;
       }
-      
+
       if (currentSection) {
         const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
         currentSection.games.push({
@@ -1047,10 +1047,10 @@ class ThumbSyncApp {
     sections.forEach(sec => {
       sec.games = sec.games.filter(g => {
         if (g.isBlankOrComment) return true;
-        
+
         const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
         const item = this.state.catalogItems.find(ci => ci.id === key);
-        
+
         if (item && item.hasWebp) {
           removedCount++;
           return false;
@@ -1088,7 +1088,7 @@ class ThumbSyncApp {
     if (!isConfirmed) return;
 
     this.addLog(`Removendo ${selectedCount} jogos selecionados...`);
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
     let currentSection = null;
@@ -1096,7 +1096,7 @@ class ThumbSyncApp {
 
     for (const line of lines) {
       const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      
+
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
         if (currentSection) sections.push(currentSection);
@@ -1107,7 +1107,7 @@ class ThumbSyncApp {
         };
         continue;
       }
-      
+
       if (currentSection) {
         const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
         currentSection.games.push({
@@ -1193,7 +1193,7 @@ class ThumbSyncApp {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               `, `
-                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i=>i.hasWebp).length}</span>
+                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i => i.hasWebp).length}</span>
               `)}
               ${this.renderNavItem('list_manager', 'Lista de Jogos', `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1458,7 +1458,7 @@ class ThumbSyncApp {
   renderNavItem(tab, label, iconHtml, badgeHtml = '') {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]' }">
+      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}">
         ${iconHtml}
         <span>${label}</span>
         ${badgeHtml}
@@ -1469,7 +1469,7 @@ class ThumbSyncApp {
   renderMobileNavItem(tab, label, iconHtml) {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500' }">
+      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500'}">
         <div class="px-3 py-1 rounded-full ${isActive ? 'bg-blue-500/10 text-blue-500' : 'text-zinc-400'}">
           ${iconHtml}
         </div>
@@ -1547,10 +1547,10 @@ class ThumbSyncApp {
 
     // Estrutura Base (Skeleton) do Catálogo - renderizada apenas se necessário para evitar perda de foco no Input
     let resultsArea = container.querySelector('#catalog-results-area');
-    
+
     if (!resultsArea) {
       const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
-      
+
       container.innerHTML = `
         <div class="space-y-6 text-left select-none relative">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
@@ -1598,10 +1598,10 @@ class ThumbSyncApp {
       ` : `
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
           ${itemsToShow.map(item => {
-            const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
-            const hasWebp = item.hasWebp;
-            const tag = this.getGameTag(item);
-            const tagHtml = tag === "ao vivo" ? `
+      const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
+      const hasWebp = item.hasWebp;
+      const tag = this.getGameTag(item);
+      const tagHtml = tag === "ao vivo" ? `
               <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
                 <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
                 Ao Vivo
@@ -1613,7 +1613,7 @@ class ThumbSyncApp {
               </span>
             `;
 
-            return `
+      return `
               <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
                 ${hasWebp ? `
                   <img id="thumb-${item.id}" 
@@ -1653,7 +1653,7 @@ class ThumbSyncApp {
                 </div>
               </div>
             `;
-          }).join('')}
+    }).join('')}
         </div>
         ${totalItemsCount > itemsToShow.length ? `
           <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
@@ -1702,7 +1702,7 @@ class ThumbSyncApp {
         }
 
         // Fazer Upload
-        this.addLog(`Preparando upload de '${file.name}' (${Math.round(file.size/1024)} KB) p/ Drive...`);
+        this.addLog(`Preparando upload de '${file.name}' (${Math.round(file.size / 1024)} KB) p/ Drive...`);
         this.state.isLoading = true;
         this.render();
 
@@ -1719,8 +1719,8 @@ class ThumbSyncApp {
 
           // Fazer upload de imagem via Drive CLIENT
           const uploadedFile = await driveClient.uploadImage(fileName, file, targetFolderId);
-          this.addLog(`Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0,8)}...)`);
-          
+          this.addLog(`Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0, 8)}...)`);
+
           await this.syncWithGoogleDrive();
         } catch (uploadError) {
           this.addLog(`Incorreto ao enviar imagem: ${uploadError.message}`);
@@ -1739,7 +1739,7 @@ class ThumbSyncApp {
   renderListManager(container) {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
+
     let currentProvider = "Sem provedor";
     for (const line of lines) {
       const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
@@ -1747,10 +1747,10 @@ class ThumbSyncApp {
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
@@ -1771,7 +1771,7 @@ class ThumbSyncApp {
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
-    
+
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
       if (prov && prov !== "Sem provedor") {
@@ -1883,11 +1883,11 @@ class ThumbSyncApp {
 
                   <div class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-                      const hasWebp = catalogItem?.hasWebp || false;
+      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+      const hasWebp = catalogItem?.hasWebp || false;
 
-                      return `
+      return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
                           <div class="flex items-center gap-2.5">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer">
@@ -1902,7 +1902,7 @@ class ThumbSyncApp {
                           </button>
                         </div>
                       `;
-                    }).join('')}
+    }).join('')}
                   </div>
                 </div>
               `).join('')}
@@ -1913,7 +1913,7 @@ class ThumbSyncApp {
           <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">Bruto de lista.txt</h3>
+              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
               <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
               
               <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
@@ -2121,7 +2121,7 @@ class ThumbSyncApp {
     if (child) child.classList.remove('scale-95');
 
     const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
-    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'Simulado / Local';
+    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Simulado / Local';
 
     const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
     const currentTag = this.getGameTag(item);
@@ -2198,7 +2198,7 @@ class ThumbSyncApp {
 
     const tagLiveBtn = document.getElementById('tag-btn-ao-vivo');
     const tagSlotBtn = document.getElementById('tag-btn-slot');
-    
+
     if (tagLiveBtn) {
       tagLiveBtn.addEventListener('click', () => {
         this.updateGameTag(item.id, 'ao vivo');
@@ -2316,8 +2316,8 @@ class ThumbSyncApp {
 
   showChatBubble(msg) {
     const bubble = document.getElementById('assistant-chat-bubble');
-    const iconEl  = document.getElementById('chat-bubble-icon');
-    const textEl  = document.getElementById('chat-bubble-text');
+    const iconEl = document.getElementById('chat-bubble-icon');
+    const textEl = document.getElementById('chat-bubble-text');
     if (!bubble || !iconEl || !textEl) return;
 
     iconEl.setAttribute('style', msg.bgStyle);
@@ -2382,14 +2382,14 @@ class ThumbSyncApp {
     const btnLogin = document.getElementById('btn-login');
     if (btnLogin) {
       btnLogin.addEventListener('click', () => {
-         this.handleGoogleLogin();
+        this.handleGoogleLogin();
       });
     }
 
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
       btnLogout.addEventListener('click', () => {
-         this.handleGoogleLogout();
+        this.handleGoogleLogout();
       });
     }
 
@@ -2480,209 +2480,209 @@ class ThumbSyncApp {
         });
       }
 
-       const cardElements = document.querySelectorAll('[data-catalog-key]');
-       cardElements.forEach(card => {
-         card.addEventListener('click', (e) => {
-           if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
-           const key = e.currentTarget.getAttribute('data-catalog-key');
-           const item = this.state.catalogItems.find(i => i.id === key);
-           if (item) {
-             this.state.selectedCatalogItem = item;
-             this.renderPreviewModal(item);
-           }
-         });
-       });
+      const cardElements = document.querySelectorAll('[data-catalog-key]');
+      cardElements.forEach(card => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
+          const key = e.currentTarget.getAttribute('data-catalog-key');
+          const item = this.state.catalogItems.find(i => i.id === key);
+          if (item) {
+            this.state.selectedCatalogItem = item;
+            this.renderPreviewModal(item);
+          }
+        });
+      });
 
-       // 1. Observer para Lazy Loading de imagens
-       const imgObserver = new IntersectionObserver((entries) => {
-         entries.forEach(entry => {
-           if (entry.isIntersecting) {
-             const img = entry.target;
-             const key = img.getAttribute('data-catalog-key');
-             const item = this.state.catalogItems.find(i => i.id === key);
-             if (item) {
-               this.loadThumbnailSrc(item, img);
-             }
-             imgObserver.unobserve(img);
-           }
-         });
-       }, { rootMargin: '100px' });
-       
-       document.querySelectorAll('img[data-catalog-key]').forEach(img => imgObserver.observe(img));
-       this.observers.push(imgObserver);
+      // 1. Observer para Lazy Loading de imagens
+      const imgObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const img = entry.target;
+            const key = img.getAttribute('data-catalog-key');
+            const item = this.state.catalogItems.find(i => i.id === key);
+            if (item) {
+              this.loadThumbnailSrc(item, img);
+            }
+            imgObserver.unobserve(img);
+          }
+        });
+      }, { rootMargin: '100px' });
 
-       // 2. Observer para Infinite Scroll (Sentinela)
-       const sentinel = document.getElementById('catalog-sentinel');
-       if (sentinel) {
-         const scrollObserver = new IntersectionObserver((entries) => {
-           if (entries[0].isIntersecting) {
-             // Simular pequeno delay para suavizar a entrada de novos itens se necessário
-             // mas aqui incrementamos e renderizamos imediatamente.
-             this.state.catalogPage++;
-             this.renderActiveTab();
-           }
-         }, { threshold: 0.1 });
-         
-         scrollObserver.observe(sentinel);
-         this.observers.push(scrollObserver);
-       }
+      document.querySelectorAll('img[data-catalog-key]').forEach(img => imgObserver.observe(img));
+      this.observers.push(imgObserver);
+
+      // 2. Observer para Infinite Scroll (Sentinela)
+      const sentinel = document.getElementById('catalog-sentinel');
+      if (sentinel) {
+        const scrollObserver = new IntersectionObserver((entries) => {
+          if (entries[0].isIntersecting) {
+            // Simular pequeno delay para suavizar a entrada de novos itens se necessário
+            // mas aqui incrementamos e renderizamos imediatamente.
+            this.state.catalogPage++;
+            this.renderActiveTab();
+          }
+        }, { threshold: 0.1 });
+
+        scrollObserver.observe(sentinel);
+        this.observers.push(scrollObserver);
+      }
     }
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
-       const btnSyncListOnly = document.getElementById('btn-sync-list-only');
-       if (btnSyncListOnly) {
-         btnSyncListOnly.addEventListener('click', () => {
-           this.syncOnlyList();
-         });
-       }
+      const btnSyncListOnly = document.getElementById('btn-sync-list-only');
+      if (btnSyncListOnly) {
+        btnSyncListOnly.addEventListener('click', () => {
+          this.syncOnlyList();
+        });
+      }
 
-       const btnClearFinished = document.getElementById('btn-clear-finished');
-       if (btnClearFinished) {
-         btnClearFinished.addEventListener('click', () => {
-           this.handleClearFinishedGames();
-         });
-       }
+      const btnClearFinished = document.getElementById('btn-clear-finished');
+      if (btnClearFinished) {
+        btnClearFinished.addEventListener('click', () => {
+          this.handleClearFinishedGames();
+        });
+      }
 
-       const bulkDeleteBtn = document.getElementById('btn-delete-selected');
-       if (bulkDeleteBtn) {
-         bulkDeleteBtn.addEventListener('click', () => {
-           this.handleDeleteSelectedGames();
-         });
-       }
+      const bulkDeleteBtn = document.getElementById('btn-delete-selected');
+      if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', () => {
+          this.handleDeleteSelectedGames();
+        });
+      }
 
-       const selectors = document.querySelectorAll('.game-selector');
-       selectors.forEach(cb => {
-         cb.addEventListener('change', (e) => {
-           const key = e.target.getAttribute('data-select-key');
-           if (e.target.checked) {
-             this.state.selectedListKeys.add(key);
-           } else {
-             this.state.selectedListKeys.delete(key);
-           }
-           
-           const countEl = document.getElementById('selected-count');
-           if (countEl) countEl.innerText = this.state.selectedListKeys.size;
-           
-           if (bulkDeleteBtn) {
-             if (this.state.selectedListKeys.size > 0) {
-               bulkDeleteBtn.classList.remove('hidden');
-               bulkDeleteBtn.classList.add('flex');
-             } else {
-               bulkDeleteBtn.classList.add('hidden');
-               bulkDeleteBtn.classList.remove('flex');
-             }
-           }
-         });
-       });
+      const selectors = document.querySelectorAll('.game-selector');
+      selectors.forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const key = e.target.getAttribute('data-select-key');
+          if (e.target.checked) {
+            this.state.selectedListKeys.add(key);
+          } else {
+            this.state.selectedListKeys.delete(key);
+          }
 
-       const btnAddProvider = document.getElementById('btn-add-provider');
-       const providerDialog = document.getElementById('add-provider-dialog');
-       if (btnAddProvider && providerDialog) {
-         btnAddProvider.addEventListener('click', () => {
-           providerDialog.classList.remove('hidden');
-         });
-       }
+          const countEl = document.getElementById('selected-count');
+          if (countEl) countEl.innerText = this.state.selectedListKeys.size;
 
-       const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
-       if (btnCancelProvider && providerDialog) {
-         btnCancelProvider.addEventListener('click', () => {
-           providerDialog.classList.add('hidden');
-         });
-       }
+          if (bulkDeleteBtn) {
+            if (this.state.selectedListKeys.size > 0) {
+              bulkDeleteBtn.classList.remove('hidden');
+              bulkDeleteBtn.classList.add('flex');
+            } else {
+              bulkDeleteBtn.classList.add('hidden');
+              bulkDeleteBtn.classList.remove('flex');
+            }
+          }
+        });
+      });
 
-       const btnCreateProvider = document.getElementById('dialog-add-provider-confirm');
-       if (btnCreateProvider && providerDialog) {
-         btnCreateProvider.addEventListener('click', () => {
-           const input = document.getElementById('new-provider-name');
-           if (input && input.value.trim() !== '') {
-              const name = input.value.trim();
-              
-              const lines = this.state.listContent.split(/\r?\n/);
-              if (lines.length > 0 && lines[lines.length-1].trim() !== '') {
-                lines.push('');
-              }
-              lines.push(`Provedor: ${name}`);
-              this.saveUpdatedList(lines.join('\n'));
-              providerDialog.classList.add('hidden');
-              input.value = '';
-           }
-         });
-       }
+      const btnAddProvider = document.getElementById('btn-add-provider');
+      const providerDialog = document.getElementById('add-provider-dialog');
+      if (btnAddProvider && providerDialog) {
+        btnAddProvider.addEventListener('click', () => {
+          providerDialog.classList.remove('hidden');
+        });
+      }
 
-       const btnAddGamesMain = document.getElementById('btn-add-games-main');
-       if (btnAddGamesMain) {
-         btnAddGamesMain.addEventListener('click', () => {
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = '';
-           this.renderActiveTab();
-         });
-       }
+      const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
+      if (btnCancelProvider && providerDialog) {
+        btnCancelProvider.addEventListener('click', () => {
+          providerDialog.classList.add('hidden');
+        });
+      }
 
-       const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
-       addGameTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = provider;
-           this.renderActiveTab();
-         });
-       });
+      const btnCreateProvider = document.getElementById('dialog-add-provider-confirm');
+      if (btnCreateProvider && providerDialog) {
+        btnCreateProvider.addEventListener('click', () => {
+          const input = document.getElementById('new-provider-name');
+          if (input && input.value.trim() !== '') {
+            const name = input.value.trim();
 
-       const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
-       if (btnAddGameCancel) {
-         btnAddGameCancel.addEventListener('click', () => {
-           this.state.isAddingGame = false;
-           this.renderActiveTab();
-         });
-       }
+            const lines = this.state.listContent.split(/\r?\n/);
+            if (lines.length > 0 && lines[lines.length - 1].trim() !== '') {
+              lines.push('');
+            }
+            lines.push(`Provedor: ${name}`);
+            this.saveUpdatedList(lines.join('\n'));
+            providerDialog.classList.add('hidden');
+            input.value = '';
+          }
+        });
+      }
 
-       const btnAddGameConfirm = document.getElementById('modal-add-game-confirm');
-       if (btnAddGameConfirm) {
-         btnAddGameConfirm.addEventListener('click', () => {
-           const providerSelect = document.getElementById('modal-add-game-provider-select');
-           const textarea = document.getElementById('new-game-displayNames');
-           
-           const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
-           const textValue = textarea ? textarea.value.trim() : '';
+      const btnAddGamesMain = document.getElementById('btn-add-games-main');
+      if (btnAddGamesMain) {
+        btnAddGamesMain.addEventListener('click', () => {
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = '';
+          this.renderActiveTab();
+        });
+      }
 
-           if (textValue !== '' && selectedProvider) {
-              const gameLines = textValue.split('\n').map(l => l.trim()).filter(Boolean);
-              if (gameLines.length > 0) {
-                this.handleAddGamesToList(selectedProvider, gameLines);
-              }
-              this.state.isAddingGame = false;
-              this.renderActiveTab();
-           }
-         });
-       }
+      const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
+      addGameTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = provider;
+          this.renderActiveTab();
+        });
+      });
 
-       const deleteTriggers = document.querySelectorAll('[data-delete-catalog-key]');
-       deleteTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const key = e.currentTarget.getAttribute('data-delete-catalog-key');
-           const catalogItem = this.state.catalogItems.find(i => i.id === key);
-           if (catalogItem) {
-             this.handleExcludeGameFromList(catalogItem);
-           }
-         });
-       });
+      const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
+      if (btnAddGameCancel) {
+        btnAddGameCancel.addEventListener('click', () => {
+          this.state.isAddingGame = false;
+          this.renderActiveTab();
+        });
+      }
+
+      const btnAddGameConfirm = document.getElementById('modal-add-game-confirm');
+      if (btnAddGameConfirm) {
+        btnAddGameConfirm.addEventListener('click', () => {
+          const providerSelect = document.getElementById('modal-add-game-provider-select');
+          const textarea = document.getElementById('new-game-displayNames');
+
+          const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
+          const textValue = textarea ? textarea.value.trim() : '';
+
+          if (textValue !== '' && selectedProvider) {
+            const gameLines = textValue.split('\n').map(l => l.trim()).filter(Boolean);
+            if (gameLines.length > 0) {
+              this.handleAddGamesToList(selectedProvider, gameLines);
+            }
+            this.state.isAddingGame = false;
+            this.renderActiveTab();
+          }
+        });
+      }
+
+      const deleteTriggers = document.querySelectorAll('[data-delete-catalog-key]');
+      deleteTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-delete-catalog-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.handleExcludeGameFromList(catalogItem);
+          }
+        });
+      });
     }
 
     // EVENTS DE CONFIGURAÇÕES
     if (this.state.activeTab === 'settings') {
       const btnLogins = document.querySelectorAll('.btn-login-action');
       btnLogins.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogin();
-         });
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogin();
+        });
       });
 
       const btnLogouts = document.querySelectorAll('.btn-logout-action');
       btnLogouts.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogout();
-         });
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogout();
+        });
       });
 
       const btnSaveConfig = document.getElementById('btn-save-config');
@@ -2707,12 +2707,12 @@ class ThumbSyncApp {
             this.config.clientId = newClientId;
             this.config.folderName = folderInput.value.trim() || 'Thumbs';
             this.config.listFileName = fileInput.value.trim() || 'lista.txt';
-            
+
             this.saveStateToStorage();
             this.addLog("Configurações atualizadas localmente.");
-            
+
             this.initGISAutomatic();
-            
+
             alert("Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.");
             this.render();
           }
