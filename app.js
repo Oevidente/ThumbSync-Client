@@ -294,6 +294,7 @@ class ThumbSyncApp {
       filterTag: 'todos',
       searchQuery: '',
       customTags: {},
+      syncError: '',
       
       // Modal state
       selectedCatalogItem: null,
@@ -583,6 +584,7 @@ class ThumbSyncApp {
     this.render();
 
     try {
+      this.state.syncError = "";
       this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
       const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
       this.state.thumbsFolderId = folderId;
@@ -678,9 +680,12 @@ class ThumbSyncApp {
       this.syncLocalCatalog();
       this.addLog("Sincronização com o Google Drive concluída.");
     } catch (e) {
+      console.error("Erro na sincronização do Google Drive:", e);
       this.addLog(`Erro ao sincronizar: ${e.message}`);
+      this.state.syncError = e.message;
       this.state.useMock = true;
       this.syncLocalCatalog();
+      alert(`⚠️ Erro ao sincronizar com seu Google Drive:\n\n"${e.message}"\n\nIsso costuma ocorrer pelos seguintes motivos:\n1. A "Google Drive API" não está ATIVADA no painel do seu projeto Google Cloud. Busque por "Google Drive API" no console e clique em "Ativar".\n2. Falta de permissões de escopo (/auth/drive) configuradas na Tela de Consentimento OAuth.\n3. O domínio/origem URL do site (${window.location.origin}) não foi adicionado nas "Origens JavaScript Autorizadas" do seu ID de cliente.`);
     } finally {
       this.state.isLoading = false;
       this.render();
@@ -1205,14 +1210,23 @@ class ThumbSyncApp {
             <!-- Gdrive Connection Widget -->
             <div class="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.05] relative space-y-2">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
+                <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected && !this.state.useMock ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
                 <span class="text-[11px] font-bold text-white tracking-tight">
-                  ${this.state.gdriveConnected ? 'G-Drive Conectado' : 'Modo Off-line'}
+                  ${this.state.gdriveConnected && !this.state.useMock ? 'G-Drive Conectado' : this.state.gdriveConnected && this.state.useMock ? 'Erro de Sincronia' : 'Modo Off-line'}
                 </span>
               </div>
-              <p class="text-[9px] text-zinc-500 font-medium leading-tight">
-                ${this.state.gdriveConnected ? 'Salva direto na sua conta do Google Drive.' : 'Mostrando miniaturas demo locais.'}
+              <p class="text-[9px] text-zinc-500 font-medium leading-tight font-sans">
+                ${this.state.gdriveConnected && !this.state.useMock 
+                  ? 'Salva direto na sua conta do Google Drive.' 
+                  : this.state.gdriveConnected && this.state.useMock 
+                    ? '<span class="text-amber-500 font-bold block mb-0.5">⚠️ Falha no Sincronismo</span>Consulte as Configurações para diagnosticar o erro.' 
+                    : 'Mostrando miniaturas demo locais.'}
               </p>
+              ${this.state.syncError && this.state.gdriveConnected ? `
+                <div class="mt-1.5 text-[9px] text-red-400 font-semibold leading-relaxed font-mono select-text bg-red-500/5 p-1 rounded border border-red-500/10 line-clamp-3" title="${this.state.syncError.replace(/"/g, '&quot;')}">
+                  Erro: ${this.state.syncError}
+                </div>
+              ` : ''}
             </div>
 
             <!-- Side Nav Tabs -->
@@ -1907,14 +1921,42 @@ class ThumbSyncApp {
               </div>
 
               ${this.state.gdriveConnected ? `
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
-                  <div class="min-w-0">
-                    <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
-                    <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
+                <div class="space-y-3">
+                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                    <div class="min-w-0">
+                      <p class="text-xs font-bold ${this.state.useMock ? 'text-amber-500' : 'text-white'}">
+                        ${this.state.useMock ? 'Google Drive - Erro no Sincronismo' : 'Google Drive Sincronizando'}
+                      </p>
+                      <p class="text-[10px] text-zinc-404 font-semibold leading-relaxed mt-0.5 max-w-md">
+                        ${this.state.useMock 
+                          ? 'A autenticação funcionou com sucesso, mas o aplicativo não possui as permissões do Drive ou a API está desativada no seu Cloud.' 
+                          : 'Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.'}
+                      </p>
+                    </div>
+                    <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
+                      Sair do Google Drive
+                    </button>
                   </div>
-                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
-                    Sair do Google Drive
-                  </button>
+
+                  ${this.state.useMock ? `
+                    <div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs space-y-2.5 leading-normal">
+                      <div class="font-bold flex items-center gap-1.5 text-red-400">
+                        <svg class="w-4 h-4 shrink-0 text-red-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                        </svg>
+                        <span>CÓDIGO DE ERRO ENCONTRADO:</span>
+                      </div>
+                      <p class="font-mono text-[10px] bg-black/40 p-3 rounded-xl border border-white/[0.05] whitespace-pre-wrap select-text text-zinc-300 leading-normal">
+                        ${this.state.syncError || "Nenhum debug textual retornado. O Drive retornou erro de requisição."}
+                      </p>
+                      <div class="text-[10px] text-zinc-400 leading-normal space-y-1.5 pt-1.5 border-t border-white/[0.05]">
+                        <p class="font-bold text-zinc-200">Como corrigir este problema no seu Google Cloud Console:</p>
+                        <p><strong>1. Habilitar a API do Google Drive:</strong> Acesse seu console do <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-500 hover:underline font-bold">Google Cloud Console</a>, selecione o seu projeto correspondente ao ID de Cliente, digite na barra de busca superior <code>Google Drive API</code>. Clique no primeiro resultado e selecione o botão <span class="text-emerald-400 font-bold">Ativar / Enable</span>.</p>
+                        <p><strong>2. Configuração de Escopo:</strong> Na aba lateral <code>Tela de Consentimento OAuth</code> (OAuth Consent Screen) no Cloud Console, garanta que seu escopo inclua o <code>.../auth/drive</code> para permitir que o site manipule seus arquivos de mídia e lista.</p>
+                        <p><strong>3. Origens JavaScript Autorizadas:</strong> Certifique-se de que a origem atual do aplicativo (<code>${window.location.origin}</code>) esteja inserida nas configurações de Origens do seu Client ID em <code>Credenciais</code>.</p>
+                      </div>
+                    </div>
+                  ` : ''}
                 </div>
               ` : `
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
