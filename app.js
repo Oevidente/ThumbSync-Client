@@ -1236,9 +1236,11 @@ class ThumbSyncApp {
           <!-- MOBILE HEADER ACTION BAR -->
           <header class="h-16 shrink-0 border-b border-white/[0.05] bg-[#0f0f13] flex items-center justify-between px-4 sm:px-6 select-none relative z-10 w-full">
             <div class="flex items-center gap-2">
-              <span class="text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
-              <span class="px-2 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'}">
-                ${this.state.gdriveConnected ? "GOOGLE DRIVE CONECTADO" : "NÃO CONECTADO"}
+              <span class="hidden sm:inline text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'} flex items-center gap-1.5 shadow-sm">
+                <span class="w-1.5 h-1.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
+                <span class="hidden sm:inline">${this.state.gdriveConnected ? "GOOGLE DRIVE CONECTADO" : "NÃO CONECTADO"}</span>
+                <span class="inline sm:hidden">${this.state.gdriveConnected ? "CONECTADO" : "OFFLINE"}</span>
               </span>
             </div>
 
@@ -1248,7 +1250,7 @@ class ThumbSyncApp {
             </div>
 
             <div class="flex items-center gap-3">
-              <button id="btn-sync-gdrive" class="flex items-center justify-center gap-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all">
+              <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0" title="Sincronizar Google Drive">
                 ${this.state.isLoading ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
@@ -1267,7 +1269,7 @@ class ThumbSyncApp {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
                 `}
-                <span>Sincronizar</span>
+                <span class="hidden sm:inline ml-1.5">Sincronizar</span>
               </button>
             </div>
           </header>
@@ -1695,8 +1697,8 @@ class ThumbSyncApp {
             <h1 class="text-2xl font-black text-white tracking-tight">Gerenciador de lista.txt</h1>
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
-          <div class="flex items-center gap-2 self-start sm:self-auto shrink-0 select-none">
-            <button id="btn-sync-list-only" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer">
+          <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 self-start sm:self-auto shrink-0 select-none">
+            <button id="btn-sync-list-only" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Sincronizar Lista">
               ${this.state.isLoading ? `
                 <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                   <g transform="translate(12,12)">
@@ -1715,27 +1717,30 @@ class ThumbSyncApp {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                 </svg>
               `}
-              <span>Sincronizar Lista</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Sincronizar Lista</span>
             </button>
-            <button id="btn-clear-finished" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer">
+            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
               <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              <span>Limpar Jogos Feitos</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Limpar Jogos Feitos</span>
             </button>
-            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer">
+            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
               <svg class="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              <span>Excluir Selecionados (<span id="selected-count">${this.state.selectedListKeys.size}</span>)</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Excluir Selecionados</span>
+              <span class="bg-red-500/25 text-red-500 sm:bg-red-500/10 sm:text-red-500 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1" id="selected-count-badge">
+                <span id="selected-count">${this.state.selectedListKeys.size}</span>
+              </span>
             </button>
-            <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
+            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span>Novo Provedor</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Novo Provedor</span>
             </button>
-            <button id="btn-add-games-main" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 transition-all cursor-pointer">
+            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
               <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span>Adicionar Jogos</span>
+              <span class="inline-block ml-1.5 text-xs font-bold">Adicionar<span class="hidden sm:inline"> Jogos</span></span>
             </button>
           </div>
         </div>
