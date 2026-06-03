@@ -937,6 +937,81 @@ class ThumbSyncApp {
     this.saveUpdatedList(cleanedFileContent);
   }
 
+  /**
+   * Remove da lista todos os jogos que já possuem arquivo .webp correspondente no Drive.
+   */
+  handleClearFinishedGames() {
+    const isConfirmed = confirm(`Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) no Drive?\nEsta ação atualizará o arquivo ${this.config.listFileName}.`);
+    if (!isConfirmed) return;
+
+    this.addLog("Iniciando limpeza de jogos concluídos...");
+    
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+      
+      if (currentSection) {
+        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          isBlankOrComment: !isGame
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    let removedCount = 0;
+    sections.forEach(sec => {
+      sec.games = sec.games.filter(g => {
+        if (g.isBlankOrComment) return true;
+        
+        const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
+        const item = this.state.catalogItems.find(ci => ci.id === key);
+        
+        if (item && item.hasWebp) {
+          removedCount++;
+          return false;
+        }
+        return true;
+      });
+    });
+
+    if (removedCount === 0) {
+      alert("Nenhum jogo concluído para limpar.");
+      return;
+    }
+
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+
+    const finalLines = [...headerLines];
+    filteredSections.forEach(sec => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => finalLines.push(g.originalLine));
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.saveUpdatedList(cleanedFileContent);
+  }
+
   // --- HTML DRAW PIPELINE ---
   render() {
     const root = document.getElementById('root');
@@ -1498,6 +1573,12 @@ class ThumbSyncApp {
               `}
               <span>Sincronizar Lista</span>
             </button>
+            <button id="btn-clear-finished" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer">
+              <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span>Limpar Jogos Feitos</span>
+            </button>
             <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
               <span>Novo Provedor</span>
@@ -1963,6 +2044,13 @@ class ThumbSyncApp {
        if (btnSyncListOnly) {
          btnSyncListOnly.addEventListener('click', () => {
            this.syncOnlyList();
+         });
+       }
+
+       const btnClearFinished = document.getElementById('btn-clear-finished');
+       if (btnClearFinished) {
+         btnClearFinished.addEventListener('click', () => {
+           this.handleClearFinishedGames();
          });
        }
 
