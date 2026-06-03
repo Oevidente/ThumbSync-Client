@@ -1429,113 +1429,122 @@ class ThumbSyncApp {
     const totalItemsCount = items.length;
     const itemsToShow = items.slice(0, this.state.catalogPage * pageSize);
 
-    const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
-
-    container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
-          <div>
-            <h1 class="text-2xl font-black text-white tracking-tight">Miniaturas</h1>
-            <p class="text-zinc-500 text-xs mt-0.5">Veja e gerencie as fotos .webp do seu catálogo geral no Google Drive.</p>
-          </div>
-        </div>
-
-        <!-- Filtros -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
-            <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
-            <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
-              ${uniqueProviders.map(p => `
-                <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
-            <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-              <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
-              <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Catalogo em Grid -->
-        ${items.length === 0 ? `
-          <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
-        ` : `
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-            ${itemsToShow.map(item => {
-              const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
-              const hasWebp = item.hasWebp;
-              const tag = this.getGameTag(item);
-              const tagHtml = tag === "ao vivo" ? `
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
-                  <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
-                  Ao Vivo
-                </span>
-              ` : `
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
-                  <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
-                  Slot
-                </span>
-              `;
-
-              return `
-                <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
-                  ${hasWebp ? `
-                    <img id="thumb-${item.id}" 
-                         data-catalog-key="${item.id}" 
-                         src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
-                         alt="${item.displayName}" 
-                         class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
-                  ` : `
-                    <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
-                      <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
-                        PENDENTE
-                      </div>
-                      <div class="space-y-1">
-                        <span class="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">${item.providerName}</span>
-                        <h4 class="text-xs font-black text-white leading-tight">${item.displayName}</h4>
-                        <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
-                      </div>
-                    </div>
-                  `}
-
-                  <div class="absolute top-3 right-3 z-20">
-                    ${tagHtml}
-                  </div>
-
-                  <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
-                  
-                  ${hasWebp ? `
-                    <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
-                      <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
-                      <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
-                    </div>
-                  ` : ''}
-
-                  <!-- Visual Drag and Drop Upload Drop-Zone indicators -->
-                  <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
-                    <svg class="w-7 h-7 text-white animate-bounce mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" /></svg>
-                    <span class="text-[9px] font-bold text-white uppercase tracking-wider text-center leading-tight">Solte Webp<br>para Upload</span>
-                  </div>
-                </div>
-              `;
-            }).join('')}
-          </div>
-          ${totalItemsCount > itemsToShow.length ? `
-            <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
-              <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+    // Estrutura Base (Skeleton) do Catálogo - renderizada apenas se necessário para evitar perda de foco no Input
+    let resultsArea = container.querySelector('#catalog-results-area');
+    
+    if (!resultsArea) {
+      const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+      
+      container.innerHTML = `
+        <div class="space-y-6 text-left select-none relative">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
+            <div>
+              <h1 class="text-2xl font-black text-white tracking-tight">Miniaturas</h1>
+              <p class="text-zinc-500 text-xs mt-0.5">Veja e gerencie as fotos .webp do seu catálogo geral no Google Drive.</p>
             </div>
-          ` : ''}
-        `}
-      </div>
+          </div>
+
+          <!-- Filtros -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
+              <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
+              <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
+                ${uniqueProviders.map(p => `
+                  <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
+              <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
+                <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
+                <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="catalog-results-area"></div>
+        </div>
+      `;
+      resultsArea = container.querySelector('#catalog-results-area');
+    }
+
+    // Renderização Dinâmica apenas da Grade de Itens
+    resultsArea.innerHTML = `
+      ${items.length === 0 ? `
+        <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
+      ` : `
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+          ${itemsToShow.map(item => {
+            const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
+            const hasWebp = item.hasWebp;
+            const tag = this.getGameTag(item);
+            const tagHtml = tag === "ao vivo" ? `
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
+                <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
+                Ao Vivo
+              </span>
+            ` : `
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
+                <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
+                Slot
+              </span>
+            `;
+
+            return `
+              <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
+                ${hasWebp ? `
+                  <img id="thumb-${item.id}" 
+                       data-catalog-key="${item.id}" 
+                       src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
+                       alt="${item.displayName}" 
+                       class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
+                ` : `
+                  <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
+                    <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
+                      PENDENTE
+                    </div>
+                    <div class="space-y-1">
+                      <span class="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">${item.providerName}</span>
+                      <h4 class="text-xs font-black text-white leading-tight">${item.displayName}</h4>
+                      <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
+                    </div>
+                  </div>
+                `}
+
+                <div class="absolute top-3 right-3 z-20">
+                  ${tagHtml}
+                </div>
+
+                <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
+                
+                ${hasWebp ? `
+                  <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
+                    <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
+                    <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
+                  </div>
+                ` : ''}
+
+                <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
+                  <svg class="w-7 h-7 text-white animate-bounce mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" /></svg>
+                  <span class="text-[9px] font-bold text-white uppercase tracking-wider text-center leading-tight">Solte Webp<br>para Upload</span>
+                </div>
+              </div>
+            `;
+          }).join('')}
+        </div>
+        ${totalItemsCount > itemsToShow.length ? `
+          <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
+            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ` : ''}
+      `}
     `;
 
     // Registrar Drag and Drop Eventos nos cartões
@@ -2141,41 +2150,43 @@ class ThumbSyncApp {
   }
 
   bindTabEvents() {
-    // EVENTS DE CATALOGO
+    // EVENTS DE CATALOGO - Otimizado com proteção de foco e debounce
     if (this.state.activeTab === 'catalog') {
-       const searchInput = document.getElementById('catalouge-search');
-       
-       this.observers.forEach(obs => obs.disconnect());
-       this.observers = [];
+      const searchInput = document.getElementById('catalouge-search');
+      const providerSelect = document.getElementById('catalouge-provider-filter');
+      const tagSelect = document.getElementById('catalouge-tag-filter');
 
-       if (searchInput) {
-         searchInput.addEventListener('input', (e) => {
-           this.state.searchQuery = e.currentTarget.value;
-           this.state.catalogPage = 1;
-           this.debounceTimer = setTimeout(() => {
-             this.renderActiveTab();
-           }, 300);
-         });
-       }
+      this.observers.forEach(obs => obs.disconnect());
+      this.observers = [];
 
-       const providerSelect = document.getElementById('catalouge-provider-filter');
-       if (providerSelect) {
-         providerSelect.addEventListener('change', (e) => {
-            this.state.filterProvider = e.currentTarget.value;
-            this.state.catalogPage = 1;
-            this.renderActiveTab();
-         });
-       }
+      if (searchInput && !searchInput.dataset.bound) {
+        searchInput.dataset.bound = "true";
+        searchInput.addEventListener('input', (e) => {
+          clearTimeout(this.debounceTimer);
+          this.state.searchQuery = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.debounceTimer = setTimeout(() => this.renderActiveTab(), 300);
+        });
+      }
 
-       const tagSelect = document.getElementById('catalouge-tag-filter');
-       if (tagSelect) {
-         tagSelect.addEventListener('change', (e) => {
-            this.state.filterTag = e.currentTarget.value;
-            this.state.catalogPage = 1;
-            this.saveStateToStorage();
-            this.renderActiveTab();
-         });
-       }
+      if (providerSelect && !providerSelect.dataset.bound) {
+        providerSelect.dataset.bound = "true";
+        providerSelect.addEventListener('change', (e) => {
+          this.state.filterProvider = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.renderActiveTab();
+        });
+      }
+
+      if (tagSelect && !tagSelect.dataset.bound) {
+        tagSelect.dataset.bound = "true";
+        tagSelect.addEventListener('change', (e) => {
+          this.state.filterTag = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.saveStateToStorage();
+          this.renderActiveTab();
+        });
+      }
 
        const cardElements = document.querySelectorAll('[data-catalog-key]');
        cardElements.forEach(card => {
