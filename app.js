@@ -1447,6 +1447,12 @@ class ThumbSyncApp {
 
     this.renderActiveTab();
     this.bindGlobalEvents();
+
+    // Start the proactive assistant messages only once per page load
+    if (!this._assistantStarted) {
+      this._assistantStarted = true;
+      this.startAssistantMessages();
+    }
   }
 
   renderNavItem(tab, label, iconHtml, badgeHtml = '') {
@@ -2212,6 +2218,128 @@ class ThumbSyncApp {
     const child = modal.firstElementChild;
     if (child) child.classList.add('scale-95');
   }
+
+  // ----------------------------------------------------------------
+  // PROACTIVE CHAT BUBBLE — messages that auto-appear from the bot
+  // ----------------------------------------------------------------
+
+  startAssistantMessages() {
+    // Create the floating chat bubble element once, attached to body
+    // so it survives full re-renders of root.innerHTML.
+    if (!document.getElementById('assistant-chat-bubble')) {
+      const el = document.createElement('div');
+      el.id = 'assistant-chat-bubble';
+      el.setAttribute('role', 'status');
+      el.className = 'fixed z-[60] bottom-[8.75rem] right-4 lg:bottom-[5.25rem] lg:right-6 w-[calc(100vw-5rem)] max-w-[272px] pointer-events-none opacity-0 translate-y-3 transition-all duration-500 ease-out select-none';
+      el.innerHTML = `
+        <div class="relative rounded-2xl rounded-br-sm shadow-[0_24px_64px_rgba(0,0,0,0.75)]" style="background:rgba(22,22,28,0.97);backdrop-filter:blur(24px) saturate(1.8);-webkit-backdrop-filter:blur(24px) saturate(1.8);border:1px solid rgba(255,255,255,0.1);">
+          <button id="chat-bubble-close" tabindex="0" aria-label="Fechar dica" class="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-white/15" style="background:rgba(255,255,255,0.07);">
+            <svg class="w-2.5 h-2.5" style="color:#71717a" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <div class="p-4 pr-9 flex gap-3 items-start">
+            <div id="chat-bubble-icon" class="w-7 h-7 rounded-xl shrink-0 flex items-center justify-center mt-0.5"></div>
+            <div>
+              <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#52525b;">Assistente ThumbSync</p>
+              <p id="chat-bubble-text" class="text-[11.5px] leading-relaxed font-medium" style="color:#d4d4d8;"></p>
+            </div>
+          </div>
+        </div>
+        <div class="absolute -bottom-[5px] right-[1.375rem] w-2.5 h-2.5 rotate-45" style="background:rgba(22,22,28,0.97);border-right:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);"></div>
+      `;
+      document.body.appendChild(el);
+
+      const closeBtn = document.getElementById('chat-bubble-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._chatSkipRemaining = true;
+          this.hideChatBubble();
+        });
+      }
+    }
+
+    const MESSAGES = [
+      {
+        bgStyle: 'background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#fbbf24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>`,
+        text: 'Lembre-se: sempre utilize a <strong style="color:#fcd34d;font-weight:900;">mesma conta Google</strong> ao acessar o site, como medida de segurança.',
+        duration: 10000
+      },
+      {
+        bgStyle: 'background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#60a5fa" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>`,
+        text: 'Lista desatualizada? Use o botão <strong style="color:#fff;font-weight:900;">Sincronizar</strong> no topo — não o "Sincronizar Lista" da aba Mural.',
+        duration: 9000
+      },
+      {
+        bgStyle: 'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#34d399" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>`,
+        text: 'Sincronização travou? <strong style="color:#fff;font-weight:900;">Desconecte</strong> sua conta do Google e <strong style="color:#fff;font-weight:900;">reconecte</strong>.',
+        duration: 9000
+      },
+      {
+        bgStyle: 'background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.25);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#c084fc" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>`,
+        text: 'Não achou um jogo? Confira o <strong style="color:#fff;font-weight:900;">provedor</strong> e a <strong style="color:#fff;font-weight:900;">categoria</strong> nos filtros de Miniaturas.',
+        duration: 9000
+      },
+    ];
+
+    let index = 0;
+    this._chatSkipRemaining = false;
+
+    const showNext = () => {
+      if (index >= MESSAGES.length || this._chatSkipRemaining) return;
+
+      const panel = document.getElementById('assistant-panel');
+      const panelIsOpen = panel && !panel.classList.contains('opacity-0');
+      const msg = MESSAGES[index];
+      index++;
+
+      if (!panelIsOpen) {
+        this.showChatBubble(msg);
+      }
+
+      const displayTime = panelIsOpen ? 0 : msg.duration;
+      this._chatHideTimer = setTimeout(() => {
+        this.hideChatBubble(() => {
+          if (index < MESSAGES.length && !this._chatSkipRemaining) {
+            this._chatNextTimer = setTimeout(showNext, 2800);
+          }
+        });
+      }, displayTime);
+    };
+
+    // First message appears after 4 seconds
+    this._chatNextTimer = setTimeout(showNext, 4000);
+  }
+
+  showChatBubble(msg) {
+    const bubble = document.getElementById('assistant-chat-bubble');
+    const iconEl  = document.getElementById('chat-bubble-icon');
+    const textEl  = document.getElementById('chat-bubble-text');
+    if (!bubble || !iconEl || !textEl) return;
+
+    iconEl.setAttribute('style', msg.bgStyle);
+    iconEl.innerHTML = msg.iconHtml;
+    textEl.innerHTML = msg.text;
+
+    // Trigger reflow so the transition animates from initial state
+    void bubble.offsetWidth;
+    bubble.classList.remove('opacity-0', 'translate-y-3', 'pointer-events-none');
+    bubble.classList.add('opacity-100', 'translate-y-0', 'pointer-events-auto');
+  }
+
+  hideChatBubble(callback) {
+    const bubble = document.getElementById('assistant-chat-bubble');
+    if (!bubble) { if (callback) callback(); return; }
+
+    bubble.classList.add('opacity-0', 'translate-y-3', 'pointer-events-none');
+    bubble.classList.remove('opacity-100', 'translate-y-0', 'pointer-events-auto');
+    if (callback) setTimeout(callback, 520);
+  }
+
+  // ----------------------------------------------------------------
 
   toggleAssistant(forceClose = false) {
     const panel = document.getElementById('assistant-panel');
