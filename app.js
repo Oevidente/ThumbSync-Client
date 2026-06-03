@@ -236,36 +236,9 @@ export class DriveApiClient {
 export const driveClient = new DriveApiClient();
 
 
-// --- MOCK DATABASE AND CONFIGURATION ASSETS ---
-export const INITIAL_MOCK_LIST_CONTENT = `Provedor: Pragmatic Play
-Gates of Olympus
-Sweet Bonanza
-Sugar Rush
-Starlight Princess
-Zeus vs Hades
-
-Provedor: PG Soft
-Fortune Tiger
-Fortune Ox
-Fortune Rabbit
-Dragon Hatch
-Midas Golden Touch
-
-Provedor: Sem provedor
-Spaceman
-Aviator`;
-
-export const MOCK_DRIVE_FILES = [
-  { id: 'mock-gates-of-olympus', name: 'Gates of Olympus.webp', mimeType: 'image/webp', size: '124090', modifiedTime: '2026-05-31T14:20:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sweet-bonanza', name: 'Sweet Bonanza.webp', mimeType: 'image/webp', size: '135921', modifiedTime: '2026-05-30T10:15:20Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sugar-rush', name: 'Sugar Rush.webp', mimeType: 'image/webp', size: '95420', modifiedTime: '2026-05-28T16:05:10Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-starlight-princess', name: 'Starlight Princess.webp', mimeType: 'image/webp', size: '112500', modifiedTime: '2026-05-29T11:45:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-fortune-tiger', name: 'Fortune Tiger.webp', mimeType: 'image/webp', size: '89124', modifiedTime: '2026-05-27T08:30:19Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-ox', name: 'Fortune Ox.webp', mimeType: 'image/webp', size: '79421', modifiedTime: '2026-05-26T09:12:00Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-rabbit', name: 'Fortune Rabbit.webp', mimeType: 'image/webp', size: '82400', modifiedTime: '2026-05-25T13:40:40Z', providerName: 'PG Soft' },
-  { id: 'mock-spaceman', name: 'Spaceman.webp', mimeType: 'image/webp', size: '105120', modifiedTime: '2026-05-24T15:20:11Z', providerName: 'Sem provedor' },
-  { id: 'mock-aviator', name: 'Aviator.webp', mimeType: 'image/webp', size: '72590', modifiedTime: '2026-05-23T12:05:00Z', providerName: 'Sem provedor' }
-];
+// --- TEMPLATES AND CONFIGURATION ASSETS ---
+export const DEFAULT_LIST_CONTENT = `Provedor: Exemplo
+Novo Jogo`;
 
 export const PROVIDER_GRADIENTS = {
   'pragmatic play': 'from-[#0a84ff]/30 via-transparent to-black/80',
@@ -301,7 +274,6 @@ class ThumbSyncApp {
   constructor() {
     this.state = {
       activeTab: 'list_manager',
-      useMock: true,
       gdriveConnected: false,
       googleUser: null,
       listContent: '',
@@ -330,7 +302,6 @@ class ThumbSyncApp {
       clientId: '284266654862-bt52sui73h7jbd4tc44u99n0aaiev6og.apps.googleusercontent.com',
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
-      useMock: true
     };
 
     this.imageCache = new Map(); // fileId -> objectURL
@@ -343,7 +314,6 @@ class ThumbSyncApp {
     window.addEventListener('gdrive_unauthorized', () => {
       this.addLog("Sessão Google desautenticada ou expirada.");
       this.state.gdriveConnected = false;
-      this.state.useMock = true;
       this.syncLocalCatalog();
       this.render();
     });
@@ -354,17 +324,14 @@ class ThumbSyncApp {
     const savedClientId = localStorage.getItem('thumbsync_client_id') || defaultClientId;
     const savedFolderName = localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
     const savedListFileName = localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
-    const savedUseMock = localStorage.getItem('thumbsync_use_mock') !== 'false';
-    const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
+    const cachedList = localStorage.getItem('thumbsync_cached_list_content') || DEFAULT_LIST_CONTENT;
 
     this.config = {
       clientId: savedClientId,
       folderName: savedFolderName,
       listFileName: savedListFileName,
-      useMock: savedUseMock
     };
 
-    this.state.useMock = savedUseMock;
     this.state.listContent = cachedList;
 
     const savedToken = localStorage.getItem('gdrive_access_token');
@@ -373,10 +340,7 @@ class ThumbSyncApp {
     if (savedToken && tokenExpiresAt > Date.now()) {
       driveClient.setAccessToken(savedToken);
       this.state.gdriveConnected = true;
-      this.state.useMock = false;
       this.addLog("Sessão herdada do Google Drive carregada com sucesso.");
-    } else {
-      this.addLog("Iniciando no modo de demonstração off-line.");
     }
 
     try {
@@ -393,7 +357,6 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_client_id', this.config.clientId);
     localStorage.setItem('thumbsync_folder_name', this.config.folderName);
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
-    localStorage.setItem('thumbsync_use_mock', this.config.useMock ? 'true' : 'false');
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
     localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
     localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
@@ -463,8 +426,6 @@ class ThumbSyncApp {
           this.addLog("Acesso concedido. Sincronizando dados...");
           driveClient.setAccessToken(response.access_token);
           this.state.gdriveConnected = true;
-          this.state.useMock = false;
-          this.config.useMock = false;
 
           localStorage.setItem('gdrive_access_token', response.access_token);
           localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
@@ -487,8 +448,6 @@ class ThumbSyncApp {
     this.addLog("Sessão Google Drive desconectada.");
     driveClient.setAccessToken('');
     this.state.gdriveConnected = false;
-    this.state.useMock = true;
-    this.config.useMock = true;
     localStorage.removeItem('gdrive_access_token');
     localStorage.removeItem('gdrive_token_expires_at');
     this.saveStateToStorage();
@@ -504,8 +463,8 @@ class ThumbSyncApp {
    * Sincroniza listas e miniaturas com o Google Drive baseado nas configurações do usuário.
    */
   async syncWithGoogleDrive() {
-    if (this.state.useMock || !driveClient.isAuthenticated()) {
-      this.addLog("Sincronizando no modo off-line com cache local.");
+    if (!driveClient.isAuthenticated()) {
+      this.addLog("Sincronizando dados com cache local (Usuário Desconectado).");
       this.syncLocalCatalog();
       this.render();
       return;
@@ -568,9 +527,9 @@ class ThumbSyncApp {
         this.addLog(`Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`);
       } else {
         this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
-        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
+        const newFileId = await driveClient.saveTextFile(this.config.listFileName, DEFAULT_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
-        this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
+        this.state.listContent = DEFAULT_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
       }
 
@@ -579,7 +538,6 @@ class ThumbSyncApp {
       this.addLog("Sincronização com o Google Drive concluída.");
     } catch (e) {
       this.addLog(`Erro ao sincronizar: ${e.message}`);
-      this.state.useMock = true;
       this.syncLocalCatalog();
     } finally {
       this.state.isLoading = false;
@@ -591,9 +549,9 @@ class ThumbSyncApp {
    * Sincroniza apenas o arquivo lista.txt com o Google Drive de forma rápida e independente.
    */
   async syncOnlyList() {
-    if (this.state.useMock || !driveClient.isAuthenticated()) {
-      this.addLog("Sincronizando apenas lista.txt no modo off-line...");
-      const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
+    if (!driveClient.isAuthenticated()) {
+      this.addLog("Sincronizando apenas lista.txt com cache local...");
+      const cachedList = localStorage.getItem('thumbsync_cached_list_content') || DEFAULT_LIST_CONTENT;
       this.state.listContent = cachedList;
       this.syncLocalCatalog();
       this.addLog("Lista.txt reatualizada do cache local.");
@@ -622,9 +580,9 @@ class ThumbSyncApp {
         this.addLog(`Arquivo '${this.config.listFileName}' sincronizado com sucesso (${listText.split('\n').length} linhas).`);
       } else {
         this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
-        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
+        const newFileId = await driveClient.saveTextFile(this.config.listFileName, DEFAULT_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
-        this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
+        this.state.listContent = DEFAULT_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
       }
 
@@ -667,7 +625,7 @@ class ThumbSyncApp {
       });
     }
 
-    const driveFiles = this.state.useMock ? MOCK_DRIVE_FILES : this.state.driveFiles;
+    const driveFiles = this.state.driveFiles;
     const itemsMap = new Map();
 
     listGames.forEach(game => {
@@ -776,46 +734,6 @@ class ThumbSyncApp {
    * Se offline (Mock), tenta puxar o arquivo real no diretório `/mock_data/source/...` com fallback p/ SVG processual.
    */
   async loadThumbnailSrc(item, imgEl) {
-    if (this.state.useMock) {
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
-      }
-      
-      const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
-      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
-      imgEl.src = localUrl;
-      
-      let triedFallback = false;
-      imgEl.onerror = () => {
-        if (!triedFallback) {
-          triedFallback = true;
-          imgEl.src = fallbackUrl;
-          return;
-        }
-        imgEl.onerror = null;
-        imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-            <defs>
-              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#181820" />
-                <stop offset="100%" stop-color="#1f2937" />
-              </linearGradient>
-            </defs>
-            <rect width="200" height="300" fill="url(#g)" />
-            <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-            <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-              ${item.displayName}
-            </text>
-            <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-              MOCK PREVIEW
-            </text>
-          </svg>
-        `);
-      };
-      return;
-    }
-
     if (this.imageCache.has(item.driveFileId)) {
       imgEl.src = this.imageCache.get(item.driveFileId);
       return;
@@ -835,50 +753,6 @@ class ThumbSyncApp {
    * Força download da imagem
    */
   async handleDownloadFile(item) {
-    if (this.state.useMock) {
-      this.addLog(`Download simulado para: ${item.displayName}.webp`);
-      
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
-      }
-      const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
-      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
-
-      try {
-        let response = await fetch(localUrl);
-        if (!response.ok) {
-          response = await fetch(fallbackUrl);
-        }
-        if (!response.ok) throw new Error();
-        const blob = await response.blob();
-        this.triggerBlobDownload(blob, `${item.displayName}.webp`);
-      } catch (e) {
-        // SVG representation of mock preview instead of raw string so it downloads a valid mock image
-        const svgContent = `
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-            <defs>
-              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#181820" />
-                <stop offset="100%" stop-color="#1f2937" />
-              </linearGradient>
-            </defs>
-            <rect width="200" height="300" fill="url(#g)" />
-            <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-            <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-              ${item.displayName}
-            </text>
-            <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-              MOCK PREVIEW
-            </text>
-          </svg>
-        `;
-        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-        this.triggerBlobDownload(blob, `${item.displayName}.svg`);
-      }
-      return;
-    }
-
     if (!item.driveFileId) {
       alert("Esta miniatura não possui imagem (.webp) no Google Drive para download.");
       return;
@@ -918,7 +792,7 @@ class ThumbSyncApp {
       this.state.listContent = newContent;
       this.saveStateToStorage();
 
-      if (!this.state.useMock && driveClient.isAuthenticated() && this.state.listFileId) {
+      if (driveClient.isAuthenticated() && this.state.listFileId) {
         this.addLog(`Escrevendo alterações no arquivo lista.txt do Google Drive...`);
         await driveClient.saveTextFile(this.config.listFileName, newContent, undefined, this.state.listFileId);
         this.addLog(`lista.txt atualizada e gravada com sucesso na sua conta.`);
@@ -1098,11 +972,11 @@ class ThumbSyncApp {
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
                 <span class="text-[11px] font-bold text-white tracking-tight">
-                  ${this.state.gdriveConnected ? 'G-Drive Conectado' : 'Modo Off-line'}
+                  ${this.state.gdriveConnected ? 'G-Drive Conectado' : 'Desconectado'}
                 </span>
               </div>
               <p class="text-[9px] text-zinc-500 font-medium leading-tight">
-                ${this.state.gdriveConnected ? 'Salva direto na sua conta do Google Drive.' : 'Mostrando miniaturas demo locais.'}
+                ${this.state.gdriveConnected ? 'Salva direto na sua conta do Google Drive.' : 'Conecte sua conta para gerenciar miniaturas.'}
               </p>
             </div>
 
@@ -1157,8 +1031,8 @@ class ThumbSyncApp {
           <header class="h-16 shrink-0 border-b border-white/[0.05] bg-[#0f0f13] flex items-center justify-between px-4 sm:px-6 select-none relative z-10 w-full">
             <div class="flex items-center gap-2">
               <span class="text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
-              <span class="px-2 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.useMock ? 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/15' : 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15'}">
-                ${this.state.useMock ? "OFF-LINE DEMO" : "GOOGLE DRIVE CONECTADO"}
+              <span class="px-2 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'}">
+                ${this.state.gdriveConnected ? "GOOGLE DRIVE CONECTADO" : "NÃO CONECTADO"}
               </span>
             </div>
 
@@ -1588,13 +1462,6 @@ class ThumbSyncApp {
       });
     }
 
-    // 4. Se estiver no modo off-line / Mock, garante os de mock tradicionais
-    if (this.state.useMock) {
-      modalProvidersSet.add("PG Soft");
-      modalProvidersSet.add("Pragmatic Play");
-    }
-
-    // Se estiver totalmente vazio (por garantia extrema), adiciona um padrão ou Sem Provedor
     if (modalProvidersSet.size === 0) {
       modalProvidersSet.add("PG Soft");
       modalProvidersSet.add("Pragmatic Play");
@@ -1780,9 +1647,9 @@ class ThumbSyncApp {
                   </div>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b] animate-pulse'}"></span>
+                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'}"></span>
                   <span class="text-xs font-bold text-zinc-400">
-                    ${this.state.gdriveConnected ? 'Conectado' : 'Modo Demo'}
+                    ${this.state.gdriveConnected ? 'Conectado' : 'Desconectado'}
                   </span>
                 </div>
               </div>
@@ -1801,7 +1668,7 @@ class ThumbSyncApp {
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                   <div class="max-w-md">
                     <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
-                    <p class="text-[10px] text-zinc-405 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
+                    <p class="text-[10px] text-zinc-500 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
                   </div>
                   <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
