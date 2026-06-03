@@ -1,5 +1,5 @@
 {
-  "name": "Remix: ThumbSync Client",
+  "name": "ThumbSync Client",
   "description": "Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente baixar os webp dos jogos diretamente pelo site com integração ao Google Drive. Também tem a função de adicionar jogos na lista que agora vai ficar armazenada no destino (se é que é possível editar diretamente um arquivo txt que está no Google drive).",
   "requestFramePermissions": [],
   "majorCapabilities": [

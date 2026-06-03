@@ -237,35 +237,7 @@ export const driveClient = new DriveApiClient();
 
 
 // --- MOCK DATABASE AND CONFIGURATION ASSETS ---
-export const INITIAL_MOCK_LIST_CONTENT = `Provedor: Pragmatic Play
-Gates of Olympus
-Sweet Bonanza
-Sugar Rush
-Starlight Princess
-Zeus vs Hades
-
-Provedor: PG Soft
-Fortune Tiger
-Fortune Ox
-Fortune Rabbit
-Dragon Hatch
-Midas Golden Touch
-
-Provedor: Sem provedor
-Spaceman
-Aviator`;
-
-export const MOCK_DRIVE_FILES = [
-  { id: 'mock-gates-of-olympus', name: 'Gates of Olympus.webp', mimeType: 'image/webp', size: '124090', modifiedTime: '2026-05-31T14:20:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sweet-bonanza', name: 'Sweet Bonanza.webp', mimeType: 'image/webp', size: '135921', modifiedTime: '2026-05-30T10:15:20Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-sugar-rush', name: 'Sugar Rush.webp', mimeType: 'image/webp', size: '95420', modifiedTime: '2026-05-28T16:05:10Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-starlight-princess', name: 'Starlight Princess.webp', mimeType: 'image/webp', size: '112500', modifiedTime: '2026-05-29T11:45:00Z', providerName: 'Pragmatic Play' },
-  { id: 'mock-fortune-tiger', name: 'Fortune Tiger.webp', mimeType: 'image/webp', size: '89124', modifiedTime: '2026-05-27T08:30:19Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-ox', name: 'Fortune Ox.webp', mimeType: 'image/webp', size: '79421', modifiedTime: '2026-05-26T09:12:00Z', providerName: 'PG Soft' },
-  { id: 'mock-fortune-rabbit', name: 'Fortune Rabbit.webp', mimeType: 'image/webp', size: '82400', modifiedTime: '2026-05-25T13:40:40Z', providerName: 'PG Soft' },
-  { id: 'mock-spaceman', name: 'Spaceman.webp', mimeType: 'image/webp', size: '105120', modifiedTime: '2026-05-24T15:20:11Z', providerName: 'Sem provedor' },
-  { id: 'mock-aviator', name: 'Aviator.webp', mimeType: 'image/webp', size: '72590', modifiedTime: '2026-05-23T12:05:00Z', providerName: 'Sem provedor' }
-];
+export const INITIAL_MOCK_LIST_CONTENT = ``;
 
 export const PROVIDER_GRADIENTS = {
   'pragmatic play': 'from-[#0a84ff]/30 via-transparent to-black/80',
@@ -349,7 +321,7 @@ class ThumbSyncApp {
       this.addLog("Sessão Google desautenticada ou expirada.");
       this.state.gdriveConnected = false;
       this.state.useMock = true;
-      this.syncMockWithLocalFiles();
+      this.clearMockDataAndSync();
     });
   }
 
@@ -392,7 +364,7 @@ class ThumbSyncApp {
     this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
 
     if (this.state.useMock || !this.state.gdriveConnected) {
-      this.syncMockWithLocalFiles();
+      this.clearMockDataAndSync();
     } else {
       this.syncLocalCatalog();
     }
@@ -596,7 +568,7 @@ class ThumbSyncApp {
     this.imageCache.forEach(url => URL.revokeObjectURL(url));
     this.imageCache.clear();
 
-    this.syncMockWithLocalFiles();
+    this.clearMockDataAndSync();
   }
 
   /**
@@ -715,67 +687,12 @@ class ThumbSyncApp {
     }
   }
 
-  async syncMockWithLocalFiles() {
-    this.state.isLoading = true;
-    this.render();
-    try {
-      // 1. Fetch fresh list from mock_data ONLY if we don't have user edits
-      if (!this.state.listContent || this.state.listContent.includes("Zeus vs Hades")) {
-        const res = await fetch('./mock_data/lista.txt');
-        if (res.ok) {
-          this.state.listContent = await res.text();
-          this.saveStateToStorage();
-        }
-      }
-
-      // 2. Determine games from the list
-      const lines = this.state.listContent.split(/\r?\n/);
-      let currentProvider = "Sem provedor";
-      const listGames = [];
-      const driveFiles = [];
-      
-      for (const line of lines) {
-        const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-        if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
-        const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
-        if (providerMatch) {
-           currentProvider = providerMatch[1].trim();
-           continue;
-        }
-        if (/^provedor\s*:/i.test(clean)) continue;
-        listGames.push({ displayName: clean, providerName: currentProvider });
-      }
-
-      // 3. For each game, sequentially do a HEAD request to see if it is in the provider's folder
-      for (const game of listGames) {
-        const providerPath = game.providerName === "Sem provedor" ? "" : game.providerName + "/";
-        const url = `./mock_data/source/${providerPath}${game.displayName}.webp`;
-        try {
-          const req = await fetch(url, { method: 'HEAD' });
-          if (req.ok) {
-            driveFiles.push({
-              id: 'mock-' + this.normalizeName(game.displayName),
-              name: game.displayName + '.webp',
-              mimeType: 'image/webp',
-              size: '100000',
-              modifiedTime: new Date().toISOString(),
-              providerName: game.providerName
-            });
-          }
-        } catch (e) {}
-      }
-
-      // 4. Overwrite system's mock tracking
-      this.state.driveFiles = driveFiles;
-      
-      // We do not save mock file array to storage, we just trigger syncLocalCatalog
-      this.syncLocalCatalog();
-    } catch (e) {
-      console.error(e);
-    } finally {
-      this.state.isLoading = false;
-      this.render();
+  clearMockDataAndSync() {
+    this.state.driveFiles = [];
+    if (this.state.useMock && !this.state.gdriveConnected) {
+       this.state.listContent = "";
     }
+    this.syncLocalCatalog();
   }
 
   /**
@@ -921,43 +838,25 @@ class ThumbSyncApp {
    * Se offline (Mock), tenta puxar o arquivo real no diretório `/mock_data/source/...` com fallback p/ SVG processual.
    */
   async loadThumbnailSrc(item, imgEl) {
-    if (this.state.useMock) {
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
-      }
-      
-      const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
-      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
-      imgEl.src = localUrl;
-      
-      let triedFallback = false;
-      imgEl.onerror = () => {
-        if (!triedFallback) {
-          triedFallback = true;
-          imgEl.src = fallbackUrl;
-          return;
-        }
-        imgEl.onerror = null;
-        imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-            <defs>
-              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#181820" />
-                <stop offset="100%" stop-color="#1f2937" />
-              </linearGradient>
-            </defs>
-            <rect width="200" height="300" fill="url(#g)" />
-            <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-            <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-              ${item.displayName}
-            </text>
-            <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-              MOCK PREVIEW
-            </text>
-          </svg>
-        `);
-      };
+    if (this.state.useMock || !this.state.gdriveConnected) {
+      imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
+          <defs>
+            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#181820" />
+              <stop offset="100%" stop-color="#1f2937" />
+            </linearGradient>
+          </defs>
+          <rect width="200" height="300" fill="url(#g)" />
+          <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
+          <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
+            ${item.displayName}
+          </text>
+          <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
+            SEM IMAGEM
+          </text>
+        </svg>
+      `);
       return;
     }
 
@@ -980,47 +879,28 @@ class ThumbSyncApp {
    * Força download da imagem
    */
   async handleDownloadFile(item) {
-    if (this.state.useMock) {
-      this.addLog(`Download simulado para: ${item.displayName}.webp`);
-      
-      let providerPath = "";
-      if (item.providerName && item.providerName !== "Sem provedor") {
-        providerPath = item.providerName + "/";
-      }
-      const localUrl = `./mock_data/source/${providerPath}${item.displayName}.webp`;
-      const fallbackUrl = `./mock_data/source/${item.displayName}.webp`;
-
-      try {
-        let response = await fetch(localUrl);
-        if (!response.ok) {
-          response = await fetch(fallbackUrl);
-        }
-        if (!response.ok) throw new Error();
-        const blob = await response.blob();
-        this.triggerBlobDownload(blob, `${item.displayName}.webp`);
-      } catch (e) {
-        // SVG representation of mock preview instead of raw string so it downloads a valid mock image
-        const svgContent = `
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-            <defs>
-              <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-                <stop offset="0%" stop-color="#181820" />
-                <stop offset="100%" stop-color="#1f2937" />
-              </linearGradient>
-            </defs>
-            <rect width="200" height="300" fill="url(#g)" />
-            <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-            <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-              ${item.displayName}
-            </text>
-            <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-              MOCK PREVIEW
-            </text>
-          </svg>
-        `;
-        const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-        this.triggerBlobDownload(blob, `${item.displayName}.svg`);
-      }
+    if (this.state.useMock || !this.state.gdriveConnected) {
+      this.addLog(`Download indisponível no modo off-line para: ${item.displayName}`);
+      const svgContent = `
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
+          <defs>
+            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+              <stop offset="0%" stop-color="#181820" />
+              <stop offset="100%" stop-color="#1f2937" />
+            </linearGradient>
+          </defs>
+          <rect width="200" height="300" fill="url(#g)" />
+          <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
+          <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
+            ${item.displayName}
+          </text>
+          <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
+            SEM IMAGEM
+          </text>
+        </svg>
+      `;
+      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
+      this.triggerBlobDownload(blob, `${item.displayName}.svg`);
       return;
     }
 
@@ -1082,7 +962,7 @@ class ThumbSyncApp {
         this.syncLocalCatalog();
       } else {
         this.addLog(`lista.txt gravada localmente com sucesso.`);
-        this.syncMockWithLocalFiles();
+        this.clearMockDataAndSync();
       }
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
@@ -1154,7 +1034,7 @@ class ThumbSyncApp {
             if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
               new Notification('ThumbSync Atualizado', {
                 body: listUpdated ? 'A lista de jogos foi atualizada por outro usuário.' : 'As tags dos jogos foram atualizadas.',
-                icon: 'favicon.png'
+                icon: '/favicon.png'
               });
             }
           }
@@ -1825,13 +1705,7 @@ class ThumbSyncApp {
       });
     }
 
-    // 4. Se estiver no modo off-line / Mock, garante os de mock tradicionais
-    if (this.state.useMock) {
-      modalProvidersSet.add("PG Soft");
-      modalProvidersSet.add("Pragmatic Play");
-    }
-
-    // Se estiver totalmente vazio (por garantia extrema), adiciona um padrão ou Sem Provedor
+    // Se estiver totalmente vazio (por garantia extrema), adiciona alguns padrões para facilitar
     if (modalProvidersSet.size === 0) {
       modalProvidersSet.add("PG Soft");
       modalProvidersSet.add("Pragmatic Play");
@@ -2342,7 +2216,7 @@ class ThumbSyncApp {
          btnSyncListOnly.addEventListener('click', () => {
            if (this.state.useMock || !this.state.gdriveConnected) {
              this.addLog('Atualizando a partir dos arquivos locais...');
-             this.syncMockWithLocalFiles();
+             this.clearMockDataAndSync();
            } else {
              this.syncWithGoogleDrive();
            }

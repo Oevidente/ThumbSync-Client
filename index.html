@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/png" href="favicon.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>ThumbSync</title>
     <!-- Configurações PWA -->
@@ -12,7 +12,6 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <meta name="apple-mobile-web-app-title" content="ThumbSync" />
-    <link rel="apple-touch-icon" href="icon-192.png" />
     
     <!-- Tailwind CSS v3 CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -61,146 +60,20 @@
   </head>
   <body>
     <div id="root"></div>
-
-    <!-- Banner de Instalação do PWA -->
-    <div id="pwa-install-banner" class="fixed bottom-6 left-6 right-6 md:left-auto md:right-6 md:w-96 bg-[#121214] border border-zinc-800 p-4 rounded-xl shadow-2xl z-50 transform translate-y-12 opacity-0 transition-all duration-500 pointer-events-none flex flex-col gap-3">
-      <div class="flex items-start justify-between">
-        <div class="flex gap-3">
-          <img src="icon-192.png" alt="ThumbSync Logo" class="w-12 h-12 rounded-lg object-cover border border-zinc-700 shadow-md" />
-          <div>
-            <h4 class="text-sm font-bold text-white font-sans">Instalar ThumbSync</h4>
-            <p class="text-xs text-zinc-400 mt-1 leading-relaxed">Instale para acessar mais rápido, gerenciar capas offline e economizar dados de navegação.</p>
-          </div>
-        </div>
-        <button id="pwa-close-btn" class="text-zinc-500 hover:text-zinc-300 p-1 rounded-lg hover:bg-zinc-800 transition-colors" aria-label="Fechar">
-          <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-        </button>
-      </div>
-      
-      <!-- Estilo de Instalação Nativo (Chrome/Android/Windows/Edge, etc) -->
-      <div id="pwa-prompt-container" class="flex justify-end gap-2 mt-1">
-        <button id="pwa-btn-dismiss" class="px-3 py-1.5 text-xs text-zinc-400 hover:text-white transition-colors">Depois</button>
-        <button id="pwa-btn-install" class="px-4 py-1.5 text-xs font-bold bg-[#10b981] hover:bg-[#059669] text-white rounded-lg transition-all duration-200 shadow-lg shadow-[#10b981]/10 flex items-center gap-1.5">
-          <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          Instalar App
-        </button>
-      </div>
-
-      <!-- Instruções Específicas para iOS Safari -->
-      <div id="pwa-ios-instructions" class="hidden text-xs text-zinc-300 bg-zinc-900 border border-zinc-800 p-3 rounded-lg flex flex-col gap-2 mt-1">
-        <div class="font-semibold text-zinc-200">Como instalar no seu iPhone/iPad:</div>
-        <ol class="list-decimal list-inside space-y-1.5 text-zinc-400">
-          <li>Pressione o botão de <span class="font-bold text-white inline-flex items-center bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">Compartilhar <svg class="inline w-3.5 h-3.5 ml-1 mb-0.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8.684 10.742l1.996-1.198M10.512 11.75l1.996 1.198m3.99-1.198l-1.996-1.198M15.012 11.75l-1.996 1.198M12 14v4m0 0l-4-4m4 4l4-4M12 4v10"/></svg></span> abaixo no Safari.</li>
-          <li>Role a lista de opções e selecione <span class="font-bold text-white bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700">Adicionar à Tela de Início</span>.</li>
-        </ol>
-      </div>
-    </div>
-
     <script type="module" src="app.js"></script>
     <script>
-      // 1. Registro do Service Worker
       if ('serviceWorker' in navigator) {
         window.addEventListener('load', () => {
-          navigator.serviceWorker.register('sw.js').then(registration => {
+          navigator.serviceWorker.register('/sw.js').then(registration => {
             console.log('SW registered: ', registration);
           }).catch(registrationError => {
             console.log('SW registration failed: ', registrationError);
           });
         });
       }
-      
       if ('Notification' in window && Notification.permission === 'default') {
         Notification.requestPermission();
       }
-
-      // 2. Lógica Independente de Instalação PWA
-      (function() {
-        let deferredPrompt = null;
-        const banner = document.getElementById('pwa-install-banner');
-        const closeBtn = document.getElementById('pwa-close-btn');
-        const dismissBtn = document.getElementById('pwa-btn-dismiss');
-        const installBtn = document.getElementById('pwa-btn-install');
-        const promptContainer = document.getElementById('pwa-prompt-container');
-        const iosInstructions = document.getElementById('pwa-ios-instructions');
-
-        // Cookies/LocalStorage para não ficar repetindo o banner se rejeitado
-        const isDismissed = () => localStorage.getItem('pwa_install_dismissed') === 'true';
-        const dismissPWA = () => {
-          localStorage.setItem('pwa_install_dismissed', 'true');
-          hideBanner();
-        };
-
-        const showBanner = () => {
-          if (isDismissed()) return;
-          banner.classList.remove('translate-y-12', 'opacity-0', 'pointer-events-none');
-          banner.classList.add('translate-y-0', 'opacity-100', 'pointer-events-auto');
-        };
-
-        const hideBanner = () => {
-          banner.classList.remove('translate-y-0', 'opacity-100', 'pointer-events-auto');
-          banner.classList.add('translate-y-12', 'opacity-0', 'pointer-events-none');
-        };
-
-        // Descobrir se já roda em modo Standalone (App de fato)
-        const isStandalone = window.matchMedia('(display-mode: standalone)').matches || ('standalone' in window.navigator && window.navigator.standalone);
-
-        if (isStandalone) {
-          console.log('ThumbSync já está rodando de forma standalone.');
-          return; 
-        }
-
-        // Suporte iOS Safari
-        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-        const isSafari = /^((?!chrome|android).)*safari/i.test(navigator.userAgent);
-
-        if (isIOS && isSafari && !isStandalone) {
-          // Revelar banner iOS (exibe instruções em vez de prompt nativo)
-          promptContainer.classList.add('hidden');
-          iosInstructions.classList.remove('hidden');
-          
-          // Mostrar banner gentilmente 3.5 segundos depois para dar tempo do app carregar
-          setTimeout(showBanner, 3500);
-        }
-
-        // Ouvir pelo gatilho nativo de instalação das plataformas suportadas
-        window.addEventListener('beforeinstallprompt', (e) => {
-          console.log('Evento beforeinstallprompt detectado! O App é instalável.');
-          // Previne o prompt automático incômodo
-          e.preventDefault();
-          // Guarda o evento para uso manual
-          deferredPrompt = e;
-          
-          // Mostra o nosso banner bonito temporizado após 2.5 segundos
-          setTimeout(showBanner, 2500);
-        });
-
-        // Tratar o clique no botão Instalar do banner
-        installBtn.addEventListener('click', async () => {
-          if (!deferredPrompt) return;
-          
-          hideBanner();
-          deferredPrompt.prompt();
-          
-          const { outcome } = await deferredPrompt.userChoice;
-          console.log(`PWA install choice: ${outcome}`);
-          
-          if (outcome === 'accepted') {
-            localStorage.setItem('pwa_install_dismissed', 'true');
-          }
-          deferredPrompt = null;
-        });
-
-        // Ouvir quando o app foi instalado com sucesso
-        window.addEventListener('appinstalled', () => {
-          console.log('ThumbSync foi instalado com sucesso!');
-          localStorage.setItem('pwa_install_dismissed', 'true');
-          hideBanner();
-        });
-
-        // Ouvir fechamentos voluntários do Banner
-        closeBtn.addEventListener('click', dismissPWA);
-        dismissBtn.addEventListener('click', dismissPWA);
-      })();
     </script>
   </body>
 </html>
