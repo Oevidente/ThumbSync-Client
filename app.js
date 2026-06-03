@@ -1326,6 +1326,114 @@ class ThumbSyncApp {
         </div>
       </div>
 
+      <!-- ============================================================ -->
+      <!-- FLOATING ASSISTANT WIDGET                                   -->
+      <!-- ============================================================ -->
+
+      <!-- Bubble Trigger Button -->
+      <button id="assistant-bubble" aria-label="Dicas e avisos do desenvolvedor" class="fixed z-50 bottom-20 right-4 lg:bottom-6 lg:right-6 w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_32px_rgba(59,130,246,0.45)] transition-all duration-300 active:scale-95 hover:scale-105 focus:outline-none" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: 1px solid rgba(255,255,255,0.15);">
+        <!-- Pulsing green dot — shown only on first visit -->
+        ${!localStorage.getItem('thumbsync_assistant_opened') ? `
+          <span class="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-[#0c0c0e]"></span>
+          </span>
+        ` : ''}
+        <!-- Icon: sparkle / help -->
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        </svg>
+      </button>
+
+      <!-- Assistant Popover Panel -->
+      <div id="assistant-panel" class="fixed z-50 bottom-[5.5rem] right-4 lg:bottom-20 lg:right-6 w-[calc(100vw-2rem)] max-w-sm pointer-events-none opacity-0 scale-95 origin-bottom-right transition-all duration-300">
+        <div class="rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.7)] overflow-hidden" style="background: rgba(22,22,28,0.92); backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8); border: 1px solid rgba(255,255,255,0.08);">
+
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/[0.06]">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-2xl flex items-center justify-center shadow-sm" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div>
+                <p class="text-[13px] font-black text-white leading-none tracking-tight">Assistente</p>
+                <p class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-0.5">ThumbSync · Dev Notes</p>
+              </div>
+            </div>
+            <button id="assistant-close" class="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 text-zinc-500 hover:text-white cursor-pointer" style="border: 1px solid rgba(255,255,255,0.07);">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div class="p-5 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+
+            <!-- === Developer Security Notice === -->
+            <div class="rounded-2xl p-4 space-y-2" style="background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2);">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <span class="text-[10px] font-black text-amber-400 uppercase tracking-wider">Aviso de Segurança</span>
+              </div>
+              <p class="text-[11px] text-amber-200/80 leading-relaxed font-medium">
+                Sempre utilize a <strong class="text-amber-300 font-black">mesma conta Google</strong> ao acessar o site. Apenas aquela conta possui permissão para se conectar, como medida de segurança.
+              </p>
+            </div>
+
+            <!-- === Tips Section === -->
+            <div class="space-y-1">
+              <p class="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1 pb-1">Dicas de uso</p>
+
+              <!-- Tip 1 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.2);">
+                  <svg class="w-3.5 h-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Se a lista parecer desatualizada, use o botão <strong class="text-white font-bold">Sincronizar</strong> no topo do site — não o botão "Sincronizar Lista" da aba Mural.
+                </p>
+              </div>
+
+              <!-- Tip 2 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.18);">
+                  <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Se nem isso funcionar, <strong class="text-white font-bold">desconecte</strong> sua conta do Google e <strong class="text-white font-bold">reconecte</strong>.
+                </p>
+              </div>
+
+              <!-- Tip 3 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.18);">
+                  <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Não encontrou um jogo em <strong class="text-white font-bold">Miniaturas</strong>? Verifique se o <strong class="text-white font-bold">provedor</strong> e a <strong class="text-white font-bold">categoria (tag)</strong> estão corretos nos filtros, ou se o nome não está com erro de digitação.
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Footer -->
+          <div class="px-5 py-3.5 border-t border-white/[0.04] flex items-center justify-center">
+            <p class="text-[9px] text-zinc-700 font-bold uppercase tracking-widest">ThumbSync · Assistente do Desenvolvedor</p>
+          </div>
+
+        </div>
+      </div>
+
       <!-- Image Preview Modal -->
       <div id="preview-modal" class="fixed inset-0 z-40 bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-none opacity-0 transition-all duration-300">
         <div class="w-[92%] max-w-sm bg-[#121215] border border-white/[0.08] p-5 sm:p-6 rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.8)] scale-95 transition-transform duration-300 flex flex-col relative max-h-[85vh]">
@@ -2105,6 +2213,26 @@ class ThumbSyncApp {
     if (child) child.classList.add('scale-95');
   }
 
+  toggleAssistant(forceClose = false) {
+    const panel = document.getElementById('assistant-panel');
+    if (!panel) return;
+
+    const isOpen = !panel.classList.contains('opacity-0');
+
+    if (forceClose || isOpen) {
+      panel.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+    } else {
+      panel.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
+
+      // Mark as opened — remove the pulsing notification dot permanently
+      if (!localStorage.getItem('thumbsync_assistant_opened')) {
+        localStorage.setItem('thumbsync_assistant_opened', 'true');
+        const dot = document.querySelector('#assistant-bubble span.animate-ping')?.closest('span.flex');
+        if (dot) dot.remove();
+      }
+    }
+  }
+
   bindGlobalEvents() {
     const navButtons = document.querySelectorAll('aside nav button, [data-mobile-tab-btn]');
     navButtons.forEach(btn => {
@@ -2152,6 +2280,37 @@ class ThumbSyncApp {
         this.closePreviewModal();
       });
     }
+    // ---- ASSISTANT WIDGET EVENTS ----
+    const assistantBubble = document.getElementById('assistant-bubble');
+    const assistantClose = document.getElementById('assistant-close');
+
+    if (assistantBubble) {
+      assistantBubble.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleAssistant();
+      });
+    }
+
+    if (assistantClose) {
+      assistantClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleAssistant(true);
+      });
+    }
+
+    // Close panel when clicking outside of it
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('assistant-panel');
+      const bubble = document.getElementById('assistant-bubble');
+      if (
+        panel &&
+        !panel.classList.contains('opacity-0') &&
+        !panel.contains(e.target) &&
+        bubble && !bubble.contains(e.target)
+      ) {
+        this.toggleAssistant(true);
+      }
+    }, { capture: false });
   }
 
   bindTabEvents() {
