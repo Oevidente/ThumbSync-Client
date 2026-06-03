@@ -1331,7 +1331,7 @@ class ThumbSyncApp {
         this.syncLocalCatalog();
       } else {
         this.addLog(`lista.txt gravada localmente com sucesso.`);
-        this.syncMockWithLocalFiles();
+        this.syncLocalCatalog();
       }
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
@@ -2435,6 +2435,26 @@ class ThumbSyncApp {
         <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
           
           <div class="lg:col-span-2 space-y-6">
+            <!-- PWA Install Section -->
+            ${this.state.canInstall ? `
+              <div class="rounded-3xl bg-emerald-500/5 border border-emerald-500/10 p-6 space-y-4">
+                <div class="flex items-center gap-3">
+                  <div class="w-9 h-9 rounded-xl bg-emerald-600/10 border border-emerald-500/20 flex items-center justify-center text-emerald-500 shadow-sm">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h3 class="text-xs font-black text-white uppercase tracking-wider">Instalar Aplicativo</h3>
+                    <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block mt-0.5">Versão Nativa Android</span>
+                  </div>
+                </div>
+                <button id="btn-pwa-install" class="w-full py-2.5 px-4 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer transition-all shadow-lg shadow-emerald-600/20">
+                  Adicionar à Tela de Início
+                </button>
+              </div>
+            ` : ''}
+
             <!-- Google Login Card in Settings for Mobile & Desktop -->
             <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
               <div class="flex items-center justify-between">
@@ -2917,6 +2937,19 @@ class ThumbSyncApp {
           this.handleGoogleLogout();
         });
       });
+
+      const btnInstall = document.getElementById('btn-pwa-install');
+      if (btnInstall && this.deferredPrompt) {
+        btnInstall.addEventListener('click', async () => {
+          this.deferredPrompt.prompt();
+          const { outcome } = await this.deferredPrompt.userChoice;
+          if (outcome === 'accepted') {
+            this.state.canInstall = false;
+            this.deferredPrompt = null;
+            this.render();
+          }
+        });
+      }
 
       const btnSaveConfig = document.getElementById('btn-save-config');
       if (btnSaveConfig) {
