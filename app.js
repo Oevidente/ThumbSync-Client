@@ -1233,7 +1233,78 @@ class ThumbSyncApp {
 
         <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
         ${!this.state.gdriveConnected ? `
-        <div id="disconnected-banner" style="
+        <!-- Overlay + card: visível só no desktop (>= 1024px) -->
+        <div id="disconnected-overlay" style="
+          position: fixed;
+          inset: 0;
+          z-index: 9998;
+          background: rgba(0,0,0,0.72);
+          backdrop-filter: blur(3px);
+          -webkit-backdrop-filter: blur(3px);
+          animation: fadeInOverlay 0.35s ease both;
+          display: none;
+        "></div>
+
+        <div id="disconnected-card-desktop" style="
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 9999;
+          width: min(520px, calc(100vw - 48px));
+          background: linear-gradient(160deg, #1c1000 0%, #110c00 60%, #0c0900 100%);
+          border: 1.5px solid rgba(245, 158, 11, 0.5);
+          border-radius: 24px;
+          padding: 40px 36px 36px;
+          box-shadow:
+            0 0 0 1px rgba(245,158,11,0.08),
+            0 24px 80px rgba(245, 158, 11, 0.22),
+            0 8px 32px rgba(0,0,0,0.7),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+          animation: popInCard 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+          text-align: center;
+          display: none;
+        ">
+          <div style="
+            width: 72px; height: 72px; border-radius: 20px;
+            background: rgba(245,158,11,0.12);
+            border: 1.5px solid rgba(245,158,11,0.35);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 32px rgba(245,158,11,0.15);
+            margin: 0 auto;
+          ">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+            <p style="margin:0; font-size:22px; font-weight:900; color:#fbbf24; letter-spacing:-0.03em; line-height:1.1;">Você está desconectado</p>
+            <p style="margin:0; font-size:14px; color:rgba(251,191,36,0.6); font-weight:500; line-height:1.6; max-width:360px;">
+              Sua sessão com o Google Drive expirou ou não foi iniciada.<br>
+              <strong style="color:rgba(251,191,36,0.85);">Conecte-se para continuar usando o ThumbSync.</strong>
+            </p>
+          </div>
+          <button
+            id="banner-btn-login"
+            style="
+              background:#f59e0b; color:#000; border:none; border-radius:14px;
+              padding:14px 32px; font-size:14px; font-weight:900; cursor:pointer;
+              letter-spacing:0.01em; transition:background 0.15s, transform 0.1s;
+              white-space:nowrap; width:100%;
+              box-shadow:0 4px 20px rgba(245,158,11,0.35);
+            "
+            onmouseover="this.style.background='#d97706';this.style.transform='translateY(-1px)'"
+            onmouseout="this.style.background='#f59e0b';this.style.transform='translateY(0)'"
+          >🔗 Conectar ao Google Drive</button>
+        </div>
+
+        <!-- Toast pequeno: visível só no mobile (< 1024px) -->
+        <div id="disconnected-toast-mobile" style="
           position: fixed;
           bottom: 24px;
           left: 50%;
@@ -1241,25 +1312,19 @@ class ThumbSyncApp {
           z-index: 9999;
           width: min(480px, calc(100vw - 32px));
           background: linear-gradient(135deg, #1a0e00 0%, #1c0f00 50%, #0f0a00 100%);
-          border: 1.5px solid rgba(245, 158, 11, 0.45);
+          border: 1.5px solid rgba(245,158,11,0.45);
           border-radius: 18px;
           padding: 16px 18px;
-          box-shadow: 0 8px 40px rgba(245, 158, 11, 0.18), 0 2px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
-          display: flex;
+          box-shadow: 0 8px 40px rgba(245,158,11,0.18), 0 2px 12px rgba(0,0,0,0.6);
+          display: none;
           align-items: center;
           gap: 14px;
           animation: slideUpBanner 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
         ">
           <div style="
-            width: 42px;
-            height: 42px;
-            border-radius: 12px;
-            background: rgba(245, 158, 11, 0.15);
-            border: 1px solid rgba(245, 158, 11, 0.3);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            flex-shrink: 0;
+            width:42px; height:42px; border-radius:12px;
+            background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3);
+            display:flex; align-items:center; justify-content:center; flex-shrink:0;
           ">
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
@@ -1267,34 +1332,44 @@ class ThumbSyncApp {
               <line x1="12" y1="17" x2="12.01" y2="17"/>
             </svg>
           </div>
-          <div style="flex: 1; min-width: 0;">
-            <p style="margin: 0 0 3px 0; font-size: 13px; font-weight: 800; color: #fbbf24; letter-spacing: -0.01em; line-height: 1.2;">Conta desconectada</p>
-            <p style="margin: 0; font-size: 11px; color: rgba(251,191,36,0.65); font-weight: 500; line-height: 1.4;">Você não está conectado ao Google Drive. Clique em <strong style="color:#fbbf24;">Conectar</strong> para retomar.</p>
+          <div style="flex:1; min-width:0;">
+            <p style="margin:0 0 3px 0; font-size:13px; font-weight:800; color:#fbbf24; letter-spacing:-0.01em; line-height:1.2;">Conta desconectada</p>
+            <p style="margin:0; font-size:11px; color:rgba(251,191,36,0.65); font-weight:500; line-height:1.4;">Você não está conectado ao Google Drive. Clique em <strong style="color:#fbbf24;">Conectar</strong> para retomar.</p>
           </div>
           <button
-            id="banner-btn-login"
+            id="banner-btn-login-mobile"
             style="
-              flex-shrink: 0;
-              background: #f59e0b;
-              color: #000;
-              border: none;
-              border-radius: 10px;
-              padding: 8px 14px;
-              font-size: 11px;
-              font-weight: 800;
-              cursor: pointer;
-              letter-spacing: 0.01em;
-              transition: background 0.15s;
-              white-space: nowrap;
+              flex-shrink:0; background:#f59e0b; color:#000; border:none;
+              border-radius:10px; padding:8px 14px; font-size:11px; font-weight:800;
+              cursor:pointer; letter-spacing:0.01em; transition:background 0.15s; white-space:nowrap;
             "
             onmouseover="this.style.background='#d97706'"
             onmouseout="this.style.background='#f59e0b'"
-          >Conectar agora</button>
+          >Conectar</button>
         </div>
+
         <style>
+          @keyframes fadeInOverlay {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+          @keyframes popInCard {
+            from { opacity: 0; transform: translate(-50%, -50%) scale(0.88); }
+            to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          }
           @keyframes slideUpBanner {
             from { opacity: 0; transform: translateX(-50%) translateY(20px); }
             to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+          }
+          @media (min-width: 1024px) {
+            #disconnected-overlay     { display: block !important; }
+            #disconnected-card-desktop { display: flex !important; }
+            #disconnected-toast-mobile { display: none !important; }
+          }
+          @media (max-width: 1023px) {
+            #disconnected-overlay      { display: none !important; }
+            #disconnected-card-desktop { display: none !important; }
+            #disconnected-toast-mobile { display: flex !important; }
           }
         </style>
         ` : ''}
@@ -2532,6 +2607,13 @@ class ThumbSyncApp {
     const bannerBtnLogin = document.getElementById('banner-btn-login');
     if (bannerBtnLogin) {
       bannerBtnLogin.addEventListener('click', () => {
+        this.handleGoogleLogin();
+      });
+    }
+
+    const bannerBtnLoginMobile = document.getElementById('banner-btn-login-mobile');
+    if (bannerBtnLoginMobile) {
+      bannerBtnLoginMobile.addEventListener('click', () => {
         this.handleGoogleLogin();
       });
     }
