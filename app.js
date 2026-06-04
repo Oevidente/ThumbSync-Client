@@ -1979,6 +1979,15 @@ class ThumbSyncApp {
       });
     }
 
+    const catalogItemsByKey = new Map(this.state.catalogItems.map(item => [item.id, item]));
+    const getListGameKey = (game) => `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+    const isListGameOk = (game) => catalogItemsByKey.get(getListGameKey(game))?.hasWebp || false;
+    const sortGamesForProvider = (a, b) => {
+      const okDiff = Number(isListGameOk(b)) - Number(isListGameOk(a));
+      if (okDiff !== 0) return okDiff;
+      return a.displayName.localeCompare(b.displayName, 'pt-BR', { sensitivity: 'base' });
+    };
+
     const groupsMap = new Map();
     listGames.forEach(g => {
       const arr = groupsMap.get(g.providerName) || [];
@@ -1986,7 +1995,10 @@ class ThumbSyncApp {
       groupsMap.set(g.providerName, arr);
     });
 
-    const groupsList = Array.from(groupsMap.entries());
+    const groupsList = Array.from(groupsMap.entries()).map(([providerName, games]) => [
+      providerName,
+      [...games].sort(sortGamesForProvider)
+    ]);
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
@@ -2111,8 +2123,8 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+      const key = getListGameKey(game);
+      const catalogItem = catalogItemsByKey.get(key);
       const hasWebp = catalogItem?.hasWebp || false;
 
       return `
