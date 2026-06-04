@@ -47,13 +47,13 @@ export class DriveApiClient {
   async findOrCreateFolder(folderName) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar pasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -82,13 +82,13 @@ export class DriveApiClient {
   async findOrCreateSubfolder(folderName, parentFolderId) {
     const q = `name = '${folderName.replace(/'/g, "\\'")}' and mimeType = 'application/vnd.google-apps.folder' and '${parentFolderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name)`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao buscar subpasta no Drive: ${res.statusText}`);
     }
     const data = await res.json();
-    
+
     if (data.files && data.files.length > 0) {
       return data.files[0].id;
     }
@@ -118,7 +118,7 @@ export class DriveApiClient {
   async listFilesInFolder(folderId) {
     const q = `'${folderId}' in parents and trashed = false`;
     const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink)&pageSize=1000`;
-    
+
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(`Erro ao listar arquivos do Drive: ${res.statusText}`);
@@ -236,8 +236,9 @@ export class DriveApiClient {
 export const driveClient = new DriveApiClient();
 
 
-// --- MOCK DATABASE AND CONFIGURATION ASSETS ---
-export const INITIAL_MOCK_LIST_CONTENT = ``;
+// --- TEMPLATES AND CONFIGURATION ASSETS ---
+export const DEFAULT_LIST_CONTENT = `Provedor: Exemplo
+Novo Jogo`;
 
 export const PROVIDER_GRADIENTS = {
   'pragmatic play': 'from-[#0a84ff]/30 via-transparent to-black/80',
@@ -261,9 +262,9 @@ export const PROVIDER_BADGE_STYLE = {
 };
 
 export const LIVE_KEYWORDS = [
-  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac", 
-  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze", 
-  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing", 
+  "baccarat", "bac bo", "blackjack", "roulette", "roleta", "sic bac",
+  "trunfo", "time", "dream catcher", "poker", "patti", "mega fire blaze",
+  "andar bahar", "bet on", "live", "heads up hold", "wheel", "ice fishing",
   "marble race", "war", "super color game"
 ];
 
@@ -273,33 +274,34 @@ class ThumbSyncApp {
   constructor() {
     this.state = {
       activeTab: 'list_manager',
-      useMock: true,
       gdriveConnected: false,
       googleUser: null,
       listContent: '',
       driveFiles: [],
       listFileId: '',
-      tagsFileId: '',
-      lastTagsFileModifiedTime: '',
-      lastListFileModifiedTime: '',
       thumbsFolderId: '',
+      tagsFileId: '',
       catalogItems: [],
       driveProviders: [],
-      
+
       // UI Helpers
       isLoading: false,
       logs: [],
+      isSavingTag: false,
       filterProvider: 'todos',
       filterStatus: 'todos',
       filterTag: 'todos',
       searchQuery: '',
       customTags: {},
-      syncError: '',
-      
+
       // Modal state
       selectedCatalogItem: null,
       isAddingGame: false,
+      isImportingCSV: false,
       addingGameToProvider: '',
+      selectedListKeys: new Set(),
+      collapsedProviderKeys: new Set(),
+      catalogPage: 1,
     };
 
     this.config = {
@@ -307,22 +309,21 @@ class ThumbSyncApp {
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
       tagsFileName: 'tags.json',
-      useMock: true
     };
 
     this.imageCache = new Map(); // fileId -> objectURL
+    this.observers = [];
 
     this.addLog("Inicializando módulo ThumbSync...");
     this.loadStateFromStorage();
     this.initGISAutomatic();
-    this.setupLiveSync();
-    
+
     // Fallback listeners para expiração de token
     window.addEventListener('gdrive_unauthorized', () => {
       this.addLog("Sessão Google desautenticada ou expirada.");
       this.state.gdriveConnected = false;
-      this.state.useMock = true;
-      this.clearMockDataAndSync();
+      this.syncLocalCatalog();
+      this.render();
     });
   }
 
@@ -331,30 +332,27 @@ class ThumbSyncApp {
     const savedClientId = localStorage.getItem('thumbsync_client_id') || defaultClientId;
     const savedFolderName = localStorage.getItem('thumbsync_folder_name') || 'Thumbs';
     const savedListFileName = localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
-    const savedUseMock = localStorage.getItem('thumbsync_use_mock') !== 'false';
-    const cachedList = localStorage.getItem('thumbsync_cached_list_content') || INITIAL_MOCK_LIST_CONTENT;
+    const savedTagsFileName = localStorage.getItem('thumbsync_tags_file_name') || 'tags.json';
+    const cachedList = localStorage.getItem('thumbsync_cached_list_content') || DEFAULT_LIST_CONTENT;
 
     this.config = {
       clientId: savedClientId,
       folderName: savedFolderName,
       listFileName: savedListFileName,
-      useMock: savedUseMock
+      tagsFileName: savedTagsFileName,
     };
 
-    this.state.useMock = savedUseMock;
     this.state.listContent = cachedList;
-    this.state.lastListFileModifiedTime = localStorage.getItem('thumbsync_last_list_modified_time') || '';
 
     const savedToken = localStorage.getItem('gdrive_access_token');
     const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
 
-    if (savedToken) {
+    if (savedToken && tokenExpiresAt > Date.now()) {
       driveClient.setAccessToken(savedToken);
       this.state.gdriveConnected = true;
-      this.state.useMock = false;
       this.addLog("Sessão herdada do Google Drive carregada com sucesso.");
-    } else {
-      this.addLog("Iniciando no modo de demonstração off-line.");
+      // Agendar renovação automática do token restaurado do storage
+      setTimeout(() => this.scheduleTokenRefresh(), 0);
     }
 
     try {
@@ -364,22 +362,17 @@ class ThumbSyncApp {
     }
     this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
 
-    if (this.state.useMock || !this.state.gdriveConnected) {
-      this.clearMockDataAndSync();
-    } else {
-      this.syncLocalCatalog();
-    }
+    this.syncLocalCatalog();
   }
 
   saveStateToStorage() {
     localStorage.setItem('thumbsync_client_id', this.config.clientId);
     localStorage.setItem('thumbsync_folder_name', this.config.folderName);
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
-    localStorage.setItem('thumbsync_use_mock', this.config.useMock ? 'true' : 'false');
+    localStorage.setItem('thumbsync_tags_file_name', this.config.tagsFileName);
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
     localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
     localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
-    localStorage.setItem('thumbsync_last_list_modified_time', this.state.lastListFileModifiedTime || '');
   }
 
   addLog(message) {
@@ -403,106 +396,84 @@ class ThumbSyncApp {
     setTimeout(() => clearInterval(checkGIS), 10000);
   }
 
-  async attemptSilentTokenRefresh() {
-    if (typeof window.google === 'undefined' || !window.google.accounts || !window.google.accounts.oauth2) {
-      this.addLog("Google GSI SDK não carregado para renovação silenciosa.");
-      return false;
-    }
-    return new Promise((resolve) => {
-      try {
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: this.config.clientId,
-          scope: 'https://www.googleapis.com/auth/drive',
-          prompt: 'none',
-          callback: async (response) => {
-            if (response.error) {
-              this.addLog(`Renovação silenciosa falhou: ${response.error}`);
-              resolve(false);
-              return;
-            }
-            this.addLog("Token do Google Drive renovado silenciosamente.");
-            driveClient.setAccessToken(response.access_token);
-            this.state.gdriveConnected = true;
-            this.state.useMock = false;
-            this.config.useMock = false;
-
-            localStorage.setItem('gdrive_access_token', response.access_token);
-            localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
-            this.saveStateToStorage();
-            resolve(true);
-          }
-        });
-        client.requestAccessToken({ prompt: 'none' });
-      } catch (e) {
-        this.addLog(`Erro ao renovar token de forma silenciosa: ${e.message}`);
-        resolve(false);
-      }
-    });
-  }
-
-  async ensureActiveSession() {
-    const savedToken = localStorage.getItem('gdrive_access_token');
-    
-    if (!savedToken) {
-      alert("⚠️ Aviso: Sua conta Google não está conectada!\n\nPor favor, conecte a sua conta do Google Drive no botão lateral 'Conectar Google Drive' ou na aba 'Configurações' para poder usar a sincronização em nuvem.");
-      this.setActiveTab('settings');
-      return false;
-    }
-
-    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
-    if (tokenExpiresAt <= Date.now()) {
-      this.addLog("Token vencido detectado. Tentando renovação silenciosa no Google...");
-      this.state.isLoading = true;
-      this.render();
-      
-      const refreshed = await this.attemptSilentTokenRefresh();
-      this.state.isLoading = false;
-      this.render();
-      
-      if (!refreshed) {
-        const confirmLogin = confirm("⚠️ Sua sessão de segurança com o Google Drive de 1 hora expirou.\n\nDeseja realizar a reconexão rápida agora para sincronizar e enviar seus arquivos?");
-        if (confirmLogin) {
-          this.handleGoogleLogin();
-        } else {
-          this.addLog("Operação cancelada por falta de credenciais renovadas.");
-        }
-        return false;
-      }
-    }
-    
-    // Garante que o token utilizável esteja no driveClient e no estado geral
-    const freshToken = localStorage.getItem('gdrive_access_token');
-    if (freshToken) {
-      driveClient.setAccessToken(freshToken);
-      this.state.gdriveConnected = true;
-      this.state.useMock = false;
-      this.config.useMock = false;
-    }
-    return true;
-  }
-
   async reconnectSilent() {
     try {
       const savedToken = localStorage.getItem('gdrive_access_token');
-      const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
-      
       if (savedToken) {
-        if (tokenExpiresAt <= Date.now()) {
-          this.addLog("Reconexão pós-boot: Token expirado. Buscando renovação silenciosa...");
-          const refreshed = await this.attemptSilentTokenRefresh();
-          if (refreshed) {
-            await this.syncWithGoogleDrive();
-          } else {
-            this.addLog("Reconexão silenciosa no boot não pôde ser completada.");
-          }
-        } else {
-          driveClient.setAccessToken(savedToken);
-          await this.syncWithGoogleDrive();
-        }
+        driveClient.setAccessToken(savedToken);
+        await this.syncOnlyList();
       }
     } catch (err) {
       this.addLog(`Reconexão automática falhou: ${err.message}`);
     }
+  }
+
+  /**
+   * Agenda renovação silenciosa do token antes de expirar.
+   * O token OAuth do Google dura ~1h; renovamos 5 min antes do vencimento.
+   */
+  scheduleTokenRefresh() {
+    if (this._tokenRefreshTimer) {
+      clearTimeout(this._tokenRefreshTimer);
+      this._tokenRefreshTimer = null;
+    }
+
+    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+    const msUntilExpiry = tokenExpiresAt - Date.now();
+
+    if (msUntilExpiry <= 0) {
+      // Já expirou — marcar como desconectado
+      this.state.gdriveConnected = false;
+      driveClient.setAccessToken('');
+      localStorage.removeItem('gdrive_access_token');
+      localStorage.removeItem('gdrive_token_expires_at');
+      this.syncLocalCatalog();
+      this.render();
+      return;
+    }
+
+    // Renovar 5 minutos antes do vencimento (mínimo: agora + 10 s)
+    const refreshIn = Math.max(msUntilExpiry - 5 * 60 * 1000, 10_000);
+
+    this._tokenRefreshTimer = setTimeout(() => {
+      this.addLog('Renovando token do Google silenciosamente...');
+      try {
+        if (typeof window.google === 'undefined' || !this.config.clientId) {
+          // SDK não disponível, marcar como expirado
+          window.dispatchEvent(new Event('gdrive_unauthorized'));
+          return;
+        }
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: this.config.clientId,
+          scope: 'https://www.googleapis.com/auth/drive',
+          prompt: '',          // sem popup — usa consentimento já concedido
+          callback: async (response) => {
+            if (response.error) {
+              this.addLog(`Renovação silenciosa falhou: ${response.error}`);
+              // Expirou de vez — avisar o usuário
+              this.state.gdriveConnected = false;
+              driveClient.setAccessToken('');
+              localStorage.removeItem('gdrive_access_token');
+              localStorage.removeItem('gdrive_token_expires_at');
+              this.syncLocalCatalog();
+              this.render();
+              return;
+            }
+            this.addLog('Token renovado com sucesso.');
+            driveClient.setAccessToken(response.access_token);
+            this.state.gdriveConnected = true;
+            localStorage.setItem('gdrive_access_token', response.access_token);
+            localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
+            this.scheduleTokenRefresh(); // agendar próxima renovação
+            this.render();
+          },
+        });
+        client.requestAccessToken();
+      } catch (err) {
+        this.addLog(`Erro na renovação silenciosa: ${err.message}`);
+        window.dispatchEvent(new Event('gdrive_unauthorized'));
+      }
+    }, refreshIn);
   }
 
   /**
@@ -536,12 +507,11 @@ class ThumbSyncApp {
           this.addLog("Acesso concedido. Sincronizando dados...");
           driveClient.setAccessToken(response.access_token);
           this.state.gdriveConnected = true;
-          this.state.useMock = false;
-          this.config.useMock = false;
 
           localStorage.setItem('gdrive_access_token', response.access_token);
           localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
           this.saveStateToStorage();
+          this.scheduleTokenRefresh(); // agendar renovação automática
 
           await this.syncWithGoogleDrive();
           this.state.isLoading = false;
@@ -560,31 +530,37 @@ class ThumbSyncApp {
     this.addLog("Sessão Google Drive desconectada.");
     driveClient.setAccessToken('');
     this.state.gdriveConnected = false;
-    this.state.useMock = true;
-    this.config.useMock = true;
     localStorage.removeItem('gdrive_access_token');
     localStorage.removeItem('gdrive_token_expires_at');
     this.saveStateToStorage();
+    if (this._tokenRefreshTimer) {
+      clearTimeout(this._tokenRefreshTimer);
+      this._tokenRefreshTimer = null;
+    }
 
     this.imageCache.forEach(url => URL.revokeObjectURL(url));
     this.imageCache.clear();
 
-    this.clearMockDataAndSync();
+    this.syncLocalCatalog();
+    this.render();
   }
 
   /**
    * Sincroniza listas e miniaturas com o Google Drive baseado nas configurações do usuário.
    */
   async syncWithGoogleDrive() {
-    const sessionOk = await this.ensureActiveSession();
-    if (!sessionOk) return;
+    if (!driveClient.isAuthenticated()) {
+      this.addLog("Sincronizando dados com cache local (Usuário Desconectado).");
+      this.syncLocalCatalog();
+      this.render();
+      return;
+    }
 
     this.state.isLoading = true;
     this.addLog(`Sincronizando com o seu Google Drive...`);
     this.render();
 
     try {
-      this.state.syncError = "";
       this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
       const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
       this.state.thumbsFolderId = folderId;
@@ -611,68 +587,52 @@ class ThumbSyncApp {
       const allFiles = [...directFiles];
 
       // Busca recursivamente os arquivos (.webp) dentro de cada pasta de provedor
-      for (const subfolder of subfolders) {
-        this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
+      await Promise.all(subfolders.map(async (subfolder) => {
         try {
+          this.addLog(`Escaneando subpasta do provedor '${subfolder.name}'...`);
           const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-          subFiles.forEach(sf => {
-            sf.providerName = subfolder.name; // Associa a imagem ao provedor (nome da pasta)
-            allFiles.push(sf);
-          });
-          this.addLog(`Provedor '${subfolder.name}': ${subFiles.length} miniaturas carregadas.`);
+
+          // Sincronizar os resultados de forma segura para o array principal
+          const processedSubFiles = subFiles.map(sf => ({
+            ...sf,
+            providerName: subfolder.name
+          }));
+
+          allFiles.push(...processedSubFiles);
+          this.addLog(`Provedor '${subfolder.name}': ${processedSubFiles.length} miniaturas carregadas.`);
         } catch (subErr) {
-          this.addLog(`Aviso: erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
+          this.addLog(`Erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`);
         }
-      }
+      }));
 
       this.state.driveFiles = allFiles;
       this.addLog(`Total: ${allFiles.length} arquivos indexados do Google Drive.`);
 
-      const tagsFile = allFiles.find(f => f && f.name && typeof f.name === 'string' && f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      // Sincronizar Tags Personalizadas (tags.json)
+      const tagsFile = allFiles.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
       if (tagsFile) {
-        this.addLog(`Sincronizando banco de tags em '${this.config.tagsFileName}'...`);
+        this.addLog(`Baixando metadados de tags (${this.config.tagsFileName})...`);
         this.state.tagsFileId = tagsFile.id;
         try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${tagsFile.id}?fields=modifiedTime`);
-          if (resMeta.ok) {
-            this.state.lastTagsFileModifiedTime = (await resMeta.json()).modifiedTime;
-          }
-        } catch (e) {}
-        try {
           const tagsText = await driveClient.downloadTextFile(tagsFile.id);
-          const parsed = JSON.parse(tagsText);
-          if (parsed && typeof parsed === 'object') {
-             this.state.customTags = parsed;
-          }
-        } catch (err) {
-          this.addLog(`Aviso: Falha ao ler tags.json: ${err.message}`);
+          this.state.customTags = JSON.parse(tagsText);
+        } catch (e) {
+          this.addLog("Aviso: Falha ao processar arquivo de tags. Usando cache local.");
         }
-      } else {
-        this.addLog(`Criando banco de tags '${this.config.tagsFileName}'...`);
-        const newTagsId = await driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags || {}), folderId);
-        this.state.tagsFileId = newTagsId;
       }
 
-      const listFile = allFiles.find(f => f && f.name && typeof f.name === 'string' && f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      const listFile = allFiles.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
       if (listFile) {
         this.addLog(`Baixando catálogo contido no arquivo '${this.config.listFileName}'...`);
         this.state.listFileId = listFile.id;
-        this.state.lastListFileModifiedTime = listFile.modifiedTime || '';
         const listText = await driveClient.downloadTextFile(listFile.id);
         this.state.listContent = listText;
         this.addLog(`Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`);
       } else {
         this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
-        const newFileId = await driveClient.saveTextFile(this.config.listFileName, INITIAL_MOCK_LIST_CONTENT, folderId);
+        const newFileId = await driveClient.saveTextFile(this.config.listFileName, DEFAULT_LIST_CONTENT, folderId);
         this.state.listFileId = newFileId;
-        try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${newFileId}?fields=modifiedTime`);
-          if (resMeta.ok) {
-            const dataMeta = await resMeta.json();
-            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
-          }
-        } catch (err) {}
-        this.state.listContent = INITIAL_MOCK_LIST_CONTENT;
+        this.state.listContent = DEFAULT_LIST_CONTENT;
         this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
       }
 
@@ -680,33 +640,86 @@ class ThumbSyncApp {
       this.syncLocalCatalog();
       this.addLog("Sincronização com o Google Drive concluída.");
     } catch (e) {
-      console.error("Erro na sincronização do Google Drive:", e);
       this.addLog(`Erro ao sincronizar: ${e.message}`);
-      this.state.syncError = e.message;
-      this.state.useMock = true;
       this.syncLocalCatalog();
-      alert(`⚠️ Erro ao sincronizar com seu Google Drive:\n\n"${e.message}"\n\nIsso costuma ocorrer pelos seguintes motivos:\n1. A "Google Drive API" não está ATIVADA no painel do seu projeto Google Cloud. Busque por "Google Drive API" no console e clique em "Ativar".\n2. Falta de permissões de escopo (/auth/drive) configuradas na Tela de Consentimento OAuth.\n3. O domínio/origem URL do site (${window.location.origin}) não foi adicionado nas "Origens JavaScript Autorizadas" do seu ID de cliente.`);
     } finally {
       this.state.isLoading = false;
       this.render();
     }
   }
 
-  clearMockDataAndSync() {
-    this.state.driveFiles = [];
-    if (this.state.useMock && !this.state.gdriveConnected) {
-       this.state.listContent = "";
+  /**
+   * Sincroniza apenas o arquivo lista.txt com o Google Drive de forma rápida e independente.
+   */
+  async syncOnlyList() {
+    if (!driveClient.isAuthenticated()) {
+      this.addLog("Sincronizando apenas lista.txt com cache local...");
+      const cachedList = localStorage.getItem('thumbsync_cached_list_content') || DEFAULT_LIST_CONTENT;
+      this.state.listContent = cachedList;
+      this.syncLocalCatalog();
+      this.addLog("Lista.txt reatualizada do cache local.");
+      this.render();
+      return;
     }
-    this.syncLocalCatalog();
+
+    this.state.isLoading = true;
+    this.addLog(`Sincronizando apenas '${this.config.listFileName}' com o Google Drive...`);
+    this.render();
+
+    try {
+      this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
+      const folderId = await driveClient.findOrCreateFolder(this.config.folderName);
+      this.state.thumbsFolderId = folderId;
+
+      this.addLog("Buscando lista.txt dentro da pasta...");
+      const files = await driveClient.listFilesInFolder(folderId);
+
+      const listFile = files.find(f => f.name.toLowerCase() === this.config.listFileName.toLowerCase());
+      if (listFile) {
+        this.addLog(`Baixando catálogo do arquivo '${this.config.listFileName}'...`);
+        this.state.listFileId = listFile.id;
+        const listText = await driveClient.downloadTextFile(listFile.id);
+        this.state.listContent = listText;
+        this.addLog(`Arquivo '${this.config.listFileName}' sincronizado com sucesso (${listText.split('\n').length} linhas).`);
+      } else {
+        this.addLog(`Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`);
+        const newFileId = await driveClient.saveTextFile(this.config.listFileName, DEFAULT_LIST_CONTENT, folderId);
+        this.state.listFileId = newFileId;
+        this.state.listContent = DEFAULT_LIST_CONTENT;
+        this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
+      }
+
+      // Sincronizar apenas tags também
+      const tagsFile = files.find(f => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase());
+      if (tagsFile) {
+        this.state.tagsFileId = tagsFile.id;
+        try {
+          const tagsText = await driveClient.downloadTextFile(tagsFile.id);
+          this.state.customTags = JSON.parse(tagsText);
+        } catch (e) {
+          console.error("Erro ao baixar tags isoladamente", e);
+        }
+      }
+
+      this.saveStateToStorage();
+      this.syncLocalCatalog();
+      this.addLog("Sincronização de lista concluída.");
+    } catch (e) {
+      this.addLog(`Erro ao sincronizar somente a lista: ${e.message}`);
+      alert(`Falha ao sincronizar somente a lista: ${e.message}`);
+    } finally {
+      this.state.isLoading = false;
+      this.render();
+    }
   }
 
   /**
-   * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive ou Mock
+   * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive
    */
   syncLocalCatalog() {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
+
     let currentProvider = "Sem provedor";
     for (const line of lines) {
       const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
@@ -714,10 +727,10 @@ class ThumbSyncApp {
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
@@ -747,10 +760,15 @@ class ThumbSyncApp {
 
       const baseName = file.name.replace(/\.webp$/i, '');
       const normName = this.normalizeName(baseName);
-      
+
       let fileProvider = "Sem provedor";
       if (file.providerName) {
         fileProvider = file.providerName;
+      } else {
+        const matchGame = listGames.find(g => g.normalizedName === normName);
+        if (matchGame) {
+          fileProvider = matchGame.providerName;
+        }
       }
 
       const key = `${this.normalizeName(fileProvider)}::${normName}`;
@@ -799,30 +817,108 @@ class ThumbSyncApp {
     return isLive ? "ao vivo" : "slot";
   }
 
-  updateGameTag(itemId, newTag) {
+  /**
+   * Importa jogos de um arquivo CSV, evitando duplicatas e conflitos.
+   */
+  async handleImportCSV(providerName, file) {
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+
+      if (rows.length === 0) {
+        alert("O arquivo selecionado está vazio.");
+        return;
+      }
+
+      const nameKeywords = ['name', 'customname', 'game', 'gamename', 'displayname', 'titulo', 'nome', 'jogo'];
+      const firstLine = rows[0];
+      const hasHeader = nameKeywords.some(kw => firstLine.toLowerCase().includes(kw));
+      const delimiter = firstLine.includes(';') ? ';' : ',';
+
+      const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      let nameIdx = headers.findIndex(h => nameKeywords.some(kw => h.includes(kw)));
+      if (nameIdx === -1) nameIdx = 0; // Fallback para a primeira coluna
+
+      const gamesToImport = [];
+      const seenInCSV = new Set();
+      const targetProviderNorm = this.normalizeName(providerName);
+
+      // Cache de jogos já listados para este provedor
+      const currentlyListedNorms = new Set(
+        this.state.catalogItems
+          .filter(item => item.isListed && this.normalizeName(item.providerName) === targetProviderNorm)
+          .map(item => item.normalizedName)
+      );
+
+      const startIndex = hasHeader ? 1 : 0;
+
+      for (let i = startIndex; i < rows.length; i++) {
+        const cols = rows[i].split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+        const gameName = cols[nameIdx];
+
+        if (gameName) {
+          const norm = this.normalizeName(gameName);
+          // Evita duplicatas dentro do CSV e conflitos com o que já está na lista.txt
+          if (!seenInCSV.has(norm) && !currentlyListedNorms.has(norm)) {
+            gamesToImport.push(gameName);
+            seenInCSV.add(norm);
+          }
+        }
+      }
+
+      if (gamesToImport.length === 0) {
+        alert("Importação finalizada: Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).");
+      } else {
+        this.handleAddGamesToList(providerName, gamesToImport);
+        alert(`Sucesso! ${gamesToImport.length} novos jogos foram importados para ${providerName}.`);
+      }
+    } catch (err) {
+      console.error("Erro no processamento do CSV:", err);
+      alert("Falha ao ler o arquivo CSV. Verifique se o formato está correto.");
+    } finally {
+      this.state.isImportingCSV = false;
+      this.render();
+    }
+  }
+
+  async updateGameTag(itemId, newTag) {
     if (!this.state.customTags) {
       this.state.customTags = {};
     }
+
+    const oldTag = this.state.customTags[itemId];
+    if (oldTag === newTag) return;
+
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
-    
-    if (!this.state.useMock && driveClient.isAuthenticated() && this.state.tagsFileId) {
-      driveClient.saveTextFile(this.config.tagsFileName, JSON.stringify(this.state.customTags), undefined, this.state.tagsFileId).then(async () => {
-         try {
-            const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`);
-            if (resMeta.ok) {
-              const dataMeta = await resMeta.json();
-              this.state.lastTagsFileModifiedTime = dataMeta.modifiedTime;
-            }
-         } catch(e) {}
-      }).catch(console.error);
-    }
+
+    this.state.isSavingTag = true;
+    this.renderActiveTab();
 
     const item = this.state.catalogItems.find(i => i.id === itemId);
     if (item) {
-      this.addLog(`Tag de '${item.displayName}' alterada de forma personalizada para '${newTag.toUpperCase()}'.`);
-      this.renderActiveTab();
       this.renderPreviewModal(item);
+
+      if (driveClient.isAuthenticated()) {
+        try {
+          this.addLog(`Sincronizando nova tag de '${item.displayName}' com o Drive...`);
+          const content = JSON.stringify(this.state.customTags, null, 2);
+          const fileId = await driveClient.saveTextFile(this.config.tagsFileName, content, this.state.thumbsFolderId, this.state.tagsFileId);
+          this.state.tagsFileId = fileId;
+          this.addLog(`Tag salva globalmente.`);
+        } catch (err) {
+          this.addLog(`Erro ao salvar tag no Drive: ${err.message}`);
+          alert("A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.");
+        } finally {
+          this.state.isSavingTag = false;
+          this.renderActiveTab();
+          this.renderPreviewModal(item);
+        }
+      } else {
+        this.state.isSavingTag = false;
+      }
     }
   }
 
@@ -831,6 +927,7 @@ class ThumbSyncApp {
     this.state.activeTab = tab;
     this.render();
 
+    if (tab === 'catalog') this.state.catalogPage = 1;
     if (tab === 'catalog' && prevTab !== 'catalog') {
       if (!this.state.useMock && driveClient.isAuthenticated()) {
         await this.syncWithGoogleDrive();
@@ -843,30 +940,9 @@ class ThumbSyncApp {
    * Se offline (Mock), tenta puxar o arquivo real no diretório `/mock_data/source/...` com fallback p/ SVG processual.
    */
   async loadThumbnailSrc(item, imgEl) {
-    if (this.state.useMock || !this.state.gdriveConnected) {
-      imgEl.src = 'data:image/svg+xml;base64,' + btoa(`
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-          <defs>
-            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#181820" />
-              <stop offset="100%" stop-color="#1f2937" />
-            </linearGradient>
-          </defs>
-          <rect width="200" height="300" fill="url(#g)" />
-          <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-          <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-            ${item.displayName}
-          </text>
-          <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-            SEM IMAGEM
-          </text>
-        </svg>
-      `);
-      return;
-    }
-
     if (this.imageCache.has(item.driveFileId)) {
       imgEl.src = this.imageCache.get(item.driveFileId);
+      imgEl.classList.remove('opacity-0');
       return;
     }
 
@@ -875,6 +951,7 @@ class ThumbSyncApp {
       const url = URL.createObjectURL(blob);
       this.imageCache.set(item.driveFileId, url);
       imgEl.src = url;
+      imgEl.classList.remove('opacity-0');
     } catch (e) {
       imgEl.src = 'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
     }
@@ -884,38 +961,10 @@ class ThumbSyncApp {
    * Força download da imagem
    */
   async handleDownloadFile(item) {
-    if (this.state.useMock || !this.state.gdriveConnected) {
-      this.addLog(`Download indisponível no modo off-line para: ${item.displayName}`);
-      const svgContent = `
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 300" width="100%" height="100%">
-          <defs>
-            <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#181820" />
-              <stop offset="100%" stop-color="#1f2937" />
-            </linearGradient>
-          </defs>
-          <rect width="200" height="300" fill="url(#g)" />
-          <circle cx="100" cy="120" r="30" fill="#3b82f6" fill-opacity="0.1" stroke="#3b82f6" stroke-width="1.5" stroke-dasharray="3 3" />
-          <text x="50%" y="45%" text-anchor="middle" font-family="system-ui, sans-serif" font-weight="900" font-size="12" fill="#9ca3af" opacity="0.9">
-            ${item.displayName}
-          </text>
-          <text x="50%" y="55%" text-anchor="middle" font-family="system-ui, sans-serif" font-size="8" fill="#4b5563" opacity="0.8">
-            SEM IMAGEM
-          </text>
-        </svg>
-      `;
-      const blob = new Blob([svgContent], { type: 'image/svg+xml' });
-      this.triggerBlobDownload(blob, `${item.displayName}.svg`);
-      return;
-    }
-
     if (!item.driveFileId) {
       alert("Esta miniatura não possui imagem (.webp) no Google Drive para download.");
       return;
     }
-
-    const sessionOk = await this.ensureActiveSession();
-    if (!sessionOk) return;
 
     this.addLog(`Baixando miniatura do Google Drive: ${item.displayName}.webp...`);
     try {
@@ -951,24 +1000,15 @@ class ThumbSyncApp {
       this.state.listContent = newContent;
       this.saveStateToStorage();
 
-      if (!this.state.useMock && driveClient.isAuthenticated() && this.state.listFileId) {
+      if (driveClient.isAuthenticated() && this.state.listFileId) {
         this.addLog(`Escrevendo alterações no arquivo lista.txt do Google Drive...`);
         await driveClient.saveTextFile(this.config.listFileName, newContent, undefined, this.state.listFileId);
         this.addLog(`lista.txt atualizada e gravada com sucesso na sua conta.`);
-        
-        try {
-          const resMeta = await driveClient.fetchWithAuth(`https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`);
-          if (resMeta.ok) {
-            const dataMeta = await resMeta.json();
-            this.state.lastListFileModifiedTime = dataMeta.modifiedTime || '';
-            this.saveStateToStorage();
-          }
-        } catch (err) {}
-        this.syncLocalCatalog();
       } else {
         this.addLog(`lista.txt gravada localmente com sucesso.`);
-        this.clearMockDataAndSync();
       }
+
+      this.syncLocalCatalog();
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
       alert("Falha ao salvar as alterações. Verifique sua conexão e tente novamente.");
@@ -978,87 +1018,15 @@ class ThumbSyncApp {
     }
   }
 
-  setupLiveSync() {
-    if (this.liveSyncInterval) {
-      clearInterval(this.liveSyncInterval);
-    }
-    
-    this.liveSyncInterval = setInterval(async () => {
-      if (!this.state.isLoading && !this.state.useMock && this.state.gdriveConnected) {
-        try {
-          let listUpdated = false;
-          let tagsUpdated = false;
-
-          if (this.state.listFileId) {
-            const url = `https://www.googleapis.com/drive/v3/files/${this.state.listFileId}?fields=modifiedTime`;
-            const res = await driveClient.fetchWithAuth(url);
-            if (res.ok) {
-              const meta = await res.json();
-              if (this.state.lastListFileModifiedTime && meta.modifiedTime !== this.state.lastListFileModifiedTime) {
-                const updatedText = await driveClient.downloadTextFile(this.state.listFileId);
-                this.state.listContent = updatedText;
-                this.state.lastListFileModifiedTime = meta.modifiedTime;
-                listUpdated = true;
-                this.saveStateToStorage();
-              }
-            }
-          }
-
-          if (this.state.tagsFileId) {
-            const urlTags = `https://www.googleapis.com/drive/v3/files/${this.state.tagsFileId}?fields=modifiedTime`;
-            const resTags = await driveClient.fetchWithAuth(urlTags);
-            if (resTags.ok) {
-              const metaTags = await resTags.json();
-              if (this.state.lastTagsFileModifiedTime && metaTags.modifiedTime !== this.state.lastTagsFileModifiedTime) {
-                const tagsText = await driveClient.downloadTextFile(this.state.tagsFileId);
-                try {
-                  const parsed = JSON.parse(tagsText);
-                  if (parsed && typeof parsed === 'object') {
-                    this.state.customTags = parsed;
-                    this.state.lastTagsFileModifiedTime = metaTags.modifiedTime;
-                    tagsUpdated = true;
-                    this.saveStateToStorage();
-                  }
-                } catch(e) {}
-              }
-            }
-          }
-
-          if (listUpdated || tagsUpdated) {
-            const liveIndicator = document.getElementById('live-indicator-wrapper');
-            if (liveIndicator) {
-              liveIndicator.classList.add('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
-              setTimeout(() => {
-                liveIndicator.classList.remove('bg-blue-600/10', 'border-blue-500/30', 'scale-[1.03]');
-              }, 1500);
-            }
-            
-            this.syncLocalCatalog();
-            this.renderActiveTab();
-            
-            if (document.visibilityState !== 'visible' && 'Notification' in window && Notification.permission === 'granted') {
-              new Notification('ThumbSync Atualizado', {
-                body: listUpdated ? 'A lista de jogos foi atualizada por outro usuário.' : 'As tags dos jogos foram atualizadas.',
-                icon: '/favicon.png'
-              });
-            }
-          }
-        } catch (e) {
-          console.warn("Checagem live automática falhou:", e.message);
-        }
-      }
-    }, 7000);
-  }
-
   handleAddGamesToList(providerName, gameNames) {
     const validGames = gameNames.map(g => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
 
     this.addLog(`Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`);
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i');
-    
+
     let injected = false;
     const updatedLines = [];
 
@@ -1067,10 +1035,10 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-         validGames.forEach(gameName => {
-           updatedLines.push(gameName);
-         });
-         injected = true;
+        validGames.forEach(gameName => {
+          updatedLines.push(gameName);
+        });
+        injected = true;
       }
     }
 
@@ -1092,7 +1060,7 @@ class ThumbSyncApp {
     if (!isConfirmed) return;
 
     this.addLog(`Removendo '${item.displayName}' do provedor '${item.providerName}'...`);
-    
+
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
     let currentSection = null;
@@ -1100,7 +1068,7 @@ class ThumbSyncApp {
 
     for (const line of lines) {
       const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      
+
       const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
         if (currentSection) {
@@ -1113,7 +1081,7 @@ class ThumbSyncApp {
         };
         continue;
       }
-      
+
       if (currentSection) {
         if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
           currentSection.games.push({
@@ -1140,7 +1108,7 @@ class ThumbSyncApp {
 
     let deleted = false;
     const targetProviderNormalized = this.normalizeName(item.providerName);
-    
+
     for (const sec of sections) {
       if (sec.providerNameNormalized === targetProviderNormalized) {
         const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
@@ -1177,6 +1145,147 @@ class ThumbSyncApp {
     this.saveUpdatedList(cleanedFileContent);
   }
 
+  /**
+   * Remove da lista todos os jogos que já possuem arquivo .webp correspondente no Drive.
+   */
+  handleClearFinishedGames() {
+    const isConfirmed = confirm(`Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) no Drive?\nEsta ação atualizará o arquivo ${this.config.listFileName}.`);
+    if (!isConfirmed) return;
+
+    this.addLog("Iniciando limpeza de jogos concluídos...");
+
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+
+      if (currentSection) {
+        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          isBlankOrComment: !isGame
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    let removedCount = 0;
+    sections.forEach(sec => {
+      sec.games = sec.games.filter(g => {
+        if (g.isBlankOrComment) return true;
+
+        const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
+        const item = this.state.catalogItems.find(ci => ci.id === key);
+
+        if (item && item.hasWebp) {
+          removedCount++;
+          return false;
+        }
+        return true;
+      });
+    });
+
+    if (removedCount === 0) {
+      alert("Nenhum jogo concluído para limpar.");
+      return;
+    }
+
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+
+    const finalLines = [...headerLines];
+    filteredSections.forEach(sec => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => finalLines.push(g.originalLine));
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.saveUpdatedList(cleanedFileContent);
+  }
+
+  /**
+   * Remove múltiplos jogos selecionados da lista.txt.
+   */
+  handleDeleteSelectedGames() {
+    const selectedCount = this.state.selectedListKeys.size;
+    if (selectedCount === 0) return;
+
+    const isConfirmed = confirm(`Excluir os ${selectedCount} jogos selecionados da lista de provedores?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`);
+    if (!isConfirmed) return;
+
+    this.addLog(`Removendo ${selectedCount} jogos selecionados...`);
+
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+
+      if (currentSection) {
+        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          isBlankOrComment: !isGame
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    sections.forEach(sec => {
+      sec.games = sec.games.filter(g => {
+        if (g.isBlankOrComment) return true;
+        const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
+        return !this.state.selectedListKeys.has(key);
+      });
+    });
+
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+
+    const finalLines = [...headerLines];
+    filteredSections.forEach(sec => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => finalLines.push(g.originalLine));
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.state.selectedListKeys.clear();
+    this.saveUpdatedList(cleanedFileContent);
+  }
+
   // --- HTML DRAW PIPELINE ---
   render() {
     const root = document.getElementById('root');
@@ -1189,6 +1298,149 @@ class ThumbSyncApp {
 
     root.innerHTML = `
       <div id="app-container" class="flex h-screen w-screen overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
+
+        <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
+        ${!this.state.gdriveConnected ? `
+        <!-- Overlay + card: visível só no desktop (>= 1024px) -->
+        <div id="disconnected-overlay" style="
+          position: fixed;
+          inset: 0;
+          z-index: 9998;
+          background: rgba(0,0,0,0.72);
+          backdrop-filter: blur(3px);
+          -webkit-backdrop-filter: blur(3px);
+          animation: fadeInOverlay 0.35s ease both;
+          display: none;
+        "></div>
+
+        <div id="disconnected-card-desktop" style="
+          position: fixed;
+          top: 50%;
+          left: 50%;
+          transform: translate(-50%, -50%);
+          z-index: 9999;
+          width: min(520px, calc(100vw - 48px));
+          background: linear-gradient(160deg, #1c1000 0%, #110c00 60%, #0c0900 100%);
+          border: 1.5px solid rgba(245, 158, 11, 0.5);
+          border-radius: 24px;
+          padding: 40px 36px 36px;
+          box-shadow:
+            0 0 0 1px rgba(245,158,11,0.08),
+            0 24px 80px rgba(245, 158, 11, 0.22),
+            0 8px 32px rgba(0,0,0,0.7),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+          animation: popInCard 0.45s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+          flex-direction: column;
+          align-items: center;
+          gap: 20px;
+          text-align: center;
+          display: none;
+        ">
+          <div style="
+            width: 72px; height: 72px; border-radius: 20px;
+            background: rgba(245,158,11,0.12);
+            border: 1.5px solid rgba(245,158,11,0.35);
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 0 32px rgba(245,158,11,0.15);
+            margin: 0 auto;
+          ">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div style="display:flex; flex-direction:column; gap:10px; align-items:center;">
+            <p style="margin:0; font-size:22px; font-weight:900; color:#fbbf24; letter-spacing:-0.03em; line-height:1.1;">Você está desconectado</p>
+            <p style="margin:0; font-size:14px; color:rgba(251,191,36,0.6); font-weight:500; line-height:1.6; max-width:360px;">
+              Sua sessão com o Google Drive expirou ou não foi iniciada.<br>
+              <strong style="color:rgba(251,191,36,0.85);">Conecte-se para continuar usando o ThumbSync.</strong>
+            </p>
+          </div>
+          <button
+            id="banner-btn-login"
+            style="
+              background:#f59e0b; color:#000; border:none; border-radius:14px;
+              padding:14px 32px; font-size:14px; font-weight:900; cursor:pointer;
+              letter-spacing:0.01em; transition:background 0.15s, transform 0.1s;
+              white-space:nowrap; width:100%;
+              box-shadow:0 4px 20px rgba(245,158,11,0.35);
+            "
+            onmouseover="this.style.background='#d97706';this.style.transform='translateY(-1px)'"
+            onmouseout="this.style.background='#f59e0b';this.style.transform='translateY(0)'"
+          >🔗 Conectar ao Google Drive</button>
+        </div>
+
+        <!-- Toast pequeno: visível só no mobile (< 1024px) -->
+        <div id="disconnected-toast-mobile" style="
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 9999;
+          width: min(480px, calc(100vw - 32px));
+          background: linear-gradient(135deg, #1a0e00 0%, #1c0f00 50%, #0f0a00 100%);
+          border: 1.5px solid rgba(245,158,11,0.45);
+          border-radius: 18px;
+          padding: 16px 18px;
+          box-shadow: 0 8px 40px rgba(245,158,11,0.18), 0 2px 12px rgba(0,0,0,0.6);
+          display: none;
+          align-items: center;
+          gap: 14px;
+          animation: slideUpBanner 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        ">
+          <div style="
+            width:42px; height:42px; border-radius:12px;
+            background:rgba(245,158,11,0.15); border:1px solid rgba(245,158,11,0.3);
+            display:flex; align-items:center; justify-content:center; flex-shrink:0;
+          ">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div style="flex:1; min-width:0;">
+            <p style="margin:0 0 3px 0; font-size:13px; font-weight:800; color:#fbbf24; letter-spacing:-0.01em; line-height:1.2;">Conta desconectada</p>
+            <p style="margin:0; font-size:11px; color:rgba(251,191,36,0.65); font-weight:500; line-height:1.4;">Você não está conectado ao Google Drive. Clique em <strong style="color:#fbbf24;">Conectar</strong> para retomar.</p>
+          </div>
+          <button
+            id="banner-btn-login-mobile"
+            style="
+              flex-shrink:0; background:#f59e0b; color:#000; border:none;
+              border-radius:10px; padding:8px 14px; font-size:11px; font-weight:800;
+              cursor:pointer; letter-spacing:0.01em; transition:background 0.15s; white-space:nowrap;
+            "
+            onmouseover="this.style.background='#d97706'"
+            onmouseout="this.style.background='#f59e0b'"
+          >Conectar</button>
+        </div>
+
+        <style>
+          @keyframes fadeInOverlay {
+            from { opacity: 0; }
+            to   { opacity: 1; }
+          }
+          @keyframes popInCard {
+            from { opacity: 0; transform: translate(-50%, -50%) scale(0.88); }
+            to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+          }
+          @keyframes slideUpBanner {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+          }
+          @media (min-width: 1024px) {
+            #disconnected-overlay     { display: block !important; }
+            #disconnected-card-desktop { display: flex !important; }
+            #disconnected-toast-mobile { display: none !important; }
+          }
+          @media (max-width: 1023px) {
+            #disconnected-overlay      { display: none !important; }
+            #disconnected-card-desktop { display: none !important; }
+            #disconnected-toast-mobile { display: flex !important; }
+          }
+        </style>
+        ` : ''}
         
         <!-- SIDEBAR -->
         <aside class="hidden lg:flex w-64 max-w-64 border-r border-white/[0.06] bg-[#0f0f13] flex-col justify-between shrink-0 h-full p-5 relative z-10">
@@ -1210,23 +1462,14 @@ class ThumbSyncApp {
             <!-- Gdrive Connection Widget -->
             <div class="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.05] relative space-y-2">
               <div class="flex items-center gap-2">
-                <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected && !this.state.useMock ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
+                <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
                 <span class="text-[11px] font-bold text-white tracking-tight">
-                  ${this.state.gdriveConnected && !this.state.useMock ? 'G-Drive Conectado' : this.state.gdriveConnected && this.state.useMock ? 'Erro de Sincronia' : 'Modo Off-line'}
+                  ${this.state.gdriveConnected ? 'G-Drive Conectado' : 'Desconectado'}
                 </span>
               </div>
-              <p class="text-[9px] text-zinc-500 font-medium leading-tight font-sans">
-                ${this.state.gdriveConnected && !this.state.useMock 
-                  ? 'Salva direto na sua conta do Google Drive.' 
-                  : this.state.gdriveConnected && this.state.useMock 
-                    ? '<span class="text-amber-500 font-bold block mb-0.5">⚠️ Falha no Sincronismo</span>Consulte as Configurações para diagnosticar o erro.' 
-                    : 'Mostrando miniaturas demo locais.'}
+              <p class="text-[9px] text-zinc-500 font-medium leading-tight">
+                ${this.state.gdriveConnected ? 'Salva direto na sua conta do Google Drive.' : 'Conecte sua conta para gerenciar miniaturas.'}
               </p>
-              ${this.state.syncError && this.state.gdriveConnected ? `
-                <div class="mt-1.5 text-[9px] text-red-400 font-semibold leading-relaxed font-mono select-text bg-red-500/5 p-1 rounded border border-red-500/10 line-clamp-3" title="${this.state.syncError.replace(/"/g, '&quot;')}">
-                  Erro: ${this.state.syncError}
-                </div>
-              ` : ''}
             </div>
 
             <!-- Side Nav Tabs -->
@@ -1236,7 +1479,7 @@ class ThumbSyncApp {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               `, `
-                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i=>i.hasWebp).length}</span>
+                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i => i.hasWebp).length}</span>
               `)}
               ${this.renderNavItem('list_manager', 'Lista de Jogos', `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -1278,21 +1521,13 @@ class ThumbSyncApp {
           
           <!-- MOBILE HEADER ACTION BAR -->
           <header class="h-16 shrink-0 border-b border-white/[0.05] bg-[#0f0f13] flex items-center justify-between px-4 sm:px-6 select-none relative z-10 w-full">
-            <div id="live-indicator-wrapper" class="flex items-center gap-2.5 transition-all duration-300 rounded-2xl border border-transparent px-2 py-1">
-              <span class="text-[10px] sm:text-xs text-zinc-550 font-bold uppercase tracking-wider relative">Status</span>
-              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-black tracking-wider ${this.state.useMock ? 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#f59e0b]/15' : 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15'} shadow-sm">
-                ${this.state.useMock ? "OFF-LINE DEMO" : "CONECTADO"}
+            <div class="flex items-center gap-2">
+              <span class="hidden sm:inline text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'} flex items-center gap-1.5 shadow-sm">
+                <span class="w-1.5 h-1.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
+                <span class="hidden sm:inline">${this.state.gdriveConnected ? "GOOGLE DRIVE CONECTADO" : "NÃO CONECTADO"}</span>
+                <span class="inline sm:hidden">${this.state.gdriveConnected ? "CONECTADO" : "OFFLINE"}</span>
               </span>
-              
-              ${!this.state.useMock && this.state.gdriveConnected ? `
-                <div class="flex items-center gap-1.5 bg-emerald-500/5 px-2.5 py-1 rounded-xl border border-emerald-500/10 transition-all duration-300">
-                  <span class="relative flex h-1.5 w-1.5 shrink-0">
-                    <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                    <span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
-                  </span>
-                  <span class="text-[9px] font-black text-emerald-400 uppercase tracking-widest font-mono">Ao Vivo</span>
-                </div>
-              ` : ''}
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
@@ -1301,7 +1536,7 @@ class ThumbSyncApp {
             </div>
 
             <div class="flex items-center gap-3">
-              <button id="btn-sync-gdrive" class="flex items-center justify-center gap-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] px-3 py-1.5 rounded-xl text-[10px] sm:text-xs font-semibold transition-all">
+              <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0" title="Sincronizar Google Drive">
                 ${this.state.isLoading ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
@@ -1320,7 +1555,7 @@ class ThumbSyncApp {
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
                 `}
-                <span>Sincronizar</span>
+                <span class="hidden sm:inline ml-1.5">Sincronizar</span>
               </button>
             </div>
           </header>
@@ -1377,6 +1612,114 @@ class ThumbSyncApp {
         </div>
       </div>
 
+      <!-- ============================================================ -->
+      <!-- FLOATING ASSISTANT WIDGET                                   -->
+      <!-- ============================================================ -->
+
+      <!-- Bubble Trigger Button -->
+      <button id="assistant-bubble" aria-label="Dicas e avisos do desenvolvedor" class="fixed z-50 bottom-20 right-4 lg:bottom-6 lg:right-6 w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_32px_rgba(59,130,246,0.45)] transition-all duration-300 active:scale-95 hover:scale-105 focus:outline-none" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: 1px solid rgba(255,255,255,0.15);">
+        <!-- Pulsing green dot — shown only on first visit -->
+        ${!localStorage.getItem('thumbsync_assistant_opened') ? `
+          <span class="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
+            <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+            <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-[#0c0c0e]"></span>
+          </span>
+        ` : ''}
+        <!-- Icon: sparkle / help -->
+        <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+        </svg>
+      </button>
+
+      <!-- Assistant Popover Panel -->
+      <div id="assistant-panel" class="fixed z-50 bottom-[5.5rem] right-4 lg:bottom-20 lg:right-6 w-[calc(100vw-2rem)] max-w-sm pointer-events-none opacity-0 scale-95 origin-bottom-right transition-all duration-300">
+        <div class="rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.7)] overflow-hidden" style="background: rgba(22,22,28,0.92); backdrop-filter: blur(24px) saturate(1.8); -webkit-backdrop-filter: blur(24px) saturate(1.8); border: 1px solid rgba(255,255,255,0.08);">
+
+          <!-- Header -->
+          <div class="flex items-center justify-between px-5 pt-5 pb-3 border-b border-white/[0.06]">
+            <div class="flex items-center gap-2.5">
+              <div class="w-8 h-8 rounded-2xl flex items-center justify-center shadow-sm" style="background: linear-gradient(135deg, #2563eb, #1d4ed8);">
+                <svg class="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
+                </svg>
+              </div>
+              <div>
+                <p class="text-[13px] font-black text-white leading-none tracking-tight">Assistente</p>
+                <p class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-0.5">ThumbSync · Dev Notes</p>
+              </div>
+            </div>
+            <button id="assistant-close" class="w-7 h-7 rounded-full flex items-center justify-center transition-colors hover:bg-white/10 text-zinc-500 hover:text-white cursor-pointer" style="border: 1px solid rgba(255,255,255,0.07);">
+              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+            </button>
+          </div>
+
+          <!-- Body -->
+          <div class="p-5 space-y-4 max-h-[65vh] overflow-y-auto custom-scrollbar">
+
+            <!-- === Developer Security Notice === -->
+            <div class="rounded-2xl p-4 space-y-2" style="background: rgba(234,179,8,0.08); border: 1px solid rgba(234,179,8,0.2);">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+                </svg>
+                <span class="text-[10px] font-black text-amber-400 uppercase tracking-wider">Aviso de Segurança</span>
+              </div>
+              <p class="text-[11px] text-amber-200/80 leading-relaxed font-medium">
+                Sempre utilize a <strong class="text-amber-300 font-black">mesma conta Google</strong> ao acessar o site. Apenas aquela conta possui permissão para se conectar, como medida de segurança.
+              </p>
+            </div>
+
+            <!-- === Tips Section === -->
+            <div class="space-y-1">
+              <p class="text-[9px] font-black text-zinc-600 uppercase tracking-widest px-1 pb-1">Dicas de uso</p>
+
+              <!-- Tip 1 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(59,130,246,0.15); border: 1px solid rgba(59,130,246,0.2);">
+                  <svg class="w-3.5 h-3.5 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Se a lista parecer desatualizada, use o botão <strong class="text-white font-bold">Sincronizar</strong> no topo do site para recarregar tudo com o Google Drive.
+                </p>
+              </div>
+
+              <!-- Tip 2 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(16,185,129,0.12); border: 1px solid rgba(16,185,129,0.18);">
+                  <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Se nem isso funcionar, <strong class="text-white font-bold">desconecte</strong> sua conta do Google e <strong class="text-white font-bold">reconecte</strong>.
+                </p>
+              </div>
+
+              <!-- Tip 3 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(168,85,247,0.12); border: 1px solid rgba(168,85,247,0.18);">
+                  <svg class="w-3.5 h-3.5 text-purple-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Não encontrou um jogo em <strong class="text-white font-bold">Miniaturas</strong>? Verifique se o <strong class="text-white font-bold">provedor</strong> e a <strong class="text-white font-bold">categoria (tag)</strong> estão corretos nos filtros, ou se o nome não está com erro de digitação.
+                </p>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Footer -->
+          <div class="px-5 py-3.5 border-t border-white/[0.04] flex items-center justify-center">
+            <p class="text-[9px] text-zinc-700 font-bold uppercase tracking-widest">ThumbSync · Assistente do Desenvolvedor</p>
+          </div>
+
+        </div>
+      </div>
+
       <!-- Image Preview Modal -->
       <div id="preview-modal" class="fixed inset-0 z-40 bg-black/80 backdrop-blur-md flex items-center justify-center pointer-events-none opacity-0 transition-all duration-300">
         <div class="w-[92%] max-w-sm bg-[#121215] border border-white/[0.08] p-5 sm:p-6 rounded-3xl shadow-[0_32px_80px_rgba(0,0,0,0.8)] scale-95 transition-transform duration-300 flex flex-col relative max-h-[85vh]">
@@ -1390,12 +1733,18 @@ class ThumbSyncApp {
 
     this.renderActiveTab();
     this.bindGlobalEvents();
+
+    // Start the proactive assistant messages only once per page load
+    if (!this._assistantStarted) {
+      this._assistantStarted = true;
+      this.startAssistantMessages();
+    }
   }
 
   renderNavItem(tab, label, iconHtml, badgeHtml = '') {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]' }">
+      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}">
         ${iconHtml}
         <span>${label}</span>
         ${badgeHtml}
@@ -1406,7 +1755,7 @@ class ThumbSyncApp {
   renderMobileNavItem(tab, label, iconHtml) {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500' }">
+      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500'}">
         <div class="px-3 py-1 rounded-full ${isActive ? 'bg-blue-500/10 text-blue-500' : 'text-zinc-400'}">
           ${iconHtml}
         </div>
@@ -1477,115 +1826,128 @@ class ThumbSyncApp {
       items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
     }
 
-    const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+    // Paginação: Limitar itens renderizados para performance
+    const pageSize = 40;
+    const totalItemsCount = items.length;
+    const itemsToShow = items.slice(0, this.state.catalogPage * pageSize);
 
-    container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative">
-        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
-          <div>
-            <h1 class="text-2xl font-black text-white tracking-tight">Miniaturas</h1>
-            <p class="text-zinc-500 text-xs mt-0.5">Veja e gerencie as fotos .webp do seu catálogo geral no Google Drive.</p>
+    // Estrutura Base (Skeleton) do Catálogo - renderizada apenas se necessário para evitar perda de foco no Input
+    let resultsArea = container.querySelector('#catalog-results-area');
+
+    if (!resultsArea) {
+      const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
+
+      container.innerHTML = `
+        <div class="space-y-6 text-left select-none relative">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
+            <div>
+              <h1 class="text-2xl font-black text-white tracking-tight">Miniaturas</h1>
+              <p class="text-zinc-500 text-xs mt-0.5">Veja e gerencie as fotos .webp do seu catálogo geral no Google Drive.</p>
+            </div>
           </div>
+
+          <!-- Filtros -->
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
+              <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
+              <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
+                ${uniqueProviders.map(p => `
+                  <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
+                `).join('')}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
+              <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
+                <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
+                <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
+              </select>
+            </div>
+          </div>
+
+          <div id="catalog-results-area"></div>
         </div>
+      `;
+      resultsArea = container.querySelector('#catalog-results-area');
+    }
 
-        <!-- Filtros -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
-            <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
-            <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
-              ${uniqueProviders.map(p => `
-                <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
-              `).join('')}
-            </select>
-          </div>
-          <div class="space-y-1">
-            <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
-            <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-              <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-              <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
-              <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
-            </select>
-          </div>
-        </div>
+    // Renderização Dinâmica apenas da Grade de Itens
+    resultsArea.innerHTML = `
+      ${items.length === 0 ? `
+        <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
+      ` : `
+        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+          ${itemsToShow.map(item => {
+      const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
+      const hasWebp = item.hasWebp;
+      const tag = this.getGameTag(item);
+      const tagHtml = tag === "ao vivo" ? `
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
+                <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
+                Ao Vivo
+              </span>
+            ` : `
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
+                <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
+                Slot
+              </span>
+            `;
 
-        <!-- Catalogo em Grid -->
-        ${items.length === 0 ? `
-          <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
-        ` : `
-          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-            ${items.map(item => {
-              const gradient = PROVIDER_GRADIENTS[(item.providerName || '').toLowerCase()] || PROVIDER_GRADIENTS['default'];
-              const hasWebp = item.hasWebp;
-              const tag = this.getGameTag(item);
-              const tagHtml = tag === "ao vivo" ? `
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
-                  <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
-                  Ao Vivo
-                </span>
-              ` : `
-                <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
-                  <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
-                  Slot
-                </span>
-              `;
-
-              return `
-                <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
-                  ${hasWebp ? `
-                    <img id="thumb-${item.id}" src="" alt="${item.displayName}" class="w-full h-full object-cover">
-                  ` : `
-                    <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
-                      <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
-                        PENDENTE
-                      </div>
-                      <div class="space-y-1">
-                        <span class="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">${item.providerName}</span>
-                        <h4 class="text-xs font-black text-white leading-tight">${item.displayName}</h4>
-                        <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
-                      </div>
+      return `
+              <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
+                ${hasWebp ? `
+                  <img id="thumb-${item.id}" 
+                       data-catalog-key="${item.id}" 
+                       src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
+                       alt="${item.displayName}" 
+                       class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
+                ` : `
+                  <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
+                    <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
+                      PENDENTE
                     </div>
-                  `}
-
-                  <div class="absolute top-3 right-3 z-20">
-                    ${tagHtml}
-                  </div>
-
-                  <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
-                  
-                  ${hasWebp ? `
-                    <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
-                      <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
-                      <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
+                    <div class="space-y-1">
+                      <span class="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">${item.providerName}</span>
+                      <h4 class="text-xs font-black text-white leading-tight">${item.displayName}</h4>
+                      <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
                     </div>
-                  ` : ''}
-
-                  <!-- Visual Drag and Drop Upload Drop-Zone indicators -->
-                  <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
-                    <svg class="w-7 h-7 text-white animate-bounce mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" /></svg>
-                    <span class="text-[9px] font-bold text-white uppercase tracking-wider text-center leading-tight">Solte Webp<br>para Upload</span>
                   </div>
+                `}
+
+                <div class="absolute top-3 right-3 z-20">
+                  ${tagHtml}
                 </div>
-              `;
-            }).join('')}
-          </div>
-        `}
-      </div>
-    `;
 
-    // Carregar via lazy load das imagens
-    items.forEach(item => {
-      if (item.hasWebp) {
-        const imgEl = document.getElementById(`thumb-${item.id}`);
-        if (imgEl) {
-          this.loadThumbnailSrc(item, imgEl);
-        }
-      }
-    });
+                <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
+                
+                ${hasWebp ? `
+                  <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
+                    <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
+                    <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
+                  </div>
+                ` : ''}
+
+                <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
+                  <svg class="w-7 h-7 text-white animate-bounce mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0l-4 4m4-4v12" /></svg>
+                  <span class="text-[9px] font-bold text-white uppercase tracking-wider text-center leading-tight">Solte Webp<br>para Upload</span>
+                </div>
+              </div>
+            `;
+    }).join('')}
+        </div>
+        ${totalItemsCount > itemsToShow.length ? `
+          <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
+            <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
+          </div>
+        ` : ''}
+      `}
+    `;
 
     // Registrar Drag and Drop Eventos nos cartões
     const cardElements = container.querySelectorAll('[data-catalog-key]');
@@ -1611,8 +1973,10 @@ class ThumbSyncApp {
         const dropZone = card.querySelector('.dropzone-indicator');
         if (dropZone) dropZone.classList.remove('opacity-100');
 
-        const sessionOk = await this.ensureActiveSession();
-        if (!sessionOk) return;
+        if (this.state.useMock) {
+          alert("Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para fazer upload real de Webps!");
+          return;
+        }
 
         const files = e.dataTransfer.files;
         if (files.length === 0) return;
@@ -1624,7 +1988,7 @@ class ThumbSyncApp {
         }
 
         // Fazer Upload
-        this.addLog(`Preparando upload de '${file.name}' (${Math.round(file.size/1024)} KB) p/ Drive...`);
+        this.addLog(`Preparando upload de '${file.name}' (${Math.round(file.size / 1024)} KB) p/ Drive...`);
         this.state.isLoading = true;
         this.render();
 
@@ -1641,8 +2005,8 @@ class ThumbSyncApp {
 
           // Fazer upload de imagem via Drive CLIENT
           const uploadedFile = await driveClient.uploadImage(fileName, file, targetFolderId);
-          this.addLog(`Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0,8)}...)`);
-          
+          this.addLog(`Miniatura '${fileName}' enviada com sucesso ao Drive (Novo ID: ${uploadedFile.id.substring(0, 8)}...)`);
+
           await this.syncWithGoogleDrive();
         } catch (uploadError) {
           this.addLog(`Incorreto ao enviar imagem: ${uploadError.message}`);
@@ -1661,7 +2025,7 @@ class ThumbSyncApp {
   renderListManager(container) {
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
-    
+
     let currentProvider = "Sem provedor";
     for (const line of lines) {
       const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
@@ -1669,10 +2033,10 @@ class ThumbSyncApp {
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-         currentProvider = providerMatch[1].trim();
-         continue;
+        currentProvider = providerMatch[1].trim();
+        continue;
       }
-      
+
       if (/^provedor\s*:/i.test(clean)) continue;
 
       listGames.push({
@@ -1682,6 +2046,15 @@ class ThumbSyncApp {
       });
     }
 
+    const catalogItemsByKey = new Map(this.state.catalogItems.map(item => [item.id, item]));
+    const getListGameKey = (game) => `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+    const isListGameOk = (game) => catalogItemsByKey.get(getListGameKey(game))?.hasWebp || false;
+    const sortGamesForProvider = (a, b) => {
+      const okDiff = Number(isListGameOk(b)) - Number(isListGameOk(a));
+      if (okDiff !== 0) return okDiff;
+      return a.displayName.localeCompare(b.displayName, 'pt-BR', { sensitivity: 'base' });
+    };
+
     const groupsMap = new Map();
     listGames.forEach(g => {
       const arr = groupsMap.get(g.providerName) || [];
@@ -1689,11 +2062,14 @@ class ThumbSyncApp {
       groupsMap.set(g.providerName, arr);
     });
 
-    const groupsList = Array.from(groupsMap.entries());
+    const groupsList = Array.from(groupsMap.entries()).map(([providerName, games]) => [
+      providerName,
+      [...games].sort(sortGamesForProvider)
+    ]);
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
-    
+
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
       if (prov && prov !== "Sem provedor") {
@@ -1719,7 +2095,6 @@ class ThumbSyncApp {
       });
     }
 
-    // Se estiver totalmente vazio (por garantia extrema), adiciona alguns padrões para facilitar
     if (modalProvidersSet.size === 0) {
       modalProvidersSet.add("PG Soft");
       modalProvidersSet.add("Pragmatic Play");
@@ -1728,107 +2103,122 @@ class ThumbSyncApp {
     const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative">
-        <div class="flex flex-col sm:flex-row justify-between gap-3 sm:items-center pb-2 border-b border-white/[0.05]">
+      <div class="space-y-6 text-left select-none relative w-full">
+        <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div>
             <h1 class="text-2xl font-black text-white tracking-tight">Gerenciador de lista.txt</h1>
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
-          <div class="flex items-center gap-2 self-start sm:self-auto shrink-0 select-none">
-            <button id="btn-sync-list-only" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer">
-              ${this.state.isLoading ? `
-                <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <g transform="translate(12,12)">
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.875" transform="rotate(45)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.625" transform="rotate(135)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.375" transform="rotate(225)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
-                  </g>
-                </svg>
-              ` : `
-                <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-              `}
-              <span>Sincronizar Lista</span>
+          
+          <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
+          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0">
+            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
+              <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Limpar Feitos</span>
             </button>
-            <button id="btn-add-provider" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer">
-              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span>Novo Provedor</span>
+            
+            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
+              <svg class="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Excluir</span>
+              <span class="bg-red-500/25 text-red-500 sm:bg-red-500/10 sm:text-red-500 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1 shrink-0" id="selected-count-badge">
+                <span id="selected-count">${this.state.selectedListKeys.size}</span>
+              </span>
             </button>
-            <button id="btn-add-games-main" class="flex items-center gap-1.5 text-xs font-bold py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 transition-all cursor-pointer">
-              <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span>Adicionar Jogos</span>
+            
+            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
+              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Novo Provedor</span>
+            </button>
+            
+            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar CSV">
+              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Importar CSV</span>
+            </button>
+            
+            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3 rounded-xl sm:flex-1 sm:py-2.5 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 shadow-md transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
+              <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span class="inline-block ml-1 text-xs font-bold whitespace-nowrap">Adicionar<span class="hidden sm:inline"> Jogos</span></span>
             </button>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div class="lg:col-span-2 space-y-4">
+        <div class="flex flex-col gap-6 w-full">
+          <!-- Lista Principal de Provedores e Jogos -->
+          <div class="space-y-4 w-full">
             ${groupsList.length === 0 ? `
-              <div class="py-20 flex flex-col items-center justify-center text-center px-4 border border-dashed border-white/[0.05] rounded-2xl bg-white/[0.01]">
-                <div class="w-10 h-10 rounded-full bg-zinc-900/60 flex items-center justify-center mb-3 border border-white/[0.05]">
-                  <svg class="w-5 h-5 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" />
-                  </svg>
-                </div>
-                <p class="text-zinc-400 font-bold text-xs">Nenhuma seção de provedor na lista</p>
-                <p class="text-zinc-500 text-[11px] mt-1.5 max-w-xs">Crie uma nova seção clicando em "Novo Provedor" acima, ou toque em "Sincronizar Lista" para ler as seções registradas.</p>
-              </div>
+              <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
-              ${groupsList.map(([providerName, games]) => `
+              ${groupsList.map(([providerName, games]) => {
+      const providerKey = this.normalizeName(providerName);
+      const providerAttr = encodeURIComponent(providerKey);
+      const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+
+      return `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
-                  <div class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02]">
-                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                      ${providerName}
+                  <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 min-w-0">
+                      <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                      <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                      <span class="truncate pr-2">${providerName}</span>
                     </span>
-                    <div class="flex items-center gap-2">
-                      <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold">
+                    <div class="flex items-center gap-2 shrink-0">
+                      <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
-                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer">
+                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
                     </div>
                   </div>
 
-                  <div class="p-2 bg-[#09090c]/40 space-y-1.5">
+                  ${isCollapsed ? '' : `
+                  <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-                      const hasWebp = catalogItem?.hasWebp || false;
+      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+      const hasWebp = catalogItem?.hasWebp || false;
 
-                      return `
-                        <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
-                          <div class="flex items-center gap-2.5">
-                            <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
-                            <span class="text-xs font-medium text-zinc-100">${game.displayName}</span>
-                            <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
-                              ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
+        return `
+                        <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
+                          <div class="flex items-center gap-2.5 min-w-0">
+                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                            <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'} shrink-0"></span>
+                            <span class="text-xs font-medium text-zinc-100 truncate">${game.displayName}</span>
+                            <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md shrink-0 ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
+                               ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
                             </span>
                           </div>
-                          <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors">
+                          <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors shrink-0">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
                       `;
-                    }).join('')}
+      }).join('')}
                   </div>
+                  `}
                 </div>
-              `).join('')}
+              `;
+    }).join('')}
             `}
           </div>
 
-          <!-- Raw Live File Preview -->
-          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
+          <!-- Raw Live File Preview (Posicionado abaixo da lista) -->
+          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">Conteúdo de lista.txt</h3>
+              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
               <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
               
               <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
@@ -1860,6 +2250,35 @@ class ThumbSyncApp {
             <div class="flex items-center gap-3">
               <button id="modal-add-game-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
               <button id="modal-add-game-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Adicionar</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Import CSV Modal -->
+      ${this.state.isImportingCSV ? `
+        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
+          <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar CSV</h3>
+            
+            <div class="mb-4 text-left">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
+              <select id="modal-import-csv-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
+                ${modalProvidersList.map(prov => `
+                  <option value="${prov}">${prov}</option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="mb-5 text-left">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Arquivo CSV</label>
+              <input type="file" id="import-csv-file-input" accept=".csv" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
+              <p class="text-[9px] text-zinc-500 mt-2">O sistema reconhece colunas como 'name', 'game' ou 'jogo'.</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+              <button id="modal-import-csv-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
+              <button id="modal-import-csv-confirm" class="flex-1 py-2 px-4 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer">Importar</button>
             </div>
           </div>
         </div>
@@ -1913,56 +2332,28 @@ class ThumbSyncApp {
                   </div>
                 </div>
                 <div class="flex items-center gap-1.5">
-                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b] animate-pulse'}"></span>
+                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'}"></span>
                   <span class="text-xs font-bold text-zinc-400">
-                    ${this.state.gdriveConnected ? 'Conectado' : 'Modo Demo'}
+                    ${this.state.gdriveConnected ? 'Conectado' : 'Desconectado'}
                   </span>
                 </div>
               </div>
 
               ${this.state.gdriveConnected ? `
-                <div class="space-y-3">
-                  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
-                    <div class="min-w-0">
-                      <p class="text-xs font-bold ${this.state.useMock ? 'text-amber-500' : 'text-white'}">
-                        ${this.state.useMock ? 'Google Drive - Erro no Sincronismo' : 'Google Drive Sincronizando'}
-                      </p>
-                      <p class="text-[10px] text-zinc-404 font-semibold leading-relaxed mt-0.5 max-w-md">
-                        ${this.state.useMock 
-                          ? 'A autenticação funcionou com sucesso, mas o aplicativo não possui as permissões do Drive ou a API está desativada no seu Cloud.' 
-                          : 'Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.'}
-                      </p>
-                    </div>
-                    <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
-                      Sair do Google Drive
-                    </button>
+                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                  <div class="min-w-0">
+                    <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
+                    <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
                   </div>
-
-                  ${this.state.useMock ? `
-                    <div class="p-4 rounded-2xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs space-y-2.5 leading-normal">
-                      <div class="font-bold flex items-center gap-1.5 text-red-400">
-                        <svg class="w-4 h-4 shrink-0 text-red-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                          <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                        </svg>
-                        <span>CÓDIGO DE ERRO ENCONTRADO:</span>
-                      </div>
-                      <p class="font-mono text-[10px] bg-black/40 p-3 rounded-xl border border-white/[0.05] whitespace-pre-wrap select-text text-zinc-300 leading-normal">
-                        ${this.state.syncError || "Nenhum debug textual retornado. O Drive retornou erro de requisição."}
-                      </p>
-                      <div class="text-[10px] text-zinc-400 leading-normal space-y-1.5 pt-1.5 border-t border-white/[0.05]">
-                        <p class="font-bold text-zinc-200">Como corrigir este problema no seu Google Cloud Console:</p>
-                        <p><strong>1. Habilitar a API do Google Drive:</strong> Acesse seu console do <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-500 hover:underline font-bold">Google Cloud Console</a>, selecione o seu projeto correspondente ao ID de Cliente, digite na barra de busca superior <code>Google Drive API</code>. Clique no primeiro resultado e selecione o botão <span class="text-emerald-400 font-bold">Ativar / Enable</span>.</p>
-                        <p><strong>2. Configuração de Escopo:</strong> Na aba lateral <code>Tela de Consentimento OAuth</code> (OAuth Consent Screen) no Cloud Console, garanta que seu escopo inclua o <code>.../auth/drive</code> para permitir que o site manipule seus arquivos de mídia e lista.</p>
-                        <p><strong>3. Origens JavaScript Autorizadas:</strong> Certifique-se de que a origem atual do aplicativo (<code>${window.location.origin}</code>) esteja inserida nas configurações de Origens do seu Client ID em <code>Credenciais</code>.</p>
-                      </div>
-                    </div>
-                  ` : ''}
+                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
+                    Sair do Google Drive
+                  </button>
                 </div>
               ` : `
                 <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                   <div class="max-w-md">
                     <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
-                    <p class="text-[10px] text-zinc-405 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
+                    <p class="text-[10px] text-zinc-500 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
                   </div>
                   <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
@@ -2064,9 +2455,9 @@ class ThumbSyncApp {
     if (child) child.classList.remove('scale-95');
 
     const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
-    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute:'2-digit' }) : 'Simulado / Local';
+    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Simulado / Local';
 
-    const pBadgeStyle = PROVIDER_BADGE_STYLE[(item.providerName || '').toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
+    const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
     const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
@@ -2100,6 +2491,12 @@ class ThumbSyncApp {
         <div class="space-y-1.5 select-none">
           <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
           <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+            ${this.state.isSavingTag ? `
+              <div class="flex-1 py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
+                <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
+                SALVANDO...
+              </div>
+            ` : `
             <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
               <span class="w-1.5 h-1.5 rounded-full bg-[#ff453a] ${currentTag === 'ao vivo' ? 'animate-pulse' : ''}"></span>
               Ao Vivo
@@ -2108,6 +2505,7 @@ class ThumbSyncApp {
               <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff]"></span>
               Slot
             </button>
+            `}
           </div>
         </div>
 
@@ -2134,7 +2532,7 @@ class ThumbSyncApp {
 
     const tagLiveBtn = document.getElementById('tag-btn-ao-vivo');
     const tagSlotBtn = document.getElementById('tag-btn-slot');
-    
+
     if (tagLiveBtn) {
       tagLiveBtn.addEventListener('click', () => {
         this.updateGameTag(item.id, 'ao vivo');
@@ -2153,6 +2551,148 @@ class ThumbSyncApp {
     modal.classList.add('pointer-events-none', 'opacity-0');
     const child = modal.firstElementChild;
     if (child) child.classList.add('scale-95');
+  }
+
+  // ----------------------------------------------------------------
+  // PROACTIVE CHAT BUBBLE — messages that auto-appear from the bot
+  // ----------------------------------------------------------------
+
+  startAssistantMessages() {
+    // Create the floating chat bubble element once, attached to body
+    // so it survives full re-renders of root.innerHTML.
+    if (!document.getElementById('assistant-chat-bubble')) {
+      const el = document.createElement('div');
+      el.id = 'assistant-chat-bubble';
+      el.setAttribute('role', 'status');
+      el.className = 'fixed z-[60] bottom-[8.75rem] right-4 lg:bottom-[5.25rem] lg:right-6 w-[calc(100vw-5rem)] max-w-[272px] pointer-events-none opacity-0 translate-y-3 transition-all duration-500 ease-out select-none';
+      el.innerHTML = `
+        <div class="relative rounded-2xl rounded-br-sm shadow-[0_24px_64px_rgba(0,0,0,0.75)]" style="background:rgba(22,22,28,0.97);backdrop-filter:blur(24px) saturate(1.8);-webkit-backdrop-filter:blur(24px) saturate(1.8);border:1px solid rgba(255,255,255,0.1);">
+          <button id="chat-bubble-close" tabindex="0" aria-label="Fechar dica" class="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-white/15" style="background:rgba(255,255,255,0.07);">
+            <svg class="w-2.5 h-2.5" style="color:#71717a" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+          </button>
+          <div class="p-4 pr-9 flex gap-3 items-start">
+            <div id="chat-bubble-icon" class="w-7 h-7 rounded-xl shrink-0 flex items-center justify-center mt-0.5"></div>
+            <div>
+              <p class="text-[9px] font-black uppercase tracking-widest mb-1" style="color:#52525b;">Assistente ThumbSync</p>
+              <p id="chat-bubble-text" class="text-[11.5px] leading-relaxed font-medium" style="color:#d4d4d8;"></p>
+            </div>
+          </div>
+        </div>
+        <div class="absolute -bottom-[5px] right-[1.375rem] w-2.5 h-2.5 rotate-45" style="background:rgba(22,22,28,0.97);border-right:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);"></div>
+      `;
+      document.body.appendChild(el);
+
+      const closeBtn = document.getElementById('chat-bubble-close');
+      if (closeBtn) {
+        closeBtn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          this._chatSkipRemaining = true;
+          this.hideChatBubble();
+        });
+      }
+    }
+
+    const MESSAGES = [
+      {
+        bgStyle: 'background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#fbbf24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>`,
+        text: 'Lembre-se: sempre utilize a <strong style="color:#fcd34d;font-weight:900;">mesma conta Google</strong> ao acessar o site, como medida de segurança.',
+        duration: 10000
+      },
+      {
+        bgStyle: 'background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#60a5fa" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>`,
+        text: 'Lista desatualizada? Use o botão <strong style="color:#fff;font-weight:900;">Sincronizar</strong> no topo do site para recarregar tudo com o Google Drive.',
+        duration: 9000
+      },
+      {
+        bgStyle: 'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#34d399" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>`,
+        text: 'Sincronização travou? <strong style="color:#fff;font-weight:900;">Desconecte</strong> sua conta do Google e <strong style="color:#fff;font-weight:900;">reconecte</strong>.',
+        duration: 9000
+      },
+      {
+        bgStyle: 'background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.25);',
+        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#c084fc" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>`,
+        text: 'Não achou um jogo? Confira o <strong style="color:#fff;font-weight:900;">provedor</strong> e a <strong style="color:#fff;font-weight:900;">categoria</strong> nos filtros de Miniaturas.',
+        duration: 9000
+      },
+    ];
+
+    let index = 0;
+    this._chatSkipRemaining = false;
+
+    const showNext = () => {
+      if (index >= MESSAGES.length || this._chatSkipRemaining) return;
+
+      const panel = document.getElementById('assistant-panel');
+      const panelIsOpen = panel && !panel.classList.contains('opacity-0');
+      const msg = MESSAGES[index];
+      index++;
+
+      if (!panelIsOpen) {
+        this.showChatBubble(msg);
+      }
+
+      const displayTime = panelIsOpen ? 0 : msg.duration;
+      this._chatHideTimer = setTimeout(() => {
+        this.hideChatBubble(() => {
+          if (index < MESSAGES.length && !this._chatSkipRemaining) {
+            this._chatNextTimer = setTimeout(showNext, 2800);
+          }
+        });
+      }, displayTime);
+    };
+
+    // First message appears after 4 seconds
+    this._chatNextTimer = setTimeout(showNext, 4000);
+  }
+
+  showChatBubble(msg) {
+    const bubble = document.getElementById('assistant-chat-bubble');
+    const iconEl = document.getElementById('chat-bubble-icon');
+    const textEl = document.getElementById('chat-bubble-text');
+    if (!bubble || !iconEl || !textEl) return;
+
+    iconEl.setAttribute('style', msg.bgStyle);
+    iconEl.innerHTML = msg.iconHtml;
+    textEl.innerHTML = msg.text;
+
+    // Trigger reflow so the transition animates from initial state
+    void bubble.offsetWidth;
+    bubble.classList.remove('opacity-0', 'translate-y-3', 'pointer-events-none');
+    bubble.classList.add('opacity-100', 'translate-y-0', 'pointer-events-auto');
+  }
+
+  hideChatBubble(callback) {
+    const bubble = document.getElementById('assistant-chat-bubble');
+    if (!bubble) { if (callback) callback(); return; }
+
+    bubble.classList.add('opacity-0', 'translate-y-3', 'pointer-events-none');
+    bubble.classList.remove('opacity-100', 'translate-y-0', 'pointer-events-auto');
+    if (callback) setTimeout(callback, 520);
+  }
+
+  // ----------------------------------------------------------------
+
+  toggleAssistant(forceClose = false) {
+    const panel = document.getElementById('assistant-panel');
+    if (!panel) return;
+
+    const isOpen = !panel.classList.contains('opacity-0');
+
+    if (forceClose || isOpen) {
+      panel.classList.add('opacity-0', 'scale-95', 'pointer-events-none');
+    } else {
+      panel.classList.remove('opacity-0', 'scale-95', 'pointer-events-none');
+
+      // Mark as opened — remove the pulsing notification dot permanently
+      if (!localStorage.getItem('thumbsync_assistant_opened')) {
+        localStorage.setItem('thumbsync_assistant_opened', 'true');
+        const dot = document.querySelector('#assistant-bubble span.animate-ping')?.closest('span.flex');
+        if (dot) dot.remove();
+      }
+    }
   }
 
   bindGlobalEvents() {
@@ -2176,14 +2716,28 @@ class ThumbSyncApp {
     const btnLogin = document.getElementById('btn-login');
     if (btnLogin) {
       btnLogin.addEventListener('click', () => {
-         this.handleGoogleLogin();
+        this.handleGoogleLogin();
+      });
+    }
+
+    const bannerBtnLogin = document.getElementById('banner-btn-login');
+    if (bannerBtnLogin) {
+      bannerBtnLogin.addEventListener('click', () => {
+        this.handleGoogleLogin();
+      });
+    }
+
+    const bannerBtnLoginMobile = document.getElementById('banner-btn-login-mobile');
+    if (bannerBtnLoginMobile) {
+      bannerBtnLoginMobile.addEventListener('click', () => {
+        this.handleGoogleLogin();
       });
     }
 
     const btnLogout = document.getElementById('btn-logout');
     if (btnLogout) {
       btnLogout.addEventListener('click', () => {
-         this.handleGoogleLogout();
+        this.handleGoogleLogout();
       });
     }
 
@@ -2202,176 +2756,336 @@ class ThumbSyncApp {
         this.closePreviewModal();
       });
     }
+    // ---- ASSISTANT WIDGET EVENTS ----
+    const assistantBubble = document.getElementById('assistant-bubble');
+    const assistantClose = document.getElementById('assistant-close');
+
+    if (assistantBubble) {
+      assistantBubble.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleAssistant();
+      });
+    }
+
+    if (assistantClose) {
+      assistantClose.addEventListener('click', (e) => {
+        e.stopPropagation();
+        this.toggleAssistant(true);
+      });
+    }
+
+    // Close panel when clicking outside of it
+    document.addEventListener('click', (e) => {
+      const panel = document.getElementById('assistant-panel');
+      const bubble = document.getElementById('assistant-bubble');
+      if (
+        panel &&
+        !panel.classList.contains('opacity-0') &&
+        !panel.contains(e.target) &&
+        bubble && !bubble.contains(e.target)
+      ) {
+        this.toggleAssistant(true);
+      }
+    }, { capture: false });
   }
 
   bindTabEvents() {
-    // EVENTS DE CATALOGO
+    // EVENTS DE CATALOGO - Otimizado com proteção de foco e debounce
     if (this.state.activeTab === 'catalog') {
-       const searchInput = document.getElementById('catalouge-search');
-       if (searchInput) {
-         searchInput.addEventListener('input', (e) => {
-           this.state.searchQuery = e.currentTarget.value;
-           clearTimeout(this.debounceTimer);
-           this.debounceTimer = setTimeout(() => {
-             this.renderActiveTab();
-           }, 300);
-         });
-       }
+      const searchInput = document.getElementById('catalouge-search');
+      const providerSelect = document.getElementById('catalouge-provider-filter');
+      const tagSelect = document.getElementById('catalouge-tag-filter');
 
-       const providerSelect = document.getElementById('catalouge-provider-filter');
-       if (providerSelect) {
-         providerSelect.addEventListener('change', (e) => {
-            this.state.filterProvider = e.currentTarget.value;
+      this.observers.forEach(obs => obs.disconnect());
+      this.observers = [];
+
+      if (searchInput && !searchInput.dataset.bound) {
+        searchInput.dataset.bound = "true";
+        searchInput.addEventListener('input', (e) => {
+          clearTimeout(this.debounceTimer);
+          this.state.searchQuery = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.debounceTimer = setTimeout(() => this.renderActiveTab(), 300);
+        });
+      }
+
+      if (providerSelect && !providerSelect.dataset.bound) {
+        providerSelect.dataset.bound = "true";
+        providerSelect.addEventListener('change', (e) => {
+          this.state.filterProvider = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.renderActiveTab();
+        });
+      }
+
+      if (tagSelect && !tagSelect.dataset.bound) {
+        tagSelect.dataset.bound = "true";
+        tagSelect.addEventListener('change', (e) => {
+          this.state.filterTag = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.saveStateToStorage();
+          this.renderActiveTab();
+        });
+      }
+
+      const cardElements = document.querySelectorAll('[data-catalog-key]');
+      cardElements.forEach(card => {
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
+          const key = e.currentTarget.getAttribute('data-catalog-key');
+          const item = this.state.catalogItems.find(i => i.id === key);
+          if (item) {
+            this.state.selectedCatalogItem = item;
+            this.renderPreviewModal(item);
+          }
+        });
+      });
+
+      // 1. Observer para Lazy Loading de imagens
+      const imgObserver = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            const img = entry.target;
+            const key = img.getAttribute('data-catalog-key');
+            const item = this.state.catalogItems.find(i => i.id === key);
+            if (item) {
+              this.loadThumbnailSrc(item, img);
+            }
+            imgObserver.unobserve(img);
+          }
+        });
+      }, { rootMargin: '100px' });
+
+      document.querySelectorAll('img[data-catalog-key]').forEach(img => imgObserver.observe(img));
+      this.observers.push(imgObserver);
+
+      // 2. Observer para Infinite Scroll (Sentinela)
+      const sentinel = document.getElementById('catalog-sentinel');
+      if (sentinel) {
+        const scrollObserver = new IntersectionObserver((entries) => {
+          if (entries[0].isIntersecting) {
+            // Simular pequeno delay para suavizar a entrada de novos itens se necessário
+            // mas aqui incrementamos e renderizamos imediatamente.
+            this.state.catalogPage++;
             this.renderActiveTab();
-         });
-       }
+          }
+        }, { threshold: 0.1 });
 
-
-
-       const tagSelect = document.getElementById('catalouge-tag-filter');
-       if (tagSelect) {
-         tagSelect.addEventListener('change', (e) => {
-            this.state.filterTag = e.currentTarget.value;
-            this.saveStateToStorage();
-            this.renderActiveTab();
-         });
-       }
-
-       const cardElements = document.querySelectorAll('[data-catalog-key]');
-       cardElements.forEach(card => {
-         card.addEventListener('click', (e) => {
-           if (e.target.closest('.dropzone-indicator')) return; // ignore dropzone zone clicks
-           const key = e.currentTarget.getAttribute('data-catalog-key');
-           const item = this.state.catalogItems.find(i => i.id === key);
-           if (item) {
-             this.state.selectedCatalogItem = item;
-             this.renderPreviewModal(item);
-           }
-         });
-       });
+        scrollObserver.observe(sentinel);
+        this.observers.push(scrollObserver);
+      }
     }
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
-       const btnSyncListOnly = document.getElementById('btn-sync-list-only');
-       if (btnSyncListOnly) {
-         btnSyncListOnly.addEventListener('click', () => {
-           if (this.state.useMock || !this.state.gdriveConnected) {
-             this.addLog('Atualizando a partir dos arquivos locais...');
-             this.clearMockDataAndSync();
-           } else {
-             this.syncWithGoogleDrive();
-           }
-         });
-       }
+      const btnClearFinished = document.getElementById('btn-clear-finished');
+      if (btnClearFinished) {
+        btnClearFinished.addEventListener('click', () => {
+          this.handleClearFinishedGames();
+        });
+      }
 
-       const btnAddProvider = document.getElementById('btn-add-provider');
-       const providerDialog = document.getElementById('add-provider-dialog');
-       if (btnAddProvider && providerDialog) {
-         btnAddProvider.addEventListener('click', () => {
-           providerDialog.classList.remove('hidden');
-         });
-       }
+      const bulkDeleteBtn = document.getElementById('btn-delete-selected');
+      if (bulkDeleteBtn) {
+        bulkDeleteBtn.addEventListener('click', () => {
+          this.handleDeleteSelectedGames();
+        });
+      }
 
-       const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
-       if (btnCancelProvider && providerDialog) {
-         btnCancelProvider.addEventListener('click', () => {
-           providerDialog.classList.add('hidden');
-         });
-       }
+      const selectors = document.querySelectorAll('.game-selector');
+      selectors.forEach(cb => {
+        cb.addEventListener('change', (e) => {
+          const key = e.target.getAttribute('data-select-key');
+          if (e.target.checked) {
+            this.state.selectedListKeys.add(key);
+          } else {
+            this.state.selectedListKeys.delete(key);
+          }
 
-       const btnCreateProvider = document.getElementById('dialog-add-provider-confirm');
-       if (btnCreateProvider && providerDialog) {
-         btnCreateProvider.addEventListener('click', () => {
-           const input = document.getElementById('new-provider-name');
-           if (input && input.value.trim() !== '') {
-              const name = input.value.trim();
-              
-              const lines = this.state.listContent.split(/\r?\n/);
-              if (lines.length > 0 && lines[lines.length-1].trim() !== '') {
-                lines.push('');
-              }
-              lines.push(`Provedor: ${name}`);
-              this.saveUpdatedList(lines.join('\n'));
-              providerDialog.classList.add('hidden');
-              input.value = '';
-           }
-         });
-       }
+          const countEl = document.getElementById('selected-count');
+          if (countEl) countEl.innerText = this.state.selectedListKeys.size;
 
-       const btnAddGamesMain = document.getElementById('btn-add-games-main');
-       if (btnAddGamesMain) {
-         btnAddGamesMain.addEventListener('click', () => {
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = '';
-           this.renderActiveTab();
-         });
-       }
+          if (bulkDeleteBtn) {
+            if (this.state.selectedListKeys.size > 0) {
+              bulkDeleteBtn.classList.remove('hidden');
+              bulkDeleteBtn.classList.add('flex');
+            } else {
+              bulkDeleteBtn.classList.add('hidden');
+              bulkDeleteBtn.classList.remove('flex');
+            }
+          }
+        });
+      });
 
-       const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
-       addGameTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
-           this.state.isAddingGame = true;
-           this.state.addingGameToProvider = provider;
-           this.renderActiveTab();
-         });
-       });
+      const btnAddProvider = document.getElementById('btn-add-provider');
+      const providerDialog = document.getElementById('add-provider-dialog');
+      if (btnAddProvider && providerDialog) {
+        btnAddProvider.addEventListener('click', () => {
+          providerDialog.classList.remove('hidden');
+        });
+      }
 
-       const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
-       if (btnAddGameCancel) {
-         btnAddGameCancel.addEventListener('click', () => {
-           this.state.isAddingGame = false;
-           this.renderActiveTab();
-         });
-       }
+      const btnImportCSV = document.getElementById('btn-import-csv');
+      if (btnImportCSV) {
+        btnImportCSV.addEventListener('click', () => {
+          this.state.isImportingCSV = true;
+          this.renderActiveTab();
+        });
+      }
 
-       const btnAddGameConfirm = document.getElementById('modal-add-game-confirm');
-       if (btnAddGameConfirm) {
-         btnAddGameConfirm.addEventListener('click', () => {
-           const providerSelect = document.getElementById('modal-add-game-provider-select');
-           const textarea = document.getElementById('new-game-displayNames');
-           
-           const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
-           const textValue = textarea ? textarea.value.trim() : '';
+      const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
+      if (btnCancelProvider && providerDialog) {
+        btnCancelProvider.addEventListener('click', () => {
+          providerDialog.classList.add('hidden');
+        });
+      }
 
-           if (textValue !== '' && selectedProvider) {
-              const gameLines = textValue.split('\n').map(l => l.trim()).filter(Boolean);
-              if (gameLines.length > 0) {
-                this.handleAddGamesToList(selectedProvider, gameLines);
-              }
-              this.state.isAddingGame = false;
-              this.renderActiveTab();
-           }
-         });
-       }
+      const btnCreateProvider = document.getElementById('dialog-add-provider-confirm');
+      if (btnCreateProvider && providerDialog) {
+        btnCreateProvider.addEventListener('click', () => {
+          const input = document.getElementById('new-provider-name');
+          if (input && input.value.trim() !== '') {
+            const name = input.value.trim();
 
-       const deleteTriggers = document.querySelectorAll('[data-delete-catalog-key]');
-       deleteTriggers.forEach(btn => {
-         btn.addEventListener('click', (e) => {
-           const key = e.currentTarget.getAttribute('data-delete-catalog-key');
-           const catalogItem = this.state.catalogItems.find(i => i.id === key);
-           if (catalogItem) {
-             this.handleExcludeGameFromList(catalogItem);
-           }
-         });
-       });
+            const lines = this.state.listContent.split(/\r?\n/);
+            if (lines.length > 0 && lines[lines.length - 1].trim() !== '') {
+              lines.push('');
+            }
+            lines.push(`Provedor: ${name}`);
+            this.saveUpdatedList(lines.join('\n'));
+            providerDialog.classList.add('hidden');
+            input.value = '';
+          }
+        });
+      }
+
+      const btnAddGamesMain = document.getElementById('btn-add-games-main');
+      if (btnAddGamesMain) {
+        btnAddGamesMain.addEventListener('click', () => {
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = '';
+          this.renderActiveTab();
+        });
+      }
+
+      const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
+      addGameTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
+          this.state.isAddingGame = true;
+          this.state.addingGameToProvider = provider;
+          this.renderActiveTab();
+        });
+      });
+
+      const providerToggles = document.querySelectorAll('[data-provider-toggle]');
+      providerToggles.forEach(toggle => {
+        const toggleProvider = () => {
+          const providerKey = decodeURIComponent(toggle.getAttribute('data-provider-toggle') || '');
+          if (!providerKey) return;
+
+          if (this.state.collapsedProviderKeys.has(providerKey)) {
+            this.state.collapsedProviderKeys.delete(providerKey);
+          } else {
+            this.state.collapsedProviderKeys.add(providerKey);
+          }
+
+          this.renderActiveTab();
+        };
+
+        toggle.addEventListener('click', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          toggleProvider();
+        });
+
+        toggle.addEventListener('keydown', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          toggleProvider();
+        });
+      });
+
+      const btnAddGameCancel = document.getElementById('modal-add-game-cancel');
+      if (btnAddGameCancel) {
+        btnAddGameCancel.addEventListener('click', () => {
+          this.state.isAddingGame = false;
+          this.renderActiveTab();
+        });
+      }
+
+      const btnAddGameConfirm = document.getElementById('modal-add-game-confirm');
+      if (btnAddGameConfirm) {
+        btnAddGameConfirm.addEventListener('click', () => {
+          const providerSelect = document.getElementById('modal-add-game-provider-select');
+          const textarea = document.getElementById('new-game-displayNames');
+
+          const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
+          const textValue = textarea ? textarea.value.trim() : '';
+
+          if (textValue !== '' && selectedProvider) {
+            const gameLines = textValue.split('\n').map(l => l.trim()).filter(Boolean);
+            if (gameLines.length > 0) {
+              this.handleAddGamesToList(selectedProvider, gameLines);
+            }
+            this.state.isAddingGame = false;
+            this.renderActiveTab();
+          }
+        });
+      }
+
+      const btnImportCSVCancel = document.getElementById('modal-import-csv-cancel');
+      if (btnImportCSVCancel) {
+        btnImportCSVCancel.addEventListener('click', () => {
+          this.state.isImportingCSV = false;
+          this.renderActiveTab();
+        });
+      }
+
+      const btnImportCSVConfirm = document.getElementById('modal-import-csv-confirm');
+      if (btnImportCSVConfirm) {
+        btnImportCSVConfirm.addEventListener('click', () => {
+          const providerSelect = document.getElementById('modal-import-csv-provider-select');
+          const fileInput = document.getElementById('import-csv-file-input');
+
+          const selectedProvider = providerSelect ? providerSelect.value : '';
+          const file = fileInput ? fileInput.files[0] : null;
+
+          if (selectedProvider && file) {
+            this.handleImportCSV(selectedProvider, file);
+          } else if (!file) {
+            alert("Por favor, selecione um arquivo CSV.");
+          }
+        });
+      }
+
+      const deleteTriggers = document.querySelectorAll('[data-delete-catalog-key]');
+      deleteTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-delete-catalog-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.handleExcludeGameFromList(catalogItem);
+          }
+        });
+      });
     }
 
     // EVENTS DE CONFIGURAÇÕES
     if (this.state.activeTab === 'settings') {
       const btnLogins = document.querySelectorAll('.btn-login-action');
       btnLogins.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogin();
-         });
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogin();
+        });
       });
 
       const btnLogouts = document.querySelectorAll('.btn-logout-action');
       btnLogouts.forEach(btn => {
-         btn.addEventListener('click', () => {
-           this.handleGoogleLogout();
-         });
+        btn.addEventListener('click', () => {
+          this.handleGoogleLogout();
+        });
       });
 
       const btnSaveConfig = document.getElementById('btn-save-config');
@@ -2396,12 +3110,12 @@ class ThumbSyncApp {
             this.config.clientId = newClientId;
             this.config.folderName = folderInput.value.trim() || 'Thumbs';
             this.config.listFileName = fileInput.value.trim() || 'lista.txt';
-            
+
             this.saveStateToStorage();
             this.addLog("Configurações atualizadas localmente.");
-            
+
             this.initGISAutomatic();
-            
+
             alert("Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.");
             this.render();
           }

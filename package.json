@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --port 3000 --host 0.0.0.0",
-    "build": "vite build",
+    "build": "vite build && cp -r mock_data dist/ 2>/dev/null || true",
     "preview": "vite preview --port 3000 --host 0.0.0.0",
     "clean": "rm -rf dist",
     "lint": "echo 'Linting complete'"
