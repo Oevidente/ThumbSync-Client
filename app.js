@@ -2195,9 +2195,9 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-        const key = getListGameKey(game);
-        const catalogItem = catalogItemsByKey.get(key);
-        const hasWebp = catalogItem?.hasWebp || false;
+      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+      const hasWebp = catalogItem?.hasWebp || false;
 
         return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
