@@ -1353,7 +1353,7 @@ class ThumbSyncApp {
           <div style="display:flex; flex-direction:column; gap:10px; align-items:center;">
             <p style="margin:0; font-size:22px; font-weight:900; color:#fbbf24; letter-spacing:-0.03em; line-height:1.1;">Você está desconectado</p>
             <p style="margin:0; font-size:14px; color:rgba(251,191,36,0.6); font-weight:500; line-height:1.6; max-width:360px;">
-              Sua sessão com o Google Drive expirou ou não foi iniciada.<br>
+              Sua sessão com o Google Drive expirou<br>ou não foi iniciada.<br>
               <strong style="color:rgba(251,191,36,0.85);">Conecte-se para continuar usando o ThumbSync.</strong>
             </p>
           </div>
@@ -2152,9 +2152,9 @@ class ThumbSyncApp {
           </div>
         </div>
 
-        <div class="flex flex-col gap-6 w-full">
+        <div class="flex flex-col lg:flex-row gap-6 w-full items-start">
           <!-- Lista Principal de Provedores e Jogos -->
-          <div class="space-y-4 w-full">
+          <div class="space-y-4 w-full lg:flex-1 lg:min-w-0">
             ${groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
@@ -2214,8 +2214,8 @@ class ThumbSyncApp {
             `}
           </div>
 
-          <!-- Raw Live File Preview (Posicionado abaixo da lista) -->
-          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full">
+          <!-- Raw Live File Preview (Posicionado abaixo da lista em mobile, lateral direita em desktop) -->
+          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full lg:w-80 xl:w-96 shrink-0 lg:sticky lg:top-4">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
               <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
