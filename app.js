@@ -349,6 +349,8 @@ class ThumbSyncApp {
       driveClient.setAccessToken(savedToken);
       this.state.gdriveConnected = true;
       this.addLog("Sessão herdada do Google Drive carregada com sucesso.");
+      // Agendar renovação automática do token restaurado do storage
+      setTimeout(() => this.scheduleTokenRefresh(), 0);
     }
 
     try {
@@ -405,6 +407,74 @@ class ThumbSyncApp {
   }
 
   /**
+   * Agenda renovação silenciosa do token antes de expirar.
+   * O token OAuth do Google dura ~1h; renovamos 5 min antes do vencimento.
+   */
+  scheduleTokenRefresh() {
+    if (this._tokenRefreshTimer) {
+      clearTimeout(this._tokenRefreshTimer);
+      this._tokenRefreshTimer = null;
+    }
+
+    const tokenExpiresAt = Number(localStorage.getItem('gdrive_token_expires_at') || '0');
+    const msUntilExpiry = tokenExpiresAt - Date.now();
+
+    if (msUntilExpiry <= 0) {
+      // Já expirou — marcar como desconectado
+      this.state.gdriveConnected = false;
+      driveClient.setAccessToken('');
+      localStorage.removeItem('gdrive_access_token');
+      localStorage.removeItem('gdrive_token_expires_at');
+      this.syncLocalCatalog();
+      this.render();
+      return;
+    }
+
+    // Renovar 5 minutos antes do vencimento (mínimo: agora + 10 s)
+    const refreshIn = Math.max(msUntilExpiry - 5 * 60 * 1000, 10_000);
+
+    this._tokenRefreshTimer = setTimeout(() => {
+      this.addLog('Renovando token do Google silenciosamente...');
+      try {
+        if (typeof window.google === 'undefined' || !this.config.clientId) {
+          // SDK não disponível, marcar como expirado
+          window.dispatchEvent(new Event('gdrive_unauthorized'));
+          return;
+        }
+        const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: this.config.clientId,
+          scope: 'https://www.googleapis.com/auth/drive',
+          prompt: '',          // sem popup — usa consentimento já concedido
+          callback: async (response) => {
+            if (response.error) {
+              this.addLog(`Renovação silenciosa falhou: ${response.error}`);
+              // Expirou de vez — avisar o usuário
+              this.state.gdriveConnected = false;
+              driveClient.setAccessToken('');
+              localStorage.removeItem('gdrive_access_token');
+              localStorage.removeItem('gdrive_token_expires_at');
+              this.syncLocalCatalog();
+              this.render();
+              return;
+            }
+            this.addLog('Token renovado com sucesso.');
+            driveClient.setAccessToken(response.access_token);
+            this.state.gdriveConnected = true;
+            localStorage.setItem('gdrive_access_token', response.access_token);
+            localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
+            this.scheduleTokenRefresh(); // agendar próxima renovação
+            this.render();
+          },
+        });
+        client.requestAccessToken();
+      } catch (err) {
+        this.addLog(`Erro na renovação silenciosa: ${err.message}`);
+        window.dispatchEvent(new Event('gdrive_unauthorized'));
+      }
+    }, refreshIn);
+  }
+
+  /**
    * Abre o fluxo popup OAuth do Google.
    */
   handleGoogleLogin() {
@@ -439,6 +509,7 @@ class ThumbSyncApp {
           localStorage.setItem('gdrive_access_token', response.access_token);
           localStorage.setItem('gdrive_token_expires_at', (Date.now() + response.expires_in * 1000).toString());
           this.saveStateToStorage();
+          this.scheduleTokenRefresh(); // agendar renovação automática
 
           await this.syncWithGoogleDrive();
           this.state.isLoading = false;
@@ -460,6 +531,10 @@ class ThumbSyncApp {
     localStorage.removeItem('gdrive_access_token');
     localStorage.removeItem('gdrive_token_expires_at');
     this.saveStateToStorage();
+    if (this._tokenRefreshTimer) {
+      clearTimeout(this._tokenRefreshTimer);
+      this._tokenRefreshTimer = null;
+    }
 
     this.imageCache.forEach(url => URL.revokeObjectURL(url));
     this.imageCache.clear();
@@ -1155,6 +1230,74 @@ class ThumbSyncApp {
 
     root.innerHTML = `
       <div id="app-container" class="flex h-screen w-screen overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
+
+        <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
+        ${!this.state.gdriveConnected ? `
+        <div id="disconnected-banner" style="
+          position: fixed;
+          bottom: 24px;
+          left: 50%;
+          transform: translateX(-50%);
+          z-index: 9999;
+          width: min(480px, calc(100vw - 32px));
+          background: linear-gradient(135deg, #1a0e00 0%, #1c0f00 50%, #0f0a00 100%);
+          border: 1.5px solid rgba(245, 158, 11, 0.45);
+          border-radius: 18px;
+          padding: 16px 18px;
+          box-shadow: 0 8px 40px rgba(245, 158, 11, 0.18), 0 2px 12px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.04);
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          animation: slideUpBanner 0.4s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+        ">
+          <div style="
+            width: 42px;
+            height: 42px;
+            border-radius: 12px;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.3);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+          ">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <div style="flex: 1; min-width: 0;">
+            <p style="margin: 0 0 3px 0; font-size: 13px; font-weight: 800; color: #fbbf24; letter-spacing: -0.01em; line-height: 1.2;">Conta desconectada</p>
+            <p style="margin: 0; font-size: 11px; color: rgba(251,191,36,0.65); font-weight: 500; line-height: 1.4;">Você não está conectado ao Google Drive. Clique em <strong style="color:#fbbf24;">Conectar</strong> para retomar.</p>
+          </div>
+          <button
+            id="banner-btn-login"
+            style="
+              flex-shrink: 0;
+              background: #f59e0b;
+              color: #000;
+              border: none;
+              border-radius: 10px;
+              padding: 8px 14px;
+              font-size: 11px;
+              font-weight: 800;
+              cursor: pointer;
+              letter-spacing: 0.01em;
+              transition: background 0.15s;
+              white-space: nowrap;
+            "
+            onmouseover="this.style.background='#d97706'"
+            onmouseout="this.style.background='#f59e0b'"
+          >Conectar agora</button>
+        </div>
+        <style>
+          @keyframes slideUpBanner {
+            from { opacity: 0; transform: translateX(-50%) translateY(20px); }
+            to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+          }
+        </style>
+        ` : ''}
         
         <!-- SIDEBAR -->
         <aside class="hidden lg:flex w-64 max-w-64 border-r border-white/[0.06] bg-[#0f0f13] flex-col justify-between shrink-0 h-full p-5 relative z-10">
@@ -2382,6 +2525,13 @@ class ThumbSyncApp {
     const btnLogin = document.getElementById('btn-login');
     if (btnLogin) {
       btnLogin.addEventListener('click', () => {
+        this.handleGoogleLogin();
+      });
+    }
+
+    const bannerBtnLogin = document.getElementById('banner-btn-login');
+    if (bannerBtnLogin) {
+      bannerBtnLogin.addEventListener('click', () => {
         this.handleGoogleLogin();
       });
     }
