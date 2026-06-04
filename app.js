@@ -1531,8 +1531,8 @@ class ThumbSyncApp {
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
-            <div class="lg:hidden flex items-center gap-1.5">
-              <span class="text-xs font-black tracking-tight text-white font-sans">ThumbSync</span>
+            <div class="lg:hidden absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
+              <span class="text-xs font-black tracking-tight text-white font-sans pointer-events-none">ThumbSync</span>
             </div>
 
             <div class="flex items-center gap-3">
