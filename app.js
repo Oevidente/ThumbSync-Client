@@ -300,6 +300,7 @@ class ThumbSyncApp {
       addingGameToProvider: '',
       selectedListKeys: new Set(),
       catalogPage: 1,
+      collapsedProviders: new Set(),
     };
 
     this.config = {
@@ -2081,11 +2082,13 @@ class ThumbSyncApp {
           <div class="lg:col-span-2 space-y-4">
             ${groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
-            ` : `
-              ${groupsList.map(([providerName, games]) => `
-                <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
-                  <div class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02]">
+            ` : groupsList.map(([providerName, games]) => {
+      const isCollapsed = this.state.collapsedProviders.has(providerName);
+      return `
+                <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] ${!isCollapsed ? 'divide-y divide-white/[0.03]' : ''}">
+                  <div data-toggle-provider="${providerName}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer">
                     <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                      <svg class="w-3 h-3 text-zinc-500 transition-transform ${isCollapsed ? '-rotate-90' : ''}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" /></svg>
                       <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
                       ${providerName}
                     </span>
@@ -2099,13 +2102,13 @@ class ThumbSyncApp {
                     </div>
                   </div>
 
-                  <div class="p-2 bg-[#09090c]/40 space-y-1.5">
+                  <div class="p-2 bg-[#09090c]/40 space-y-1.5 ${isCollapsed ? 'hidden' : ''}">
                     ${games.map(game => {
-      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-      const hasWebp = catalogItem?.hasWebp || false;
+        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+        const catalogItem = this.state.catalogItems.find(i => i.id === key);
+        const hasWebp = catalogItem?.hasWebp || false;
 
-      return `
+        return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
                           <div class="flex items-center gap-2.5">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer">
@@ -2120,28 +2123,30 @@ class ThumbSyncApp {
                           </button>
                         </div>
                       `;
-    }).join('')}
+      }).join('')}
                   </div>
                 </div>
-              `).join('')}
+              `;
+    }).join('')}
             `}
           </div>
 
-          <!-- Raw Live File Preview -->
-          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
-            <div class="space-y-3">
-              <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
-              <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
-              
-              <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
-            </div>
-          </div>
-        </div>
-      </div>
+          < !--Raw Live File Preview-- >
+  <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
+    <div class="space-y-3">
+      <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
+      <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
+      <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
 
-      <!-- Add Game Modal -->
-      ${this.state.isAddingGame ? `
+      <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
+    </div>
+  </div>
+        </div >
+      </div >
+
+      < !--Add Game Modal-- >
+  ${
+    this.state.isAddingGame ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
@@ -2166,23 +2171,24 @@ class ThumbSyncApp {
             </div>
           </div>
         </div>
-      ` : ''}
+      ` : ''
+}
 
-      <!-- Add Provider Modal -->
-      <div id="add-provider-dialog" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
-        <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none">Novo Provedor</h3>
-          <p class="text-[10px] text-zinc-500 mb-4 leading-normal">Insira o nome do Provedor para criar uma nova seção no seu arquivo lista.txt.</p>
-          
-          <input type="text" id="new-provider-name" placeholder="Ex: PG Soft, Pragmatic Play" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500 mb-5">
-          
-          <div class="flex items-center gap-3">
-            <button id="dialog-add-provider-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
-            <button id="dialog-add-provider-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Criar Seção</button>
-          </div>
+      < !--Add Provider Modal-- >
+  <div id="add-provider-dialog" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
+    <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
+      <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none">Novo Provedor</h3>
+      <p class="text-[10px] text-zinc-500 mb-4 leading-normal">Insira o nome do Provedor para criar uma nova seção no seu arquivo lista.txt.</p>
+
+      <input type="text" id="new-provider-name" placeholder="Ex: PG Soft, Pragmatic Play" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500 mb-5">
+
+        <div class="flex items-center gap-3">
+          <button id="dialog-add-provider-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
+          <button id="dialog-add-provider-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Criar Seção</button>
         </div>
-      </div>
-    `;
+    </div>
+  </div>
+`;
   }
 
 
@@ -2192,7 +2198,7 @@ class ThumbSyncApp {
    */
   renderSettings(container) {
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none">
+  < div class="space-y-6 text-left select-none" >
         <div class="pb-2 border-b border-white/[0.05]">
           <h1 class="text-2xl font-black text-white tracking-tight">Ajustes de Integração</h1>
           <p class="text-zinc-500 text-xs mt-0.5">Siga os passos e insira as credenciais geradas no Google Developers Console.</p>
@@ -2325,8 +2331,8 @@ class ThumbSyncApp {
             </div>
           </div>
         </div>
-      </div>
-    `;
+      </div >
+  `;
   }
 
   renderPreviewModal(item) {
@@ -2338,14 +2344,14 @@ class ThumbSyncApp {
     const child = modal.firstElementChild;
     if (child) child.classList.remove('scale-95');
 
-    const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
+    const fileSizeStr = item.fileSize ? `${ Math.round(Number(item.fileSize) / 1024) } KB` : 'Indeterminado';
     const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Simulado / Local';
 
     const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
     const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
-      <div class="flex flex-col gap-5 pt-4 text-left relative h-full">
+  < div class="flex flex-col gap-5 pt-4 text-left relative h-full" >
         <div class="relative w-full aspect-[2/3] rounded-2xl overflow-hidden bg-neutral-950 border border-white/5 shadow-inner">
           <img id="modal-img-preview" src="" alt="${item.displayName}" class="w-full h-full object-cover">
           <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent"></div>
@@ -2371,7 +2377,7 @@ class ThumbSyncApp {
           </div>
         </div>
 
-        <!-- Categoria do Jogo com controles de tag personalizados (iOS / Mac 2026 Style) -->
+        <!--Categoria do Jogo com controles de tag personalizados(iOS / Mac 2026 Style)-- >
         <div class="space-y-1.5 select-none">
           <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
           <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
@@ -2399,8 +2405,8 @@ class ThumbSyncApp {
             <span>Baixar Miniatura (.webp)</span>
           </button>
         </div>
-      </div>
-    `;
+      </div >
+  `;
 
     const previewImg = document.getElementById('modal-img-preview');
     if (previewImg) {
@@ -2450,7 +2456,7 @@ class ThumbSyncApp {
       el.setAttribute('role', 'status');
       el.className = 'fixed z-[60] bottom-[8.75rem] right-4 lg:bottom-[5.25rem] lg:right-6 w-[calc(100vw-5rem)] max-w-[272px] pointer-events-none opacity-0 translate-y-3 transition-all duration-500 ease-out select-none';
       el.innerHTML = `
-        <div class="relative rounded-2xl rounded-br-sm shadow-[0_24px_64px_rgba(0,0,0,0.75)]" style="background:rgba(22,22,28,0.97);backdrop-filter:blur(24px) saturate(1.8);-webkit-backdrop-filter:blur(24px) saturate(1.8);border:1px solid rgba(255,255,255,0.1);">
+  < div class="relative rounded-2xl rounded-br-sm shadow-[0_24px_64px_rgba(0,0,0,0.75)]" style = "background:rgba(22,22,28,0.97);backdrop-filter:blur(24px) saturate(1.8);-webkit-backdrop-filter:blur(24px) saturate(1.8);border:1px solid rgba(255,255,255,0.1);" >
           <button id="chat-bubble-close" tabindex="0" aria-label="Fechar dica" class="absolute top-2.5 right-2.5 w-5 h-5 rounded-full flex items-center justify-center cursor-pointer transition-colors hover:bg-white/15" style="background:rgba(255,255,255,0.07);">
             <svg class="w-2.5 h-2.5" style="color:#71717a" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
@@ -2461,9 +2467,9 @@ class ThumbSyncApp {
               <p id="chat-bubble-text" class="text-[11.5px] leading-relaxed font-medium" style="color:#d4d4d8;"></p>
             </div>
           </div>
-        </div>
-        <div class="absolute -bottom-[5px] right-[1.375rem] w-2.5 h-2.5 rotate-45" style="background:rgba(22,22,28,0.97);border-right:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);"></div>
-      `;
+        </div >
+  <div class="absolute -bottom-[5px] right-[1.375rem] w-2.5 h-2.5 rotate-45" style="background:rgba(22,22,28,0.97);border-right:1px solid rgba(255,255,255,0.1);border-bottom:1px solid rgba(255,255,255,0.1);"></div>
+`;
       document.body.appendChild(el);
 
       const closeBtn = document.getElementById('chat-bubble-close');
@@ -2479,25 +2485,25 @@ class ThumbSyncApp {
     const MESSAGES = [
       {
         bgStyle: 'background:rgba(234,179,8,0.15);border:1px solid rgba(234,179,8,0.3);',
-        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#fbbf24" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg>`,
+        iconHtml: `< svg class="w-3.5 h-3.5" style = "color:#fbbf24" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" stroke - width="2.5" > <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" /></svg > `,
         text: 'Lembre-se: sempre utilize a <strong style="color:#fcd34d;font-weight:900;">mesma conta Google</strong> ao acessar o site, como medida de segurança.',
         duration: 10000
       },
       {
         bgStyle: 'background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);',
-        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#60a5fa" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>`,
+        iconHtml: `< svg class="w-3.5 h-3.5" style = "color:#60a5fa" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" stroke - width="2.5" > <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg > `,
         text: 'Lista desatualizada? Use o botão <strong style="color:#fff;font-weight:900;">Sincronizar</strong> no topo — não o "Sincronizar Lista" da aba Mural.',
         duration: 9000
       },
       {
         bgStyle: 'background:rgba(16,185,129,0.12);border:1px solid rgba(16,185,129,0.25);',
-        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#34d399" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg>`,
+        iconHtml: `< svg class="w-3.5 h-3.5" style = "color:#34d399" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" stroke - width="2.5" > <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15m3 0l3-3m0 0l-3-3m3 3H9" /></svg > `,
         text: 'Sincronização travou? <strong style="color:#fff;font-weight:900;">Desconecte</strong> sua conta do Google e <strong style="color:#fff;font-weight:900;">reconecte</strong>.',
         duration: 9000
       },
       {
         bgStyle: 'background:rgba(168,85,247,0.12);border:1px solid rgba(168,85,247,0.25);',
-        iconHtml: `<svg class="w-3.5 h-3.5" style="color:#c084fc" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>`,
+        iconHtml: `< svg class="w-3.5 h-3.5" style = "color:#c084fc" fill = "none" viewBox = "0 0 24 24" stroke = "currentColor" stroke - width="2.5" > <path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg > `,
         text: 'Não achou um jogo? Confira o <strong style="color:#fff;font-weight:900;">provedor</strong> e a <strong style="color:#fff;font-weight:900;">categoria</strong> nos filtros de Miniaturas.',
         duration: 9000
       },
@@ -2834,7 +2840,7 @@ class ThumbSyncApp {
             if (lines.length > 0 && lines[lines.length - 1].trim() !== '') {
               lines.push('');
             }
-            lines.push(`Provedor: ${name}`);
+            lines.push(`Provedor: ${ name } `);
             this.saveUpdatedList(lines.join('\n'));
             providerDialog.classList.add('hidden');
             input.value = '';
@@ -2854,6 +2860,7 @@ class ThumbSyncApp {
       const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
       addGameTriggers.forEach(btn => {
         btn.addEventListener('click', (e) => {
+          e.stopPropagation();
           const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
           this.state.isAddingGame = true;
           this.state.addingGameToProvider = provider;
@@ -2897,6 +2904,19 @@ class ThumbSyncApp {
           if (catalogItem) {
             this.handleExcludeGameFromList(catalogItem);
           }
+        });
+      });
+
+      const toggleProviders = document.querySelectorAll('[data-toggle-provider]');
+      toggleProviders.forEach(header => {
+        header.addEventListener('click', (e) => {
+          const provider = e.currentTarget.getAttribute('data-toggle-provider');
+          if (this.state.collapsedProviders.has(provider)) {
+            this.state.collapsedProviders.delete(provider);
+          } else {
+            this.state.collapsedProviders.add(provider);
+          }
+          this.renderActiveTab();
         });
       });
     }
