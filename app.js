@@ -2146,7 +2146,7 @@ class ThumbSyncApp {
 
       < !--Add Game Modal-- >
   ${
-    this.state.isAddingGame ? `
+  this.state.isAddingGame ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
