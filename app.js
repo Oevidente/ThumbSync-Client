@@ -297,6 +297,7 @@ class ThumbSyncApp {
       // Modal state
       selectedCatalogItem: null,
       isAddingGame: false,
+      isImportingCSV: false,
       addingGameToProvider: '',
       selectedListKeys: new Set(),
       collapsedProviderKeys: new Set(),
@@ -814,6 +815,72 @@ class ThumbSyncApp {
     const norm = this.normalizeName(item.displayName);
     const isLive = LIVE_KEYWORDS.some(kw => norm.includes(kw));
     return isLive ? "ao vivo" : "slot";
+  }
+
+  /**
+   * Importa jogos de um arquivo CSV, evitando duplicatas e conflitos.
+   */
+  async handleImportCSV(providerName, file) {
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const rows = text.split(/\r?\n/).map(line => line.trim()).filter(line => line.length > 0);
+
+      if (rows.length === 0) {
+        alert("O arquivo selecionado está vazio.");
+        return;
+      }
+
+      const nameKeywords = ['name', 'customname', 'game', 'gamename', 'displayname', 'titulo', 'nome', 'jogo'];
+      const firstLine = rows[0];
+      const hasHeader = nameKeywords.some(kw => firstLine.toLowerCase().includes(kw));
+      const delimiter = firstLine.includes(';') ? ';' : ',';
+
+      const headers = firstLine.split(delimiter).map(h => h.trim().toLowerCase().replace(/^["']|["']$/g, ''));
+      let nameIdx = headers.findIndex(h => nameKeywords.some(kw => h.includes(kw)));
+      if (nameIdx === -1) nameIdx = 0; // Fallback para a primeira coluna
+
+      const gamesToImport = [];
+      const seenInCSV = new Set();
+      const targetProviderNorm = this.normalizeName(providerName);
+
+      // Cache de jogos já listados para este provedor
+      const currentlyListedNorms = new Set(
+        this.state.catalogItems
+          .filter(item => item.isListed && this.normalizeName(item.providerName) === targetProviderNorm)
+          .map(item => item.normalizedName)
+      );
+
+      const startIndex = hasHeader ? 1 : 0;
+
+      for (let i = startIndex; i < rows.length; i++) {
+        const cols = rows[i].split(delimiter).map(c => c.trim().replace(/^["']|["']$/g, ''));
+        const gameName = cols[nameIdx];
+
+        if (gameName) {
+          const norm = this.normalizeName(gameName);
+          // Evita duplicatas dentro do CSV e conflitos com o que já está na lista.txt
+          if (!seenInCSV.has(norm) && !currentlyListedNorms.has(norm)) {
+            gamesToImport.push(gameName);
+            seenInCSV.add(norm);
+          }
+        }
+      }
+
+      if (gamesToImport.length === 0) {
+        alert("Importação finalizada: Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).");
+      } else {
+        this.handleAddGamesToList(providerName, gamesToImport);
+        alert(`Sucesso! ${gamesToImport.length} novos jogos foram importados para ${providerName}.`);
+      }
+    } catch (err) {
+      console.error("Erro no processamento do CSV:", err);
+      alert("Falha ao ler o arquivo CSV. Verifique se o formato está correto.");
+    } finally {
+      this.state.isImportingCSV = false;
+      this.render();
+    }
   }
 
   async updateGameTag(itemId, newTag) {
@@ -1979,6 +2046,15 @@ class ThumbSyncApp {
       });
     }
 
+    const catalogItemsByKey = new Map(this.state.catalogItems.map(item => [item.id, item]));
+    const getListGameKey = (game) => `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+    const isListGameOk = (game) => catalogItemsByKey.get(getListGameKey(game))?.hasWebp || false;
+    const sortGamesForProvider = (a, b) => {
+      const okDiff = Number(isListGameOk(b)) - Number(isListGameOk(a));
+      if (okDiff !== 0) return okDiff;
+      return a.displayName.localeCompare(b.displayName, 'pt-BR', { sensitivity: 'base' });
+    };
+
     const groupsMap = new Map();
     listGames.forEach(g => {
       const arr = groupsMap.get(g.providerName) || [];
@@ -1986,7 +2062,10 @@ class ThumbSyncApp {
       groupsMap.set(g.providerName, arr);
     });
 
-    const groupsList = Array.from(groupsMap.entries());
+    const groupsList = Array.from(groupsMap.entries()).map(([providerName, games]) => [
+      providerName,
+      [...games].sort(sortGamesForProvider)
+    ]);
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
@@ -2031,6 +2110,7 @@ class ThumbSyncApp {
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
           <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 self-start sm:self-auto shrink-0 select-none">
+          <div class="flex flex-wrap items-center justify-start sm:justify-end gap-2 self-start sm:self-auto shrink-0 select-none">
             <button id="btn-sync-list-only" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Sincronizar Lista">
               ${this.state.isLoading ? `
                 <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -2070,6 +2150,10 @@ class ThumbSyncApp {
             <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
               <span class="hidden sm:inline ml-1.5 text-xs font-bold">Novo Provedor</span>
+            </button>
+            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar CSV">
+              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Importar CSV</span>
             </button>
             <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
               <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -2111,11 +2195,11 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-      const hasWebp = catalogItem?.hasWebp || false;
+        const key = getListGameKey(game);
+        const catalogItem = catalogItemsByKey.get(key);
+        const hasWebp = catalogItem?.hasWebp || false;
 
-      return `
+        return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
                           <div class="flex items-center gap-2.5">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer">
@@ -2130,7 +2214,7 @@ class ThumbSyncApp {
                           </button>
                         </div>
                       `;
-    }).join('')}
+      }).join('')}
                   </div>
                   `}
                 </div>
@@ -2175,6 +2259,35 @@ class ThumbSyncApp {
             <div class="flex items-center gap-3">
               <button id="modal-add-game-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
               <button id="modal-add-game-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Adicionar</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+
+      <!-- Import CSV Modal -->
+      ${this.state.isImportingCSV ? `
+        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
+          <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar CSV</h3>
+            
+            <div class="mb-4 text-left">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
+              <select id="modal-import-csv-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
+                ${modalProvidersList.map(prov => `
+                  <option value="${prov}">${prov}</option>
+                `).join('')}
+              </select>
+            </div>
+
+            <div class="mb-5 text-left">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Arquivo CSV</label>
+              <input type="file" id="import-csv-file-input" accept=".csv" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
+              <p class="text-[9px] text-zinc-500 mt-2">O sistema reconhece colunas como 'name', 'game' ou 'jogo'.</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+              <button id="modal-import-csv-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
+              <button id="modal-import-csv-confirm" class="flex-1 py-2 px-4 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer">Importar</button>
             </div>
           </div>
         </div>
@@ -2828,6 +2941,14 @@ class ThumbSyncApp {
         });
       }
 
+      const btnImportCSV = document.getElementById('btn-import-csv');
+      if (btnImportCSV) {
+        btnImportCSV.addEventListener('click', () => {
+          this.state.isImportingCSV = true;
+          this.renderActiveTab();
+        });
+      }
+
       const btnCancelProvider = document.getElementById('dialog-add-provider-cancel');
       if (btnCancelProvider && providerDialog) {
         btnCancelProvider.addEventListener('click', () => {
@@ -2926,6 +3047,31 @@ class ThumbSyncApp {
             }
             this.state.isAddingGame = false;
             this.renderActiveTab();
+          }
+        });
+      }
+
+      const btnImportCSVCancel = document.getElementById('modal-import-csv-cancel');
+      if (btnImportCSVCancel) {
+        btnImportCSVCancel.addEventListener('click', () => {
+          this.state.isImportingCSV = false;
+          this.renderActiveTab();
+        });
+      }
+
+      const btnImportCSVConfirm = document.getElementById('modal-import-csv-confirm');
+      if (btnImportCSVConfirm) {
+        btnImportCSVConfirm.addEventListener('click', () => {
+          const providerSelect = document.getElementById('modal-import-csv-provider-select');
+          const fileInput = document.getElementById('import-csv-file-input');
+
+          const selectedProvider = providerSelect ? providerSelect.value : '';
+          const file = fileInput ? fileInput.files[0] : null;
+
+          if (selectedProvider && file) {
+            this.handleImportCSV(selectedProvider, file);
+          } else if (!file) {
+            alert("Por favor, selecione um arquivo CSV.");
           }
         });
       }
