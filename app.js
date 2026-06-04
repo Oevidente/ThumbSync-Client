@@ -299,6 +299,7 @@ class ThumbSyncApp {
       isAddingGame: false,
       addingGameToProvider: '',
       selectedListKeys: new Set(),
+      collapsedProviderKeys: new Set(),
       catalogPage: 1,
     };
 
@@ -2082,11 +2083,19 @@ class ThumbSyncApp {
             ${groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
-              ${groupsList.map(([providerName, games]) => `
+              ${groupsList.map(([providerName, games]) => {
+      const providerKey = this.normalizeName(providerName);
+      const providerAttr = encodeURIComponent(providerKey);
+      const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+
+      return `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
-                  <div class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02]">
+                  <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
                     <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
                       <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
+                      <svg class="w-3 h-3 text-zinc-500 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
                       ${providerName}
                     </span>
                     <div class="flex items-center gap-2">
@@ -2099,7 +2108,8 @@ class ThumbSyncApp {
                     </div>
                   </div>
 
-                  <div class="p-2 bg-[#09090c]/40 space-y-1.5">
+                  ${isCollapsed ? '' : `
+                  <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
       const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
       const catalogItem = this.state.catalogItems.find(i => i.id === key);
@@ -2122,8 +2132,10 @@ class ThumbSyncApp {
                       `;
     }).join('')}
                   </div>
+                  `}
                 </div>
-              `).join('')}
+              `;
+    }).join('')}
             `}
           </div>
 
@@ -2854,10 +2866,39 @@ class ThumbSyncApp {
       const addGameTriggers = document.querySelectorAll('[data-trigger-add-game]');
       addGameTriggers.forEach(btn => {
         btn.addEventListener('click', (e) => {
+          e.stopPropagation();
           const provider = e.currentTarget.getAttribute('data-trigger-add-game') || '';
           this.state.isAddingGame = true;
           this.state.addingGameToProvider = provider;
           this.renderActiveTab();
+        });
+      });
+
+      const providerToggles = document.querySelectorAll('[data-provider-toggle]');
+      providerToggles.forEach(toggle => {
+        const toggleProvider = () => {
+          const providerKey = decodeURIComponent(toggle.getAttribute('data-provider-toggle') || '');
+          if (!providerKey) return;
+
+          if (this.state.collapsedProviderKeys.has(providerKey)) {
+            this.state.collapsedProviderKeys.delete(providerKey);
+          } else {
+            this.state.collapsedProviderKeys.add(providerKey);
+          }
+
+          this.renderActiveTab();
+        };
+
+        toggle.addEventListener('click', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          toggleProvider();
+        });
+
+        toggle.addEventListener('keydown', (e) => {
+          if (e.target.closest('button, input, select, textarea, a')) return;
+          if (e.key !== 'Enter' && e.key !== ' ') return;
+          e.preventDefault();
+          toggleProvider();
         });
       });
 
