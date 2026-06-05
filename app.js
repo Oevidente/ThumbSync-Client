@@ -1353,7 +1353,7 @@ class ThumbSyncApp {
           <div style="display:flex; flex-direction:column; gap:10px; align-items:center;">
             <p style="margin:0; font-size:22px; font-weight:900; color:#fbbf24; letter-spacing:-0.03em; line-height:1.1;">Você está desconectado</p>
             <p style="margin:0; font-size:14px; color:rgba(251,191,36,0.6); font-weight:500; line-height:1.6; max-width:360px;">
-              Sua sessão com o Google Drive expirou ou não foi iniciada.<br>
+              Sua sessão com o Google Drive expirou<br>ou não foi iniciada.<br>
               <strong style="color:rgba(251,191,36,0.85);">Conecte-se para continuar usando o ThumbSync.</strong>
             </p>
           </div>
@@ -1531,8 +1531,8 @@ class ThumbSyncApp {
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
-            <div class="lg:hidden flex items-center gap-1.5">
-              <span class="text-xs font-black tracking-tight text-white font-sans">ThumbSync</span>
+            <div class="lg:hidden absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
+              <span class="text-xs font-black tracking-tight text-white font-sans pointer-events-none">ThumbSync</span>
             </div>
 
             <div class="flex items-center gap-3">
@@ -1681,7 +1681,7 @@ class ThumbSyncApp {
                   </svg>
                 </div>
                 <p class="text-[11px] text-zinc-300 leading-relaxed">
-                  Se a lista parecer desatualizada, use o botão <strong class="text-white font-bold">Sincronizar</strong> no topo do site — não o botão "Sincronizar Lista" da aba Mural.
+                  Se a lista parecer desatualizada, use o botão <strong class="text-white font-bold">Sincronizar</strong> no topo do site para recarregar tudo com o Google Drive.
                 </p>
               </div>
 
@@ -2103,67 +2103,58 @@ class ThumbSyncApp {
     const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
 
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative">
-        <div class="flex flex-col sm:flex-row justify-between gap-3 sm:items-center pb-2 border-b border-white/[0.05]">
+      <div class="space-y-6 text-left select-none relative w-full">
+        <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div>
             <h1 class="text-2xl font-black text-white tracking-tight">Gerenciador de lista.txt</h1>
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
-          <div class="flex flex-wrap sm:flex-nowrap items-center gap-2 self-start sm:self-auto shrink-0 select-none">
-          <div class="flex flex-wrap items-center justify-start sm:justify-end gap-2 self-start sm:self-auto shrink-0 select-none">
-            <button id="btn-sync-list-only" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-emerald-600/[0.15] hover:bg-emerald-600/25 text-[#10b981] border border-emerald-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Sincronizar Lista">
-              ${this.state.isLoading ? `
-                <svg id="sync-list-icon" class="w-3.5 h-3.5 animate-spin text-[#10b981] shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                  <g transform="translate(12,12)">
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.875" transform="rotate(45)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.625" transform="rotate(135)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.375" transform="rotate(225)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
-                    <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.125" transform="rotate(315)" />
-                  </g>
-                </svg>
-              ` : `
-                <svg id="sync-list-icon" class="w-3.5 h-3.5 text-[#10b981] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                </svg>
-              `}
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Sincronizar Lista</span>
-            </button>
-            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
+          
+          <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
+          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0">
+            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
               <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Limpar Jogos Feitos</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Limpar Feitos</span>
             </button>
-            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
+            
+            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
               <svg class="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Excluir Selecionados</span>
-              <span class="bg-red-500/25 text-red-500 sm:bg-red-500/10 sm:text-red-500 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1" id="selected-count-badge">
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Excluir</span>
+              <span class="bg-red-500/25 text-red-500 sm:bg-red-500/10 sm:text-red-500 text-[9px] px-1.5 py-0.5 rounded-full font-bold ml-1 shrink-0" id="selected-count-badge">
                 <span id="selected-count">${this.state.selectedListKeys.size}</span>
               </span>
             </button>
-            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
-              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Novo Provedor</span>
+            
+            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
+              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Novo Provedor</span>
             </button>
-            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:w-auto sm:h-auto sm:py-2 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar CSV">
-              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" /></svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold">Importar CSV</span>
+            
+            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar CSV">
+              <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+              </svg>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Importar CSV</span>
             </button>
-            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
-              <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span class="inline-block ml-1.5 text-xs font-bold">Adicionar<span class="hidden sm:inline"> Jogos</span></span>
+            
+            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3 rounded-xl sm:flex-1 sm:py-2.5 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 shadow-md transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
+              <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              <span class="inline-block ml-1 text-xs font-bold whitespace-nowrap">Adicionar<span class="hidden sm:inline"> Jogos</span></span>
             </button>
           </div>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div class="lg:col-span-2 space-y-4">
+        <div class="flex flex-col lg:flex-row gap-6 w-full items-start">
+          <!-- Lista Principal de Provedores e Jogos -->
+          <div class="space-y-4 w-full lg:flex-1 lg:min-w-0">
             ${groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
@@ -2175,18 +2166,18 @@ class ThumbSyncApp {
       return `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                      <span class="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                      <svg class="w-3 h-3 text-zinc-500 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 min-w-0">
+                      <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                      <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
-                      ${providerName}
+                      <span class="truncate pr-2">${providerName}</span>
                     </span>
-                    <div class="flex items-center gap-2">
-                      <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold">
+                    <div class="flex items-center gap-2 shrink-0">
+                      <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
-                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer">
+                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
                     </div>
@@ -2200,16 +2191,16 @@ class ThumbSyncApp {
       const hasWebp = catalogItem?.hasWebp || false;
 
         return `
-                        <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none">
-                          <div class="flex items-center gap-2.5">
-                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer">
-                            <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
-                            <span class="text-xs font-medium text-zinc-100">${game.displayName}</span>
-                            <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
-                              ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
+                        <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
+                          <div class="flex items-center gap-2.5 min-w-0">
+                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                            <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'} shrink-0"></span>
+                            <span class="text-xs font-medium text-zinc-100 truncate">${game.displayName}</span>
+                            <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md shrink-0 ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
+                               ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
                             </span>
                           </div>
-                          <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors">
+                          <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors shrink-0">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
                           </button>
                         </div>
@@ -2223,8 +2214,8 @@ class ThumbSyncApp {
             `}
           </div>
 
-          <!-- Raw Live File Preview -->
-          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between h-fit">
+          <!-- Raw Live File Preview (Posicionado abaixo da lista em mobile, lateral direita em desktop) -->
+          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full lg:w-80 xl:w-96 shrink-0 lg:sticky lg:top-4">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
               <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
@@ -2611,7 +2602,7 @@ class ThumbSyncApp {
       {
         bgStyle: 'background:rgba(59,130,246,0.15);border:1px solid rgba(59,130,246,0.3);',
         iconHtml: `<svg class="w-3.5 h-3.5" style="color:#60a5fa" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>`,
-        text: 'Lista desatualizada? Use o botão <strong style="color:#fff;font-weight:900;">Sincronizar</strong> no topo — não o "Sincronizar Lista" da aba Mural.',
+        text: 'Lista desatualizada? Use o botão <strong style="color:#fff;font-weight:900;">Sincronizar</strong> no topo do site para recarregar tudo com o Google Drive.',
         duration: 9000
       },
       {
@@ -2887,13 +2878,6 @@ class ThumbSyncApp {
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
-      const btnSyncListOnly = document.getElementById('btn-sync-list-only');
-      if (btnSyncListOnly) {
-        btnSyncListOnly.addEventListener('click', () => {
-          this.syncOnlyList();
-        });
-      }
-
       const btnClearFinished = document.getElementById('btn-clear-finished');
       if (btnClearFinished) {
         btnClearFinished.addEventListener('click', () => {
