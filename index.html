@@ -21,20 +21,33 @@
         theme: {
           extend: {
             fontFamily: {
-              sans: ['SF Pro Text', 'SF Pro', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'Segoe UI', 'Roboto', 'sans-serif'],
+              sans: ['SF Pro Text', 'SF Pro', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
               display: ['SF Pro Display', 'SF Pro', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
               rounded: ['SF Pro Rounded', 'SF Pro', '-apple-system', 'BlinkMacSystemFont', 'system-ui', 'sans-serif'],
               mono: ['JetBrains Mono', 'Fira Code', 'monospace'],
             },
             fontSize: {
-              // HIG Semantic Sizes mapped to Tailwind default names
-              'xs': ['12px', { lineHeight: '16px', letterSpacing: '0.00px' }], // Caption 1
-              'sm': ['15px', { lineHeight: '20px', letterSpacing: '-0.24px' }], // Subhead
-              'base': ['17px', { lineHeight: '22px', letterSpacing: '-0.43px' }], // Body
-              'lg': ['20px', { lineHeight: '25px', letterSpacing: '0.38px' }], // Title 3
-              'xl': ['22px', { lineHeight: '28px', letterSpacing: '0.35px' }], // Title 2
-              '2xl': ['28px', { lineHeight: '34px', letterSpacing: '0.36px' }], // Title 1
-              '3xl': ['34px', { lineHeight: '41px', letterSpacing: '0.37px' }], // Large Title
+              // Exact Apple HIG Dynamic Type mappings for iOS
+              'caption-2': ['11px', { lineHeight: '13px', letterSpacing: '0.07px' }], // Caption 2
+              'caption-1': ['12px', { lineHeight: '16px', letterSpacing: '0.00px' }], // Caption 1
+              'footnote':  ['13px', { lineHeight: '18px', letterSpacing: '-0.08px' }], // Footnote
+              'subhead':   ['15px', { lineHeight: '20px', letterSpacing: '-0.24px' }], // Subhead
+              'callout':   ['16px', { lineHeight: '21px', letterSpacing: '-0.32px' }], // Callout
+              'body':      ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }], // Body
+              'headline':  ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }], // Headline (needs semibold)
+              'title-3':   ['20px', { lineHeight: '25px', letterSpacing: '0.38px' }], // Title 3
+              'title-2':   ['22px', { lineHeight: '28px', letterSpacing: '0.35px' }], // Title 2
+              'title-1':   ['28px', { lineHeight: '34px', letterSpacing: '0.36px' }], // Title 1
+              'large-title': ['34px', { lineHeight: '41px', letterSpacing: '0.37px' }], // Large Title
+
+              // Default Tailwind overrides for convenience, mapping to HIG
+              'xs': ['12px', { lineHeight: '16px', letterSpacing: '0.00px' }],
+              'sm': ['15px', { lineHeight: '20px', letterSpacing: '-0.24px' }],
+              'base': ['17px', { lineHeight: '22px', letterSpacing: '-0.41px' }],
+              'lg': ['20px', { lineHeight: '25px', letterSpacing: '0.38px' }],
+              'xl': ['22px', { lineHeight: '28px', letterSpacing: '0.35px' }],
+              '2xl': ['28px', { lineHeight: '34px', letterSpacing: '0.36px' }],
+              '3xl': ['34px', { lineHeight: '41px', letterSpacing: '0.37px' }],
             }
           }
         }
@@ -46,33 +59,46 @@
       
       /* Base Typography */
       body {
-        font-family: 'SF Pro Text', -apple-system, system-ui, sans-serif;
+        font-family: 'SF Pro Text', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         font-size: 17px;
         line-height: 22px;
-        letter-spacing: -0.43px;
-        background-color: #0c0c0e;
-        color: #f4f4f5;
+        letter-spacing: -0.41px;
+        font-weight: 400;
+        background-color: #000000; /* Pure black for iOS dark mode */
+        color: #f2f2f7; /* iOS label color */
         overscroll-behavior: none;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
       }
 
-      /* HIG Tracking for explicitly sized small text */
-      .text-\\[7px\\], .text-\\[7\\.5px\\] { letter-spacing: 0.37px; }
-      .text-\\[8px\\] { letter-spacing: 0.26px; }
-      .text-\\[9px\\] { letter-spacing: 0.20px; }
-      .text-\\[10px\\] { letter-spacing: 0.12px; }
-      .text-\\[11px\\], .text-\\[11\\.5px\\] { letter-spacing: 0.07px; /* HIG Caption 2 */ }
-      .text-\\[13px\\] { letter-spacing: -0.08px; /* HIG Footnote */ }
-      
-      /* Force Display font for larger headings */
-      .text-lg, .text-xl, .text-2xl, .text-3xl {
-        font-family: 'SF Pro Display', -apple-system, system-ui, sans-serif !important;
+      /* Force SF Pro Display for text sizes 20pt and above per HIG */
+      .text-title-3, .text-title-2, .text-title-1, .text-large-title,
+      .text-lg, .text-xl, .text-2xl, .text-3xl, .text-4xl, .text-5xl {
+        font-family: 'SF Pro Display', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif !important;
       }
+      
+      /* Apple HIG specific heading weights */
+      .text-large-title, .text-3xl { font-weight: 400; }
+      .text-title-1, .text-2xl { font-weight: 400; }
+      .text-title-2, .text-xl { font-weight: 400; }
+      .text-title-3, .text-lg { font-weight: 400; }
+      .text-headline { font-weight: 600 !important; }
+      
+      /* Enforce Apple HIG constraints on arbitrary utility classes used in markup */
+      .font-black, .font-extrabold { font-weight: 600 !important; /* Cap max weight to Semibold/Bold */ }
+      .text-\\[9px\\], .text-\\[10px\\], .text-\\[11px\\], .text-\\[11\\.5px\\] {
+        /* Minimum HIG typographic size is roughly 11pt (Caption 2) */
+        font-size: 11px !important;
+        line-height: 13px !important;
+        letter-spacing: 0.07px !important;
+      }
+      
+      /* Fallback native headings styles if tags are used directly */
+      h1 { font-family: 'SF Pro Display', sans-serif; font-size: 34px; line-height: 41px; letter-spacing: 0.37px; font-weight: 700; }
+      h2 { font-family: 'SF Pro Display', sans-serif; font-size: 28px; line-height: 34px; letter-spacing: 0.36px; font-weight: 600; }
+      h3 { font-family: 'SF Pro Display', sans-serif; font-size: 22px; line-height: 28px; letter-spacing: 0.35px; font-weight: 600; }
+      h4 { font-family: 'SF Pro Display', sans-serif; font-size: 20px; line-height: 25px; letter-spacing: 0.38px; font-weight: 600; }
 
-      /* Global Heading Weight Adjustments per HIG */
-      h1, .text-3xl, .text-2xl { font-weight: 700; /* Bold */ }
-      h2, h3, .text-xl, .text-lg { font-weight: 600; /* Semibold */ }
       
       /* Custom scrollbars */
       .custom-scrollbar::-webkit-scrollbar {
