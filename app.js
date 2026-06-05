@@ -1454,7 +1454,7 @@ class ThumbSyncApp {
                 </svg>
               </div>
               <div>
-                <h3 class="text-sm font-black tracking-wide leading-none text-white font-sans">ThumbSync</h3>
+                <h3 class="text-sm font-black tracking-wide leading-none text-white font-rounded">ThumbSync</h3>
                 <span class="text-[9px] text-[#10b981] font-bold uppercase tracking-wider mt-1 block">Download & Demandas</span>
               </div>
             </div>
@@ -1463,7 +1463,7 @@ class ThumbSyncApp {
             <div class="p-3.5 rounded-2xl bg-white/[0.02] border border-white/[0.05] relative space-y-2">
               <div class="flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'} shrink-0"></span>
-                <span class="text-[11px] font-bold text-white tracking-tight">
+                <span class="text-[11px] font-bold text-white tracking-tight font-rounded">
                   ${this.state.gdriveConnected ? 'G-Drive Conectado' : 'Desconectado'}
                 </span>
               </div>
@@ -1505,11 +1505,11 @@ class ThumbSyncApp {
                   <span class="text-[9px] text-zinc-500 font-semibold truncate mt-1 block">Integração de Contas</span>
                 </div>
               </div>
-              <button id="btn-logout" class="flex items-center justify-center gap-2 text-xs font-bold py-2 px-3 text-center rounded-xl w-full text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer">
+              <button id="btn-logout" class="flex items-center justify-center gap-2 text-xs font-bold py-2 px-3 text-center rounded-xl w-full text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer font-rounded">
                 Desconectar Google
               </button>
             ` : `
-              <button id="btn-login" class="flex items-center justify-center gap-2 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md w-full transition-all cursor-pointer">
+              <button id="btn-login" class="flex items-center justify-center gap-2 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md w-full transition-all cursor-pointer font-rounded">
                 Conectar Google Drive
               </button>
             `}
@@ -1522,8 +1522,8 @@ class ThumbSyncApp {
           <!-- MOBILE HEADER ACTION BAR -->
           <header class="h-16 shrink-0 border-b border-white/[0.05] bg-[#0f0f13] flex items-center justify-between px-4 sm:px-6 select-none relative z-10 w-full">
             <div class="flex items-center gap-2">
-              <span class="hidden sm:inline text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative">Status</span>
-              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'} flex items-center gap-1.5 shadow-sm">
+              <span class="hidden sm:inline text-[10px] sm:text-xs text-zinc-500 font-bold uppercase tracking-wider relative font-rounded">Status</span>
+              <span class="px-2.5 py-0.5 rounded-full text-[8px] font-extrabold ${this.state.gdriveConnected ? 'bg-[#10b981]/10 text-[#10b981] border border-[#10b981]/15' : 'bg-[#f59e0b]/10 text-[#f59e0b] border border-[#10b981]/15'} flex items-center gap-1.5 shadow-sm font-rounded">
                 <span class="w-1.5 h-1.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981]' : 'bg-[#f59e0b]'}"></span>
                 <span class="hidden sm:inline">${this.state.gdriveConnected ? "GOOGLE DRIVE CONECTADO" : "NÃO CONECTADO"}</span>
                 <span class="inline sm:hidden">${this.state.gdriveConnected ? "CONECTADO" : "OFFLINE"}</span>
@@ -1532,11 +1532,11 @@ class ThumbSyncApp {
 
             <!-- Apple-style Center Title for Mobile -->
             <div class="lg:hidden absolute left-1/2 -translate-x-1/2 flex items-center justify-center">
-              <span class="text-xs font-black tracking-tight text-white font-sans pointer-events-none">ThumbSync</span>
+              <span class="text-xs font-black tracking-tight text-white font-rounded pointer-events-none">ThumbSync</span>
             </div>
 
             <div class="flex items-center gap-3">
-              <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0" title="Sincronizar Google Drive">
+              <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0 font-rounded" title="Sincronizar Google Drive">
                 ${this.state.isLoading ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
@@ -1644,7 +1644,7 @@ class ThumbSyncApp {
                 </svg>
               </div>
               <div>
-                <p class="text-[13px] font-black text-white leading-none tracking-tight">Assistente</p>
+                <p class="text-[13px] font-black text-white leading-none tracking-tight font-rounded">Assistente</p>
                 <p class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider mt-0.5">ThumbSync · Dev Notes</p>
               </div>
             </div>
@@ -1662,7 +1662,7 @@ class ThumbSyncApp {
                 <svg class="w-4 h-4 shrink-0 text-amber-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
                 </svg>
-                <span class="text-[10px] font-black text-amber-400 uppercase tracking-wider">Aviso de Segurança</span>
+                <span class="text-[10px] font-black text-amber-400 uppercase tracking-wider font-rounded">Aviso de Segurança</span>
               </div>
               <p class="text-[11px] text-amber-200/80 leading-relaxed font-medium">
                 Sempre utilize a <strong class="text-amber-300 font-black">mesma conta Google</strong> ao acessar o site. Apenas aquela conta possui permissão para se conectar, como medida de segurança.
@@ -1744,7 +1744,7 @@ class ThumbSyncApp {
   renderNavItem(tab, label, iconHtml, badgeHtml = '') {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}">
+      <button data-tab="${tab}" class="flex items-center gap-3.5 px-3.5 py-2.5 rounded-xl text-xs font-semibold w-full transition-all cursor-pointer font-rounded ${isActive ? 'bg-blue-600 text-white shadow-[0_8px_24px_rgba(37,99,235,0.3)] scale-[1.01]' : 'text-zinc-400 hover:text-white hover:bg-white/[0.04]'}">
         ${iconHtml}
         <span>${label}</span>
         ${badgeHtml}
@@ -1841,7 +1841,7 @@ class ThumbSyncApp {
         <div class="space-y-6 text-left select-none relative">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
             <div>
-              <h1 class="text-2xl font-black text-white tracking-tight">Miniaturas</h1>
+              <h1 class="text-2xl font-black text-white tracking-tight font-rounded">Miniaturas</h1>
               <p class="text-zinc-500 text-xs mt-0.5">Veja e gerencie as fotos .webp do seu catálogo geral no Google Drive.</p>
             </div>
           </div>
@@ -1849,11 +1849,11 @@ class ThumbSyncApp {
           <!-- Filtros -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
             <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block font-rounded">Procurar</label>
               <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
             </div>
             <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block font-rounded">Filtrar por Provedor</label>
               <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                 <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
                 ${uniqueProviders.map(p => `
@@ -1862,7 +1862,7 @@ class ThumbSyncApp {
               </select>
             </div>
             <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block font-rounded">Categoria (Tag)</label>
               <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                 <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
                 <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
@@ -1888,12 +1888,12 @@ class ThumbSyncApp {
       const hasWebp = item.hasWebp;
       const tag = this.getGameTag(item);
       const tagHtml = tag === "ao vivo" ? `
-              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none font-rounded">
                 <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
                 Ao Vivo
               </span>
             ` : `
-              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
+              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none font-rounded">
                 <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
                 Slot
               </span>
@@ -1909,12 +1909,12 @@ class ThumbSyncApp {
                        class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
                 ` : `
                   <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
-                    <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
+                    <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit font-rounded">
                       PENDENTE
                     </div>
                     <div class="space-y-1">
                       <span class="text-[8px] text-zinc-500 font-bold uppercase tracking-widest">${item.providerName}</span>
-                      <h4 class="text-xs font-black text-white leading-tight">${item.displayName}</h4>
+                      <h4 class="text-xs font-black text-white leading-tight font-rounded">${item.displayName}</h4>
                       <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
                     </div>
                   </div>
@@ -1929,7 +1929,7 @@ class ThumbSyncApp {
                 ${hasWebp ? `
                   <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
                     <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
-                    <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
+                    <h4 class="text-xs font-black text-white leading-normal mt-0.5 font-rounded">${item.displayName}</h4>
                   </div>
                 ` : ''}
 
@@ -2106,12 +2106,12 @@ class ThumbSyncApp {
       <div class="space-y-6 text-left select-none relative w-full">
         <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div>
-            <h1 class="text-2xl font-black text-white tracking-tight">Gerenciador de lista.txt</h1>
+            <h1 class="text-2xl font-black text-white tracking-tight font-rounded">Gerenciador de lista.txt</h1>
             <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
           </div>
           
           <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
-          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0">
+          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0 font-rounded">
             <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
               <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -2166,7 +2166,7 @@ class ThumbSyncApp {
       return `
                 <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 min-w-0">
+                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 min-w-0 font-rounded">
                       <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
                       <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
@@ -2186,9 +2186,9 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-      const hasWebp = catalogItem?.hasWebp || false;
+        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+        const catalogItem = this.state.catalogItems.find(i => i.id === key);
+        const hasWebp = catalogItem?.hasWebp || false;
 
         return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
@@ -2218,7 +2218,7 @@ class ThumbSyncApp {
           <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full lg:w-80 xl:w-96 shrink-0 lg:sticky lg:top-4">
             <div class="space-y-3">
               <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
+              <h3 class="text-sm font-black text-white tracking-normal mt-1 block font-rounded">lista.txt</h3>
               <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
               
               <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
@@ -2231,7 +2231,7 @@ class ThumbSyncApp {
       ${this.state.isAddingGame ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-rounded">Adicionar Jogos</h3>
             
             <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
@@ -2247,7 +2247,7 @@ class ThumbSyncApp {
               <textarea id="new-game-displayNames" placeholder="Fortune Rabbit&#10;Gates of Olympus&#10;Sweet Bonanza" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white min-h-[100px] leading-relaxed outline-none focus:border-blue-500"></textarea>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 font-rounded">
               <button id="modal-add-game-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
               <button id="modal-add-game-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Adicionar</button>
             </div>
@@ -2259,7 +2259,7 @@ class ThumbSyncApp {
       ${this.state.isImportingCSV ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar CSV</h3>
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-rounded">Importar CSV</h3>
             
             <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
@@ -2276,7 +2276,7 @@ class ThumbSyncApp {
               <p class="text-[9px] text-zinc-500 mt-2">O sistema reconhece colunas como 'name', 'game' ou 'jogo'.</p>
             </div>
             
-            <div class="flex items-center gap-3">
+            <div class="flex items-center gap-3 font-rounded">
               <button id="modal-import-csv-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
               <button id="modal-import-csv-confirm" class="flex-1 py-2 px-4 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer">Importar</button>
             </div>
@@ -2287,12 +2287,12 @@ class ThumbSyncApp {
       <!-- Add Provider Modal -->
       <div id="add-provider-dialog" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
         <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none">Novo Provedor</h3>
+          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none font-rounded">Novo Provedor</h3>
           <p class="text-[10px] text-zinc-500 mb-4 leading-normal">Insira o nome do Provedor para criar uma nova seção no seu arquivo lista.txt.</p>
           
           <input type="text" id="new-provider-name" placeholder="Ex: PG Soft, Pragmatic Play" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500 mb-5">
           
-          <div class="flex items-center gap-3">
+          <div class="flex items-center gap-3 font-rounded">
             <button id="dialog-add-provider-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
             <button id="dialog-add-provider-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Criar Seção</button>
           </div>
@@ -2310,7 +2310,7 @@ class ThumbSyncApp {
     container.innerHTML = `
       <div class="space-y-6 text-left select-none">
         <div class="pb-2 border-b border-white/[0.05]">
-          <h1 class="text-2xl font-black text-white tracking-tight">Ajustes de Integração</h1>
+          <h1 class="text-2xl font-black text-white tracking-tight font-rounded">Ajustes de Integração</h1>
           <p class="text-zinc-500 text-xs mt-0.5">Siga os passos e insira as credenciais geradas no Google Developers Console.</p>
         </div>
 
@@ -2327,7 +2327,7 @@ class ThumbSyncApp {
                     </svg>
                   </div>
                   <div>
-                    <h3 class="text-xs font-black text-white uppercase tracking-wider">Conta do Google</h3>
+                    <h3 class="text-xs font-black text-white uppercase tracking-wider font-rounded">Conta do Google</h3>
                     <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block mt-0.5">Sincronização Nuvem</span>
                   </div>
                 </div>
@@ -2345,7 +2345,7 @@ class ThumbSyncApp {
                     <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
                     <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
                   </div>
-                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
+                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0 font-rounded">
                     Sair do Google Drive
                   </button>
                 </div>
@@ -2355,7 +2355,7 @@ class ThumbSyncApp {
                     <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
                     <p class="text-[10px] text-zinc-500 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
                   </div>
-                  <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
+                  <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0 font-rounded">
                     <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
                       <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
                       <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
@@ -2369,7 +2369,7 @@ class ThumbSyncApp {
             </div>
 
             <div class="rounded-3xl bg-white/[0.01] border border-white/[0.04] p-6 space-y-5 h-fit">
-              <h3 class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+              <h3 class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 font-rounded">
                 <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]"></span>
                 Parâmetros de Integração
               </h3>
@@ -2407,7 +2407,7 @@ class ThumbSyncApp {
               </div>
 
               <div class="flex items-center gap-3 pt-2">
-                <button id="btn-save-config" class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer select-none">
+                <button id="btn-save-config" class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer select-none font-rounded">
                   Salvar Configurações
                 </button>
               </div>
@@ -2418,7 +2418,7 @@ class ThumbSyncApp {
           <div class="rounded-3xl bg-[#09090b] border border-white/[0.05] p-6 flex flex-col justify-between">
             <div class="space-y-4">
               <span class="text-[9px] text-emerald-400 font-extrabold uppercase tracking-widest block leading-none">Passo a Passo</span>
-              <h3 class="text-sm font-black text-white tracking-normal block leading-tight">Como configurar o Google Drive</h3>
+              <h3 class="text-sm font-black text-white tracking-normal block leading-tight font-rounded">Como configurar o Google Drive</h3>
 
               <div class="space-y-3.5 text-xs text-zinc-400 leading-normal max-h-[350px] overflow-y-auto pr-1">
                 <div class="flex gap-2.5">
@@ -2468,8 +2468,8 @@ class ThumbSyncApp {
         </div>
 
         <div class="space-y-1 leading-none select-none">
-          <span class="text-[9px] font-black uppercase tracking-widest ${pBadgeStyle} px-2.5 py-0.5 rounded block w-fit h-fit">${item.providerName}</span>
-          <h2 class="text-base font-black text-white leading-normal mt-1 block">${item.displayName}</h2>
+          <span class="text-[9px] font-black uppercase tracking-widest ${pBadgeStyle} px-2.5 py-0.5 rounded block w-fit h-fit font-rounded">${item.providerName}</span>
+          <h2 class="text-base font-black text-white leading-normal mt-1 block font-rounded">${item.displayName}</h2>
         </div>
 
         <div class="divide-y divide-white/[0.05] border-t border-b border-white/[0.05] py-1.5 text-[11px] text-zinc-400 select-none">
@@ -2497,11 +2497,11 @@ class ThumbSyncApp {
                 SALVANDO...
               </div>
             ` : `
-            <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
+            <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer font-rounded ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
               <span class="w-1.5 h-1.5 rounded-full bg-[#ff453a] ${currentTag === 'ao vivo' ? 'animate-pulse' : ''}"></span>
               Ao Vivo
             </button>
-            <button id="tag-btn-slot" data-tag-value="slot" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'slot' ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
+            <button id="tag-btn-slot" data-tag-value="slot" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer font-rounded ${currentTag === 'slot' ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
               <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff]"></span>
               Slot
             </button>
@@ -2510,7 +2510,7 @@ class ThumbSyncApp {
         </div>
 
         <div class="flex flex-col gap-2 select-none mt-auto pb-2">
-          <button id="modal-action-download" class="w-full py-2 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center justify-center gap-1.5 cursor-pointer">
+          <button id="modal-action-download" class="w-full py-2 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center justify-center gap-1.5 cursor-pointer font-rounded">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             <span>Baixar Miniatura (.webp)</span>
           </button>
