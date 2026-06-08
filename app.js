@@ -289,7 +289,7 @@ class ThumbSyncApp {
       logs: [],
       isSavingTag: false,
       filterProvider: 'todos',
-      filterStatus: 'todos',
+      filterStatus: 'com_arte',
       filterTag: 'todos',
       searchQuery: '',
       customTags: {},
@@ -1847,7 +1847,7 @@ class ThumbSyncApp {
           </div>
 
           <!-- Filtros -->
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
             <div class="space-y-1">
               <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block font-rounded">Procurar</label>
               <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
@@ -1859,6 +1859,14 @@ class ThumbSyncApp {
                 ${uniqueProviders.map(p => `
                   <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
                 `).join('')}
+              </select>
+            </div>
+            <div class="space-y-1">
+              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block font-rounded">Status da Arte</label>
+              <select id="catalouge-status-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterStatus === 'todos' ? 'selected' : ''}>Todos</option>
+                <option value="com_arte" class="bg-zinc-900 text-white" ${this.state.filterStatus === 'com_arte' ? 'selected' : ''}>Feito</option>
+                <option value="sem_arte" class="bg-zinc-900 text-white" ${this.state.filterStatus === 'sem_arte' ? 'selected' : ''}>Falta Arte</option>
               </select>
             </div>
             <div class="space-y-1">
@@ -2794,6 +2802,7 @@ class ThumbSyncApp {
     if (this.state.activeTab === 'catalog') {
       const searchInput = document.getElementById('catalouge-search');
       const providerSelect = document.getElementById('catalouge-provider-filter');
+      const statusSelect = document.getElementById('catalouge-status-filter');
       const tagSelect = document.getElementById('catalouge-tag-filter');
 
       this.observers.forEach(obs => obs.disconnect());
@@ -2813,6 +2822,15 @@ class ThumbSyncApp {
         providerSelect.dataset.bound = "true";
         providerSelect.addEventListener('change', (e) => {
           this.state.filterProvider = e.currentTarget.value;
+          this.state.catalogPage = 1;
+          this.renderActiveTab();
+        });
+      }
+
+      if (statusSelect && !statusSelect.dataset.bound) {
+        statusSelect.dataset.bound = "true";
+        statusSelect.addEventListener('change', (e) => {
+          this.state.filterStatus = e.currentTarget.value;
           this.state.catalogPage = 1;
           this.renderActiveTab();
         });
