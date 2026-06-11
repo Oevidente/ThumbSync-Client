@@ -4,7 +4,7 @@
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
  */
 
-import { classifyGame } from './gameClassifier.ts';
+import { classifyGame, loadMappings } from './gameClassifier.js';
 
 // --- GOOGLE DRIVE WEB API CLIENT ---
 export class DriveApiClient {
@@ -3152,6 +3152,7 @@ class ThumbSyncApp {
 }
 
 // Inicializar aplicativo no carregamento da página
-window.addEventListener('load', () => {
+window.addEventListener('load', async () => {
+  await loadMappings();
   new ThumbSyncApp().render();
 });
