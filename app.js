@@ -4,6 +4,8 @@
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
  */
 
+import { classifyGame } from './gameClassifier.ts';
+
 // --- GOOGLE DRIVE WEB API CLIENT ---
 export class DriveApiClient {
   constructor() {
@@ -815,9 +817,26 @@ class ThumbSyncApp {
     if (this.state.customTags && this.state.customTags[item.id]) {
       return this.state.customTags[item.id];
     }
-    const norm = this.normalizeName(item.displayName);
-    const isLive = LIVE_KEYWORDS.some(kw => norm.includes(kw));
-    return isLive ? "ao vivo" : "slot";
+    return classifyGame({ name: item.displayName, provider: item.providerName });
+  }
+
+  getGameTagHTML(tag) {
+    const config = {
+      'Ao Vivo':      { color: '#ff453a', pulse: true },
+      'Slot':         { color: '#0a84ff', pulse: false },
+      'Crash':        { color: '#f59e0b', pulse: false },
+      'Mesa RNG':     { color: '#10b981', pulse: false },
+      'Instant Win':  { color: '#a855f7', pulse: false },
+      'Scratchcard':  { color: '#ec4899', pulse: false }
+    };
+    const style = config[tag] || { color: '#8b8c89', pulse: false };
+    return `
+      <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider select-none border" 
+            style="background: ${style.color}33; color: ${style.color}; border-color: ${style.color}4D; box-shadow: 0 2px 8px ${style.color}26;">
+        <span class="w-1 h-1 rounded-full ${style.pulse ? 'animate-pulse' : ''}" style="background-color: ${style.color};"></span>
+        ${tag}
+      </span>
+    `;
   }
 
   /**
@@ -1817,11 +1836,7 @@ class ThumbSyncApp {
     }
 
     if (this.state.filterTag !== 'todos') {
-      if (this.state.filterTag === 'ao_vivo') {
-        items = items.filter(i => this.getGameTag(i) === 'ao vivo');
-      } else if (this.state.filterTag === 'slot') {
-        items = items.filter(i => this.getGameTag(i) === 'slot');
-      }
+      items = items.filter(i => this.getGameTag(i) === this.state.filterTag);
     }
 
     if (this.state.searchQuery.trim() !== '') {
@@ -1874,8 +1889,9 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
               <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                 <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-                <option value="ao_vivo" class="bg-zinc-900 text-white" ${this.state.filterTag === 'ao_vivo' ? 'selected' : ''}>Ao Vivo</option>
-                <option value="slot" class="bg-zinc-900 text-white" ${this.state.filterTag === 'slot' ? 'selected' : ''}>Slot</option>
+                ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard'].map(tag => `
+                  <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
+                `).join('')}
               </select>
             </div>
             <div class="space-y-1">
@@ -1903,17 +1919,7 @@ class ThumbSyncApp {
       const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
       const hasWebp = item.hasWebp;
       const tag = this.getGameTag(item);
-      const tagHtml = tag === "ao vivo" ? `
-              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-red-500/20 text-[#ff453a] border border-[#ff453a]/30 shadow-[0_2px_8px_rgba(255,69,58,0.15)] select-none">
-                <span class="w-1 h-1 rounded-full bg-[#ff453a] animate-pulse"></span>
-                Ao Vivo
-              </span>
-            ` : `
-              <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-wider bg-blue-500/20 text-[#0a84ff] border border-[#0a84ff]/30 select-none">
-                <span class="w-1 h-1 rounded-full bg-[#0a84ff]"></span>
-                Slot
-              </span>
-            `;
+      const tagHtml = this.getGameTagHTML(tag);
 
       return `
               <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
@@ -2506,21 +2512,19 @@ class ThumbSyncApp {
         <!-- Categoria do Jogo com controles de tag personalizados (iOS / Mac 2026 Style) -->
         <div class="space-y-1.5 select-none">
           <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
-          <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl">
+          <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl flex-wrap">
             ${this.state.isSavingTag ? `
-              <div class="flex-1 py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
+              <div class="w-full py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
                 <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
                 SALVANDO...
               </div>
             ` : `
-            <button id="tag-btn-ao-vivo" data-tag-value="ao vivo" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'ao vivo' ? 'bg-[#ff453a]/20 text-[#ff453a] border border-[#ff453a]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
-              <span class="w-1.5 h-1.5 rounded-full bg-[#ff453a] ${currentTag === 'ao vivo' ? 'animate-pulse' : ''}"></span>
-              Ao Vivo
-            </button>
-            <button id="tag-btn-slot" data-tag-value="slot" class="flex-1 py-1.5 px-3 rounded-lg text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === 'slot' ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'text-zinc-500 hover:text-zinc-300'}">
-              <span class="w-1.5 h-1.5 rounded-full bg-[#0a84ff]"></span>
-              Slot
-            </button>
+            ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard'].map(tag => `
+              <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
+                <span class="w-1.5 h-1.5 rounded-full ${currentTag === tag ? 'bg-[#0a84ff] animate-pulse' : 'bg-transparent border border-zinc-600'}"></span>
+                ${tag}
+              </button>
+            `).join('')}
             `}
           </div>
         </div>
@@ -2546,19 +2550,14 @@ class ThumbSyncApp {
       });
     }
 
-    const tagLiveBtn = document.getElementById('tag-btn-ao-vivo');
-    const tagSlotBtn = document.getElementById('tag-btn-slot');
-
-    if (tagLiveBtn) {
-      tagLiveBtn.addEventListener('click', () => {
-        this.updateGameTag(item.id, 'ao vivo');
+    document.querySelectorAll('.cat-tag-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const selectedTag = e.currentTarget.getAttribute('data-cat-tag');
+        if (selectedTag) {
+          this.updateGameTag(item.id, selectedTag);
+        }
       });
-    }
-    if (tagSlotBtn) {
-      tagSlotBtn.addEventListener('click', () => {
-        this.updateGameTag(item.id, 'slot');
-      });
-    }
+    });
   }
 
   closePreviewModal() {
