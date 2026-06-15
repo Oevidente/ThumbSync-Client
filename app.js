@@ -2211,6 +2211,7 @@ class ThumbSyncApp {
       const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
       const catalogItem = this.state.catalogItems.find(i => i.id === key);
       const hasWebp = catalogItem?.hasWebp || false;
+      const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 
         return `
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
@@ -2218,9 +2219,12 @@ class ThumbSyncApp {
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                             <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'} shrink-0"></span>
                             <span class="text-xs font-medium text-zinc-100 truncate">${game.displayName}</span>
-                            <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md shrink-0 ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
-                               ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
-                            </span>
+                            <div class="flex items-center gap-1.5 shrink-0 pl-1">
+                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
+                                ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
+                              </span>
+                              ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
+                            </div>
                           </div>
                           <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors shrink-0">
                             <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
