@@ -406,7 +406,7 @@ class ThumbSyncApp {
       const savedToken = localStorage.getItem('gdrive_access_token');
       if (savedToken) {
         driveClient.setAccessToken(savedToken);
-        await this.syncOnlyList();
+        await this.syncWithGoogleDrive();
       }
     } catch (err) {
       this.addLog(`Reconexão automática falhou: ${err.message}`);
