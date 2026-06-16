@@ -301,6 +301,8 @@ class ThumbSyncApp {
       selectedCatalogItem: null,
       isAddingGame: false,
       isImportingCSV: false,
+      isEditingGameName: false,
+      editingGameItem: null,
       addingGameToProvider: '',
       selectedListKeys: new Set(),
       collapsedProviderKeys: new Set(),
@@ -1075,6 +1077,97 @@ class ThumbSyncApp {
     }
 
     this.saveUpdatedList(updatedLines.join('\n'));
+  }
+
+  handleEditGameInList(item, newName) {
+    if (!newName || newName.trim() === '' || newName.trim() === item.displayName) return;
+
+    const trimmedNewName = newName.trim();
+    this.addLog(`Renomeando '${item.displayName}' para '${trimmedNewName}'...`);
+
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      const cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) {
+          sections.push(currentSection);
+        }
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+
+      if (currentSection) {
+        if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
+          currentSection.games.push({
+            originalLine: line,
+            cleanGameName: cleanLine,
+            normalizedGameName: this.normalizeName(cleanLine),
+            isBlankOrComment: false
+          });
+        } else {
+          currentSection.games.push({
+            originalLine: line,
+            cleanGameName: cleanLine,
+            normalizedGameName: cleanLine ? this.normalizeName(cleanLine) : '',
+            isBlankOrComment: true
+          });
+        }
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) {
+      sections.push(currentSection);
+    }
+
+    let edited = false;
+    const targetProviderNormalized = this.normalizeName(item.providerName);
+
+    for (const sec of sections) {
+      if (sec.providerNameNormalized === targetProviderNormalized) {
+        const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
+        if (idx !== -1) {
+          const game = sec.games[idx];
+          if (game.originalLine.includes(game.cleanGameName)) {
+            game.originalLine = game.originalLine.replace(game.cleanGameName, trimmedNewName);
+          } else {
+            game.originalLine = trimmedNewName;
+          }
+          edited = true;
+          this.addLog(`Jogo renomeado com sucesso.`);
+          break;
+        }
+      }
+    }
+
+    if (!edited) {
+      this.addLog(`Aviso: O jogo original não pôde ser encontrado no texto da lista.`);
+      return;
+    }
+
+    const finalLines = [...headerLines];
+    sections.forEach((sec) => {
+      if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') {
+        finalLines.push('');
+      }
+      finalLines.push(sec.providerLine);
+      sec.games.forEach(g => {
+        finalLines.push(g.originalLine);
+      });
+    });
+
+    const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+    this.saveUpdatedList(cleanedFileContent);
   }
 
   handleExcludeGameFromList(item) {
@@ -2226,9 +2319,14 @@ class ThumbSyncApp {
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
                           </div>
-                          <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors shrink-0">
-                            <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                          </button>
+                          <div class="flex items-center gap-1.5 shrink-0">
+                            <button data-edit-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400 transition-colors" title="Editar Nome">
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                            </button>
+                            <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors" title="Excluir Jogo">
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                            </button>
+                          </div>
                         </div>
                       `;
       }).join('')}
@@ -2305,6 +2403,25 @@ class ThumbSyncApp {
             <div class="flex items-center gap-3">
               <button id="modal-import-csv-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
               <button id="modal-import-csv-confirm" class="flex-1 py-2 px-4 rounded-xl bg-emerald-600 text-white font-semibold text-xs hover:bg-emerald-700 cursor-pointer">Importar</button>
+            </div>
+          </div>
+        </div>
+      ` : ''}
+      
+      <!-- Edit Game Name Modal -->
+      ${this.state.isEditingGameName && this.state.editingGameItem ? `
+        <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
+          <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Editar Nome do Jogo</h3>
+            
+            <div class="mb-5 text-left">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Nome do Jogo</label>
+              <input type="text" id="modal-edit-game-name" value="${this.state.editingGameItem.displayName.replace(/"/g, '&quot;')}" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500" />
+            </div>
+            
+            <div class="flex items-center gap-3">
+              <button id="modal-edit-game-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
+              <button id="modal-edit-game-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Salvar</button>
             </div>
           </div>
         </div>
@@ -3086,6 +3203,42 @@ class ThumbSyncApp {
             this.handleImportCSV(selectedProvider, file);
           } else if (!file) {
             alert("Por favor, selecione um arquivo CSV.");
+          }
+        });
+      }
+
+      const editTriggers = document.querySelectorAll('[data-edit-catalog-key]');
+      editTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-edit-catalog-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.state.isEditingGameName = true;
+            this.state.editingGameItem = catalogItem;
+            this.renderActiveTab();
+          }
+        });
+      });
+
+      const btnEditGameCancel = document.getElementById('modal-edit-game-cancel');
+      if (btnEditGameCancel) {
+        btnEditGameCancel.addEventListener('click', () => {
+          this.state.isEditingGameName = false;
+          this.state.editingGameItem = null;
+          this.renderActiveTab();
+        });
+      }
+
+      const btnEditGameConfirm = document.getElementById('modal-edit-game-confirm');
+      if (btnEditGameConfirm) {
+        btnEditGameConfirm.addEventListener('click', () => {
+          const input = document.getElementById('modal-edit-game-name');
+          if (input && this.state.editingGameItem) {
+            const newName = input.value;
+            this.handleEditGameInList(this.state.editingGameItem, newName);
+            this.state.isEditingGameName = false;
+            this.state.editingGameItem = null;
+            this.renderActiveTab();
           }
         });
       }
