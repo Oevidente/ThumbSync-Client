@@ -1701,30 +1701,16 @@ class ThumbSyncApp {
         </nav>
       </div>
 
-      <!-- Backdrop spinner overlay -->
-      <div id="gdrive-loader" class="fixed inset-0 z-50 bg-black/40 backdrop-blur-md flex items-center justify-center pointer-events-auto transition-all duration-300 hidden select-none">
-        <div class="bg-[#1c1c1e]/85 backdrop-blur-xl border border-white/[0.08] rounded-3xl p-6 w-60 flex flex-col items-center justify-center text-center shadow-[0_32px_64px_-12px_rgba(0,0,0,0.6)] gap-4">
-          <svg class="w-9 h-9 animate-spin text-zinc-100" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-            <g transform="translate(12,12)">
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.91" transform="rotate(30)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.83" transform="rotate(60)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.75" transform="rotate(90)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.66" transform="rotate(120)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.58" transform="rotate(150)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.5" transform="rotate(180)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.41" transform="rotate(210)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.33" transform="rotate(240)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.25" transform="rotate(270)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.16" transform="rotate(300)" />
-              <line x1="0" y1="-8" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="0.08" transform="rotate(330)" />
-            </g>
-          </svg>
-          <div>
-            <p class="text-[13px] font-semibold text-white tracking-tight">Sincronizando Google Drive</p>
-            <p class="text-[10px] text-zinc-400 mt-1">Organizando catálogo e lista.txt...</p>
-          </div>
-        </div>
+      <!-- Subtle top progress bar -->
+      <div id="gdrive-loader" class="fixed top-0 left-0 right-0 h-[2px] z-50 bg-[#0a84ff]/20 overflow-hidden pointer-events-none transition-opacity duration-300 hidden">
+        <div class="h-full bg-[#0a84ff] rounded-r-full shadow-[0_0_8px_#0a84ff]" style="width: 50%; animation: slideProgress 1.4s infinite ease-in-out;"></div>
+        <style>
+          @keyframes slideProgress {
+            0% { transform: translateX(-100%); width: 30%; }
+            50% { width: 70%; }
+            100% { transform: translateX(300%); width: 30%; }
+          }
+        </style>
       </div>
 
       <!-- ============================================================ -->
@@ -1886,11 +1872,10 @@ class ThumbSyncApp {
     const loader = document.getElementById('gdrive-loader');
     if (loader) {
       if (this.state.isLoading) {
-        loader.classList.remove('hidden');
-        loader.classList.add('flex');
+        loader.classList.remove('opacity-0', 'hidden');
       } else {
-        loader.classList.add('hidden');
-        loader.classList.remove('flex');
+        loader.classList.add('opacity-0');
+        setTimeout(() => { if (!this.state.isLoading) loader.classList.add('hidden'); }, 300);
       }
     }
 
@@ -2003,12 +1988,24 @@ class ThumbSyncApp {
     }
 
     // Renderização Dinâmica apenas da Grade de Itens
-    resultsArea.innerHTML = `
-      ${items.length === 0 ? `
-        <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
-      ` : `
+    if (this.state.isLoading && items.length === 0) {
+      resultsArea.innerHTML = `
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
-          ${itemsToShow.map(item => {
+          ${Array.from({ length: 15 }).map(() => `
+            <div class="aspect-[2/3] rounded-2xl bg-white/[0.02] border border-white/[0.03] animate-pulse flex flex-col justify-end p-4">
+              <div class="w-1/2 h-2.5 bg-white/10 rounded mb-2"></div>
+              <div class="w-3/4 h-3.5 bg-white/20 rounded"></div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+    } else {
+      resultsArea.innerHTML = `
+        ${items.length === 0 ? `
+          <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
+        ` : `
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
+            ${itemsToShow.map(item => {
       const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
       const hasWebp = item.hasWebp;
       const tag = this.getGameTag(item);
@@ -2063,6 +2060,7 @@ class ThumbSyncApp {
         ` : ''}
       `}
     `;
+    }
 
     // Registrar Drag and Drop Eventos nos cartões
     const cardElements = container.querySelectorAll('[data-catalog-key]');
@@ -2270,7 +2268,22 @@ class ThumbSyncApp {
         <div class="flex flex-col lg:flex-row gap-6 w-full items-start">
           <!-- Lista Principal de Provedores e Jogos -->
           <div class="space-y-4 w-full lg:flex-1 lg:min-w-0">
-            ${groupsList.length === 0 ? `
+            ${this.state.isLoading && groupsList.length === 0 ? `
+              <div class="space-y-4">
+                ${Array.from({ length: 4 }).map(() => `
+                  <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
+                    <div class="flex items-center gap-3">
+                      <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
+                      <div class="w-32 h-3 bg-white/10 rounded"></div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                       <div class="w-12 h-3.5 bg-white/5 rounded-full"></div>
+                       <div class="w-6 h-6 bg-blue-500/10 rounded-lg"></div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            ` : groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
               ${groupsList.map(([providerName, games]) => {
@@ -2345,7 +2358,17 @@ class ThumbSyncApp {
               <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
               <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
               
-              <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
+              ${this.state.isLoading && this.state.listContent === '' ? `
+                <div class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl space-y-2 animate-pulse mt-4">
+                  <div class="w-1/3 h-2 bg-white/10 rounded"></div>
+                  <div class="w-full h-2 bg-white/5 rounded"></div>
+                  <div class="w-5/6 h-2 bg-white/5 rounded"></div>
+                  <div class="w-full h-2 bg-white/5 rounded"></div>
+                  <div class="w-2/3 h-2 bg-white/5 rounded"></div>
+                </div>
+              ` : `
+                <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
+              `}
             </div>
           </div>
         </div>
