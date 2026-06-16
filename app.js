@@ -320,6 +320,21 @@ class ThumbSyncApp {
     this.observers = [];
 
     this.addLog("Inicializando módulo ThumbSync...");
+    this.state.customLogos = {};
+    fetch('./custom_logos.json')
+      .then(res => {
+        if (!res.ok) throw new Error("Falha ao obter custom_logos.json");
+        return res.json();
+      })
+      .then(data => {
+        this.state.customLogos = data;
+        this.addLog("Branding e logos de provedores adicionais aplicados ao catálogo.");
+        this.render();
+      })
+      .catch(err => {
+        console.error("Erro carregando logos de fornecedores:", err);
+      });
+
     this.loadStateFromStorage();
     this.initGISAutomatic();
 
@@ -383,7 +398,12 @@ class ThumbSyncApp {
   }
 
   addLog(message) {
-    // Desativado para este cliente - logs removidos
+    console.log(`[ThumbSync] ${message}`);
+    this.state.loadingStatusText = message;
+    const statusTxtEl = document.getElementById('gdrive-status-text');
+    if (statusTxtEl) {
+      statusTxtEl.innerText = message;
+    }
   }
 
   /**
@@ -1701,14 +1721,20 @@ class ThumbSyncApp {
         </nav>
       </div>
 
-      <!-- Subtle top progress bar -->
-      <div id="gdrive-loader" class="fixed top-0 left-0 right-0 h-[2px] z-50 bg-[#0a84ff]/20 overflow-hidden pointer-events-none transition-opacity duration-300 hidden">
-        <div class="h-full bg-[#0a84ff] rounded-r-full shadow-[0_0_8px_#0a84ff]" style="width: 50%; animation: slideProgress 1.4s infinite ease-in-out;"></div>
+      <!-- Subtle top progress bar with dynamic status feedback -->
+      <div id="gdrive-loader" class="fixed top-0 left-0 right-0 h-[34px] z-50 bg-black/80 backdrop-blur-md border-b border-white/[0.04] overflow-hidden pointer-events-none transition-all duration-300 flex items-center justify-between px-6 opacity-0 translate-y-[-10px] hidden">
+        <div class="flex items-center gap-2">
+          <svg class="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
+          <span id="gdrive-status-text" class="text-[10px] font-bold text-zinc-300 uppercase tracking-wider">${this.state.loadingStatusText || 'Processando...'}</span>
+        </div>
+        <div class="w-24 h-1 bg-white/[0.06] rounded-full overflow-hidden relative">
+          <div class="h-full bg-blue-500 rounded-full" style="width: 50%; animation: slideProgress 1.2s infinite ease-in-out;"></div>
+        </div>
         <style>
           @keyframes slideProgress {
-            0% { transform: translateX(-100%); width: 30%; }
-            50% { width: 70%; }
-            100% { transform: translateX(300%); width: 30%; }
+            0% { transform: translateX(-100%); width: 35%; }
+            50% { width: 65%; }
+            100% { transform: translateX(180%); width: 35%; }
           }
         </style>
       </div>
@@ -1872,9 +1898,15 @@ class ThumbSyncApp {
     const loader = document.getElementById('gdrive-loader');
     if (loader) {
       if (this.state.isLoading) {
-        loader.classList.remove('opacity-0', 'hidden');
+        loader.classList.remove('opacity-0', 'translate-y-[-10px]', 'hidden');
+        loader.classList.add('translate-y-0');
+        const statusTxtEl = document.getElementById('gdrive-status-text');
+        if (statusTxtEl && this.state.loadingStatusText) {
+          statusTxtEl.innerText = this.state.loadingStatusText;
+        }
       } else {
-        loader.classList.add('opacity-0');
+        loader.classList.add('opacity-0', 'translate-y-[-10px]');
+        loader.classList.remove('translate-y-0');
         setTimeout(() => { if (!this.state.isLoading) loader.classList.add('hidden'); }, 300);
       }
     }
@@ -1940,6 +1972,19 @@ class ThumbSyncApp {
       const uniqueProviders = Array.from(new Set(this.state.catalogItems.map(i => i.providerName))).filter(Boolean).sort((a, b) => a.localeCompare(b));
 
       container.innerHTML = `
+        <!-- Overlay de drag and drop global -->
+        <div id="global-dropzone-overlay" class="fixed inset-0 z-50 bg-[#0c0c0e]/95 backdrop-blur-sm flex flex-col items-center justify-center opacity-0 pointer-events-none transition-all duration-300">
+          <div class="text-center p-8 border-4 border-dashed border-white/10 rounded-[32px] m-8 max-w-lg scale-95 transition-transform duration-300" id="global-dropzone-panel">
+            <div class="w-20 h-20 bg-blue-600/10 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-[0_0_32px_rgba(37,99,235,0.15)] border border-blue-500/25 animate-bounce">
+              <svg class="w-10 h-10 text-blue-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <h2 class="text-xl font-black text-white uppercase tracking-wider mb-2 font-sans">Solte para Enviar Artes</h2>
+            <p class="text-zinc-500 text-xs leading-relaxed font-semibold">Solte um ou múltiplos arquivos .webp nesta tela!<br>O sistema identificará os jogos por seus nomes, organizará nas pastas dos respectivos provedores e fará o upload ao Google Drive automaticamente.</p>
+          </div>
+        </div>
+
         <div class="space-y-6 text-left select-none relative">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
             <div>
@@ -2006,19 +2051,47 @@ class ThumbSyncApp {
         ` : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
             ${itemsToShow.map(item => {
-      const gradient = PROVIDER_GRADIENTS[item.providerName.toLowerCase()] || PROVIDER_GRADIENTS['default'];
+      const providerKey = (item.providerName || '').toLowerCase().trim();
+      const customLogo = this.state.customLogos ? this.state.customLogos[providerKey] : null;
+
+      const gradient = (customLogo && customLogo.customBgGradient) 
+        ? customLogo.customBgGradient 
+        : (PROVIDER_GRADIENTS[providerKey] || PROVIDER_GRADIENTS['default']);
+
+      const boardGlow = customLogo 
+        ? (customLogo.customGlowColor || 'rgba(255,255,255,0.08)') 
+        : (PROVIDER_BORDER_GLOWS[providerKey] || PROVIDER_BORDER_GLOWS['default']);
+
       const hasWebp = item.hasWebp;
       const tag = this.getGameTag(item);
       const tagHtml = this.getGameTagHTML(tag);
 
       return `
-              <div data-catalog-key="${item.id}" class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 shadow-md cursor-pointer transition-all transform hover:scale-[1.02]">
+              <div data-catalog-key="${item.id}" 
+                   style="--card-glow: ${boardGlow}" 
+                   class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 hover:shadow-[0_0_22px_var(--card-glow)] shadow-md cursor-pointer transition-all transform hover:scale-[1.02] duration-300">
                 ${hasWebp ? `
                   <img id="thumb-${item.id}" 
                        data-catalog-key="${item.id}" 
                        src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
                        alt="${item.displayName}" 
                        class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
+                ` : (customLogo ? `
+                  <div class="absolute inset-0 bg-gradient-to-tr ${customLogo.customBgGradient} flex flex-col justify-between p-4 text-left overflow-hidden select-none">
+                    <img src="${customLogo.customCover}" class="absolute inset-0 w-full h-full object-cover opacity-[0.22] mix-blend-overlay filter blur-[0.3px] scale-105 transition-transform duration-700 hover:scale-110 pointer-events-none">
+                    <div class="text-[8px] font-extrabold uppercase tracking-widest text-[#0a84ff] bg-[#0a84ff]/10 border border-[#0a84ff]/20 px-2.5 py-0.5 rounded-full w-fit z-10">
+                      PENDENTE
+                    </div>
+                    <div class="flex flex-col items-center justify-center text-center my-auto px-4 z-10 w-full max-w-full">
+                      <span class="text-[12px] font-black tracking-widest text-white uppercase block drop-shadow-md truncate max-w-full leading-tight select-none">${customLogo.brandText}</span>
+                      ${customLogo.tagline ? `<span class="text-[7.5px] font-extrabold tracking-[0.25em] text-white/40 uppercase mt-0.5 truncate max-w-full select-none">${customLogo.tagline}</span>` : ''}
+                    </div>
+                    <div class="space-y-1 z-10 pointer-events-none">
+                      <span class="text-[8px] text-zinc-400 font-bold uppercase tracking-widest block">${item.providerName}</span>
+                      <h4 class="text-xs font-black text-white leading-tight truncate px-0.5 block select-text">${item.displayName}</h4>
+                      <span class="text-[7px] text-zinc-500 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
+                    </div>
+                  </div>
                 ` : `
                   <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
                     <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
@@ -2030,13 +2103,13 @@ class ThumbSyncApp {
                       <span class="text-[7px] text-zinc-650 font-bold uppercase tracking-wider block">Falta arte (.webp)</span>
                     </div>
                   </div>
-                `}
+                `)}
 
                 <div class="absolute top-3 right-3 z-20">
                   ${tagHtml}
                 </div>
 
-                <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90"></div>
+                <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90 pointer-events-none"></div>
                 
                 ${hasWebp ? `
                   <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
@@ -2623,7 +2696,15 @@ class ThumbSyncApp {
     const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
     const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Simulado / Local';
 
-    const pBadgeStyle = PROVIDER_BADGE_STYLE[item.providerName.toLowerCase()] || PROVIDER_BADGE_STYLE['default'];
+    const providerKey = (item.providerName || '').toLowerCase().trim();
+    const customLogo = this.state.customLogos ? this.state.customLogos[providerKey] : null;
+
+    let pBadgeStyle = PROVIDER_BADGE_STYLE[providerKey];
+    if (!pBadgeStyle && customLogo) {
+      pBadgeStyle = 'bg-blue-500/10 text-blue-400 border-blue-500/15';
+    }
+    pBadgeStyle = pBadgeStyle || PROVIDER_BADGE_STYLE['default'];
+
     const currentTag = this.getGameTag(item);
 
     content.innerHTML = `
@@ -3043,6 +3124,122 @@ class ThumbSyncApp {
 
         scrollObserver.observe(sentinel);
         this.observers.push(scrollObserver);
+      }
+
+      // 3. Registro de Drag and Drop Global para upload inteligente em lote
+      const dropzoneOverlay = document.getElementById('global-dropzone-overlay');
+      const dropzonePanel = document.getElementById('global-dropzone-panel');
+
+      if (dropzoneOverlay) {
+        let dragCounter = 0;
+
+        const onDragEnter = (e) => {
+          if (this.state.activeTab !== 'catalog') return;
+          e.preventDefault();
+          dragCounter++;
+          dropzoneOverlay.classList.remove('opacity-0', 'pointer-events-none');
+          dropzoneOverlay.classList.add('opacity-100');
+          if (dropzonePanel) dropzonePanel.classList.remove('scale-95');
+        };
+
+        const onDragOver = (e) => {
+          if (this.state.activeTab !== 'catalog') return;
+          e.preventDefault();
+        };
+
+        const onDragLeave = (e) => {
+          if (this.state.activeTab !== 'catalog') return;
+          e.preventDefault();
+          dragCounter--;
+          if (dragCounter === 0) {
+            dropzoneOverlay.classList.remove('opacity-100');
+            dropzoneOverlay.classList.add('opacity-0', 'pointer-events-none');
+            if (dropzonePanel) dropzonePanel.classList.add('scale-95');
+          }
+        };
+
+        const onDrop = async (e) => {
+          if (this.state.activeTab !== 'catalog') return;
+          e.preventDefault();
+          dragCounter = 0;
+          dropzoneOverlay.classList.remove('opacity-100');
+          dropzoneOverlay.classList.add('opacity-0', 'pointer-events-none');
+          if (dropzonePanel) dropzonePanel.classList.add('scale-95');
+
+          if (!driveClient.isAuthenticated()) {
+            alert("Ação não permitida offline. Conecte sua conta do Google Drive para fazer o upload inteligente!");
+            return;
+          }
+
+          const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.webp'));
+          if (files.length === 0) {
+            alert("Nenhum arquivo .webp válido detectado! Envie apenas arquivos .webp.");
+            return;
+          }
+
+          this.addLog(`Processando upload inteligente em lote de ${files.length} arquivos...`);
+          this.state.isLoading = true;
+          this.render();
+
+          let successCount = 0;
+          let failCount = 0;
+          let skippedCount = 0;
+
+          for (const file of files) {
+            const fileBaseNameNoExt = file.name.replace(/\.webp$/i, '');
+            const normalizedFileName = this.normalizeName(fileBaseNameNoExt);
+
+            // Tentar localizar um jogo no catálogo com o mesmo nome
+            const matchingItems = this.state.catalogItems.filter(item => item.normalizedName === normalizedFileName);
+
+            if (matchingItems.length === 0) {
+              this.addLog(`Pulado: Jogo não encontrado no catálogo para o arquivo '${file.name}'`);
+              skippedCount++;
+              continue;
+            }
+
+            // Se encontrou, escolhe o primeiro correspondente
+            const item = matchingItems[0];
+            const providerName = item.providerName || "Sem provedor";
+
+            this.addLog(`Fazendo upload de '${file.name}' (${Math.round(file.size / 1024)} KB) -> ${providerName}::${item.displayName}`);
+
+            try {
+              let targetFolderId = this.state.thumbsFolderId;
+              if (providerName && providerName !== "Sem provedor") {
+                targetFolderId = await driveClient.findOrCreateSubfolder(providerName, this.state.thumbsFolderId);
+              }
+
+              const fileNameOnDrive = `${item.displayName}.webp`;
+              await driveClient.uploadImage(fileNameOnDrive, file, targetFolderId);
+              successCount++;
+            } catch (err) {
+              console.error(`Erro ao enviar ${file.name}:`, err);
+              failCount++;
+            }
+          }
+
+          this.addLog(`Lote concluído! Sucesso: ${successCount} | Pulado: ${skippedCount} | Falha: ${failCount}`);
+          alert(`Upload em lote concluído!\n\n✔️ Sucesso: ${successCount} miniaturas associadas e enviadas.\n⚠️ Não encontrados no catálogo: ${skippedCount}.\n❌ Erros: ${failCount}.`);
+
+          // Sincronizar após upload de todos os arquivos do lote
+          await this.syncWithGoogleDrive();
+        };
+
+        window.addEventListener('dragenter', onDragEnter);
+        window.addEventListener('dragover', onDragOver);
+        window.addEventListener('dragleave', onDragLeave);
+        window.addEventListener('drop', onDrop);
+
+        // Descadastrar esses listeners de window ao destruir os observers desta aba
+        this.observers.push({
+          disconnect: () => {
+            window.removeEventListener('dragenter', onDragEnter);
+            window.removeEventListener('dragover', onDragOver);
+            window.removeEventListener('dragleave', onDragLeave);
+            window.removeEventListener('drop', onDrop);
+          }
+        });
       }
     }
 
