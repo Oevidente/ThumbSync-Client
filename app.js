@@ -2263,6 +2263,18 @@ class ThumbSyncApp {
       }
     });
 
+    // 1.5. Provedores declarados explicitamente na lista (incluindo sem jogos)
+    lines.forEach(line => {
+      const cleanLine = line.replace(/^\uFEFF/, '').trim();
+      const match = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (match) {
+        const prov = match[1].trim();
+        if (prov && prov !== "Sem provedor") {
+          modalProvidersSet.add(prov);
+        }
+      }
+    });
+
     // 2. Das subpastas físicas sincronizadas do Drive
     if (this.state.driveProviders && this.state.driveProviders.length > 0) {
       this.state.driveProviders.forEach(p => {
