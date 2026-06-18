@@ -1062,9 +1062,90 @@ class ThumbSyncApp {
     }
   }
 
+  showDuplicatedGameToast(games) {
+    let existingToast = document.getElementById('duplicate-game-toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'duplicate-game-toast';
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%) scale(0.9)',
+      zIndex: '10000',
+      width: 'max-content',
+      maxWidth: 'min(600px, calc(100vw - 40px))',
+      background: 'linear-gradient(135deg, #1e1b4b 0%, #312e81 100%)',
+      border: '2px solid rgba(99, 102, 241, 0.6)',
+      borderRadius: '24px',
+      padding: '24px 32px',
+      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(79, 70, 229, 0.3)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '20px',
+      opacity: '0',
+      transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+      pointerEvents: 'auto'
+    });
+
+    let gamesText = '';
+    if (games.length <= 3) {
+      gamesText = games.join(', ');
+    } else {
+      gamesText = `${games.slice(0, 3).join(', ')} e mais ${games.length - 3}`;
+    }
+
+    toast.innerHTML = `
+      <div style="width:64px; height:64px; border-radius:16px; background:rgba(99, 102, 241, 0.2); border:2px solid rgba(99, 102, 241, 0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p style="margin:0 0 6px 0; font-size:22px; font-weight:800; color:#e0e7ff; letter-spacing:-0.01em; line-height:1.2;">Aviso: Miniatura já no Drive!</p>
+        <p style="margin:0; font-size:16px; color:#c7d2fe; font-weight:500; line-height:1.4;">${games.length === 1 ? 'O jogo' : 'Os jogos'} <strong style="color:#ffffff;">${gamesText}</strong> já possu${games.length === 1 ? 'i' : 'em'} miniatura.</p>
+      </div>
+      <button id="duplicate-game-toast-close" style="background:transparent; border:none; cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; opacity:0.7;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    `;
+
+    document.body.appendChild(toast);
+
+    toast.getBoundingClientRect();
+    toast.style.opacity = '1';
+    toast.style.transform = 'translate(-50%, -50%) scale(1)';
+
+    const removeToast = () => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      setTimeout(() => toast.remove(), 300);
+    };
+
+    toast.querySelector('#duplicate-game-toast-close').addEventListener('click', removeToast);
+    setTimeout(removeToast, 7000);
+  }
+
   handleAddGamesToList(providerName, gameNames) {
     const validGames = gameNames.map(g => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
+
+    const normProvider = this.normalizeName(providerName);
+    const existingOnDrive = validGames.filter(gameName => {
+      const normGame = this.normalizeName(gameName);
+      const key = `${normProvider}::${normGame}`;
+      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+      return catalogItem && catalogItem.hasWebp;
+    });
+
+    if (existingOnDrive.length > 0) {
+      this.showDuplicatedGameToast(existingOnDrive);
+    }
 
     this.addLog(`Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`);
 
