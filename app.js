@@ -1227,18 +1227,31 @@ class ThumbSyncApp {
     if (validGames.length === 0) return;
 
     const normProvider = this.normalizeName(providerName);
-    const existingOnDrive = validGames.filter(gameName => {
+    const existingItems = [];
+    const existingOnDriveNames = validGames.filter(gameName => {
       const normGame = this.normalizeName(gameName);
       const key = `${normProvider}::${normGame}`;
       const catalogItem = this.state.catalogItems.find(i => i.id === key);
-      return catalogItem && catalogItem.hasWebp;
+      if (catalogItem && catalogItem.hasWebp) {
+        existingItems.push(catalogItem);
+        return true;
+      }
+      return false;
     });
 
-    if (existingOnDrive.length > 0) {
-      this.showDuplicatedGameToast(existingOnDrive);
+    if (existingOnDriveNames.length > 0) {
+      this.showDuplicatedGameToast(existingOnDriveNames);
+      this.renderPreviewModal(existingItems[0]);
     }
 
-    this.addLog(`Adicionando ${validGames.length} jogos ao provedor '${providerName}'...`);
+    const gamesToAdd = validGames.filter(g => !existingOnDriveNames.includes(g));
+
+    if (gamesToAdd.length === 0) {
+      this.addLog("Nenhum jogo novo adicionado. Todos já possuíam miniatura.");
+      return;
+    }
+
+    this.addLog(`Adicionando ${gamesToAdd.length} jogos ao provedor '${providerName}'...`);
 
     const lines = this.state.listContent.split(/\r?\n/);
     const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i');
@@ -1251,7 +1264,7 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-        validGames.forEach(gameName => {
+        gamesToAdd.forEach(gameName => {
           updatedLines.push(gameName);
         });
         injected = true;
@@ -1263,7 +1276,7 @@ class ThumbSyncApp {
         updatedLines.push('');
       }
       updatedLines.push(`Provedor: ${providerName}`);
-      validGames.forEach(gameName => {
+      gamesToAdd.forEach(gameName => {
         updatedLines.push(gameName);
       });
     }
