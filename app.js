@@ -2430,7 +2430,7 @@ class ThumbSyncApp {
                   ${tagHtml}
                 </div>
 
-                <div class="absolute inset-0 bg-gradient-to-t ${gradient} opacity-90 pointer-events-none"></div>
+                <div class="absolute inset-0 ${hasWebp ? 'bg-gradient-to-t from-black/80 via-transparent to-transparent' : `bg-gradient-to-t ${gradient} opacity-90`} pointer-events-none"></div>
                 
                 ${hasWebp ? `
                   <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
