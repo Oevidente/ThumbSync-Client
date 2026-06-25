@@ -1187,6 +1187,8 @@ class ThumbSyncApp {
       messageHtml += `<p style="margin: 6px 0 0 0; font-style: italic;">...e mais ${remaining} jogo${remaining > 1 ? 's' : ''}</p>`;
     }
 
+    messageHtml += `<p style="margin: 12px 0 0 0; font-weight: 600; line-height: 1.3;">Estes jogos não foram de fato encontrados e não foi possível prosseguir com a confecção das artes.</p>`;
+
     toast.innerHTML = `
       <div style="width:64px; height:64px; border-radius:16px; background:rgba(239, 68, 68, 0.2); border:2px solid rgba(239, 68, 68, 0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
         <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
