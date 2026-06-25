@@ -749,8 +749,15 @@ class ThumbSyncApp {
 
     let currentProvider = "Sem provedor";
     for (const line of lines) {
-      const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
+      let clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      if (!clean || clean.startsWith('#')) continue;
+
+      let isNotFound = false;
+      if (clean.includes('?')) {
+        isNotFound = true;
+        clean = clean.replace(/\?/g, '').trim();
+        if (!clean) continue;
+      }
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
@@ -763,7 +770,8 @@ class ThumbSyncApp {
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider
+        providerName: currentProvider,
+        isNotFound: isNotFound
       });
     }
 
@@ -778,7 +786,8 @@ class ThumbSyncApp {
         normalizedName: game.normalizedName,
         providerName: game.providerName,
         isListed: true,
-        hasWebp: false
+        hasWebp: false,
+        isNotFound: game.isNotFound
       });
     });
 
@@ -1208,18 +1217,30 @@ class ThumbSyncApp {
       }
 
       if (currentSection) {
-        if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
+        if (isGame) {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
-            normalizedGameName: this.normalizeName(cleanLine),
+            normalizedGameName: normName,
             isBlankOrComment: false
           });
         } else {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
-            normalizedGameName: cleanLine ? this.normalizeName(cleanLine) : '',
+            normalizedGameName: normName,
             isBlankOrComment: true
           });
         }
@@ -1271,6 +1292,85 @@ class ThumbSyncApp {
     this.saveUpdatedList(cleanedFileContent);
   }
 
+  handleToggleNotFound(item) {
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      let cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+
+      if (currentSection) {
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: normName,
+          isBlankOrComment: !isGame,
+          cleanGameName: cleanLine
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    let edited = false;
+    const targetProviderNormalized = this.normalizeName(item.providerName);
+
+    for (const sec of sections) {
+      if (sec.providerNameNormalized === targetProviderNormalized) {
+        const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
+        if (idx !== -1) {
+          const game = sec.games[idx];
+          if (item.isNotFound) {
+             // Already not found, let's remove '?'
+             game.originalLine = game.originalLine.replace(/\?/g, '').trim();
+          } else {
+             // Mark as not found by appending ' ?'
+             game.originalLine = game.originalLine.trimRight() + ' ?';
+          }
+          edited = true;
+          this.addLog(`Status "Não Encontrado" alterado com sucesso.`);
+          break;
+        }
+      }
+    }
+
+    if (edited) {
+      const finalLines = [...headerLines];
+      sections.forEach((sec) => {
+        if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+        finalLines.push(sec.providerLine);
+        sec.games.forEach(g => finalLines.push(g.originalLine));
+      });
+      const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+      this.saveUpdatedList(cleanedFileContent);
+    }
+  }
+
   handleExcludeGameFromList(item) {
     const isConfirmed = confirm(`Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo list.txt.`);
     if (!isConfirmed) return;
@@ -1299,18 +1399,30 @@ class ThumbSyncApp {
       }
 
       if (currentSection) {
-        if (cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?')) {
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
+        if (isGame) {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
-            normalizedGameName: this.normalizeName(cleanLine),
+            normalizedGameName: normName,
             isBlankOrComment: false
           });
         } else {
           currentSection.games.push({
             originalLine: line,
             cleanGameName: cleanLine,
-            normalizedGameName: cleanLine ? this.normalizeName(cleanLine) : '',
+            normalizedGameName: normName,
             isBlankOrComment: true
           });
         }
@@ -1390,10 +1502,21 @@ class ThumbSyncApp {
       }
 
       if (currentSection) {
-        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
         currentSection.games.push({
           originalLine: line,
-          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          normalizedGameName: normName,
           isBlankOrComment: !isGame
         });
       } else {
@@ -1468,10 +1591,21 @@ class ThumbSyncApp {
       }
 
       if (currentSection) {
-        const isGame = cleanLine && !cleanLine.startsWith('#') && !cleanLine.includes('?');
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
         currentSection.games.push({
           originalLine: line,
-          normalizedGameName: isGame ? this.normalizeName(cleanLine) : '',
+          normalizedGameName: normName,
           isBlankOrComment: !isGame
         });
       } else {
@@ -2295,8 +2429,15 @@ class ThumbSyncApp {
 
     let currentProvider = "Sem provedor";
     for (const line of lines) {
-      const clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
-      if (!clean || clean.startsWith('#') || clean.includes('?')) continue;
+      let clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+      if (!clean || clean.startsWith('#')) continue;
+
+      let isNotFound = false;
+      if (clean.includes('?')) {
+        isNotFound = true;
+        clean = clean.replace(/\?/g, '').trim();
+        if (!clean) continue;
+      }
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
@@ -2309,7 +2450,8 @@ class ThumbSyncApp {
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider
+        providerName: currentProvider,
+        isNotFound: isNotFound
       });
     }
 
@@ -2489,16 +2631,21 @@ class ThumbSyncApp {
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
                           <div class="flex items-center gap-2.5 min-w-0">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                            <span class="w-1 h-1 rounded-full ${hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]'} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate">${game.displayName}</span>
+                            <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
+                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''}">${game.displayName}</span>
                             <div class="flex items-center gap-1.5 shrink-0 pl-1">
-                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]'}">
-                                ${hasWebp ? '.WEBP OK' : 'SEM IMAGEM'}
+                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
+                                ${game.isNotFound ? 'NÃO ENCONTRADO' : (hasWebp ? '.WEBP OK' : 'SEM IMAGEM')}
                               </span>
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
                           </div>
                           <div class="flex items-center gap-1.5 shrink-0">
+                            <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Não Encontrado' : 'Marcar Não Encontrado'}">
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                              </svg>
+                            </button>
                             <button data-edit-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400 transition-colors" title="Editar Nome">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
                             </button>
@@ -3529,6 +3676,17 @@ class ThumbSyncApp {
             this.state.isEditingGameName = true;
             this.state.editingGameItem = catalogItem;
             this.renderActiveTab();
+          }
+        });
+      });
+
+      const notFoundTriggers = document.querySelectorAll('[data-notfound-catalog-key]');
+      notFoundTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-notfound-catalog-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.handleToggleNotFound(catalogItem);
           }
         });
       });
