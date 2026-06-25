@@ -307,6 +307,7 @@ class ThumbSyncApp {
       selectedListKeys: new Set(),
       collapsedProviderKeys: new Set(),
       catalogPage: 1,
+      notifiedNotFoundGames: false
     };
 
     this.config = {
@@ -1140,6 +1141,85 @@ class ThumbSyncApp {
     setTimeout(removeToast, 7000);
   }
 
+  showNotFoundGamesToast(notFoundGames) {
+    if (!notFoundGames || notFoundGames.length === 0) return;
+    
+    let existingToast = document.getElementById('notfound-game-toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'notfound-game-toast';
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%) scale(0.9)',
+      zIndex: '10000',
+      width: 'max-content',
+      maxWidth: 'min(600px, calc(100vw - 40px))',
+      background: 'linear-gradient(135deg, #450a0a 0%, #7f1d1d 100%)',
+      border: '2px solid rgba(239, 68, 68, 0.6)',
+      borderRadius: '24px',
+      padding: '24px 32px',
+      boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(239, 68, 68, 0.3)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '20px',
+      opacity: '0',
+      transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+      pointerEvents: 'auto'
+    });
+
+    const count = notFoundGames.length;
+    const title = count === 1 ? "1 jogo não encontrado" : `${count} jogos não encontrados`;
+
+    const displayGames = notFoundGames.slice(0, 5).map(g => g.displayName);
+    let messageHtml = `<ul style="margin:0; padding-left:16px; margin-top:4px;">`;
+    displayGames.forEach(name => {
+      messageHtml += `<li>${name}</li>`;
+    });
+    messageHtml += `</ul>`;
+
+    if (count > 5) {
+      const remaining = count - 5;
+      messageHtml += `<p style="margin: 6px 0 0 0; font-style: italic;">...e mais ${remaining} jogo${remaining > 1 ? 's' : ''}</p>`;
+    }
+
+    toast.innerHTML = `
+      <div style="width:64px; height:64px; border-radius:16px; background:rgba(239, 68, 68, 0.2); border:2px solid rgba(239, 68, 68, 0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"></path>
+          <line x1="12" y1="9" x2="12" y2="13"></line>
+          <line x1="12" y1="17" x2="12.01" y2="17"></line>
+        </svg>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p style="margin:0 0 6px 0; font-size:22px; font-weight:800; color:#fee2e2; letter-spacing:-0.01em; line-height:1.2;">${title}</p>
+        <div style="margin:0; font-size:16px; color:#fecaca; font-weight:500; line-height:1.4;">${messageHtml}</div>
+      </div>
+      <button id="notfound-game-toast-close" style="background:transparent; border:none; cursor:pointer; padding:8px; display:flex; align-items:flex-start; justify-content:center; opacity:0.7; height:100%;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fca5a5" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    `;
+
+    document.body.appendChild(toast);
+
+    toast.getBoundingClientRect();
+    toast.style.opacity = '1';
+    toast.style.transform = 'translate(-50%, -50%) scale(1)';
+
+    const removeToast = () => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      setTimeout(() => toast.remove(), 300);
+    };
+
+    toast.querySelector('#notfound-game-toast-close').addEventListener('click', removeToast);
+    setTimeout(removeToast, 7000);
+  }
+
   handleAddGamesToList(providerName, gameNames) {
     const validGames = gameNames.map(g => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
@@ -1645,6 +1725,17 @@ class ThumbSyncApp {
     const completedGames = listedItems.filter(i => i.hasWebp).length;
     const totalListedCount = listedItems.length;
     const pendingGamesCount = totalListedCount - completedGames;
+
+    if (!this.state.notifiedNotFoundGames) {
+      const notFoundGames = this.state.catalogItems.filter(i => i.isNotFound);
+      if (notFoundGames.length > 0) {
+        // use a small timeout to make sure it plays nicely with the initial render
+        setTimeout(() => this.showNotFoundGamesToast(notFoundGames), 500);
+      }
+      if (this.state.catalogItems.length > 0) {
+        this.state.notifiedNotFoundGames = true;
+      }
+    }
 
     root.innerHTML = `
       <div id="app-container" class="flex h-screen w-screen overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
