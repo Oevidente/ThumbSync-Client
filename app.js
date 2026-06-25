@@ -2571,23 +2571,36 @@ class ThumbSyncApp {
     };
 
     const groupsMap = new Map();
+    const notFoundGames = [];
+
     listGames.forEach(g => {
-      const arr = groupsMap.get(g.providerName) || [];
-      arr.push(g);
-      groupsMap.set(g.providerName, arr);
+      if (g.isNotFound) {
+        notFoundGames.push(g);
+      } else {
+        const arr = groupsMap.get(g.providerName) || [];
+        arr.push(g);
+        groupsMap.set(g.providerName, arr);
+      }
     });
 
     const groupsList = Array.from(groupsMap.entries()).map(([providerName, games]) => [
       providerName,
       [...games].sort(sortGamesForProvider)
     ]);
+    
+    if (notFoundGames.length > 0) {
+      groupsList.unshift([
+        "Jogos Não Encontrados",
+        [...notFoundGames].sort(sortGamesForProvider)
+      ]);
+    }
 
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
 
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
-      if (prov && prov !== "Sem provedor") {
+      if (prov && prov !== "Sem provedor" && prov !== "Jogos Não Encontrados") {
         modalProvidersSet.add(prov);
       }
     });
@@ -2704,12 +2717,13 @@ class ThumbSyncApp {
       const providerKey = this.normalizeName(providerName);
       const providerAttr = encodeURIComponent(providerKey);
       const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+      const isNotFoundSection = providerName === "Jogos Não Encontrados";
 
       return `
-                <div class="rounded-2xl border border-white/[0.05] bg-white/[0.01] divide-y divide-white/[0.03]">
+                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03] mb-4">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                    <span class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2 min-w-0">
-                      <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+                    <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
+                      <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : 'bg-blue-500'} shrink-0"></span>
                       <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
@@ -2719,9 +2733,11 @@ class ThumbSyncApp {
                       <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
+                      ${isNotFoundSection ? '' : `
                       <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
+                      `}
                     </div>
                   </div>
 
@@ -2738,7 +2754,10 @@ class ThumbSyncApp {
                           <div class="flex items-center gap-2.5 min-w-0">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                             <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''}">${game.displayName}</span>
+                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''}">
+                              ${game.displayName}
+                              ${isNotFoundSection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal">(${game.providerName})</span>` : ''}
+                            </span>
                             <div class="flex items-center gap-1.5 shrink-0 pl-1">
                               <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
                                 ${game.isNotFound ? 'NÃO ENCONTRADO' : (hasWebp ? '.WEBP OK' : 'SEM IMAGEM')}
