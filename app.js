@@ -2250,6 +2250,30 @@ class ThumbSyncApp {
                   Não encontrou um jogo em <strong class="text-white font-bold">Miniaturas</strong>? Verifique se o <strong class="text-white font-bold">provedor</strong> e a <strong class="text-white font-bold">categoria (tag)</strong> estão corretos nos filtros, ou se o nome não está com erro de digitação.
                 </p>
               </div>
+
+              <!-- Tip 4 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(234,179,8,0.12); border: 1px solid rgba(234,179,8,0.18);">
+                  <svg class="w-3.5 h-3.5 text-yellow-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Na aba <strong class="text-white font-bold">Mural/Lista</strong>, use o botão de estrela para marcar jogos como <strong class="text-yellow-400 font-bold">Prioridade</strong>. Eles serão agrupados no topo para facilitar a organização das artes mais urgentes.
+                </p>
+              </div>
+
+              <!-- Tip 5 -->
+              <div class="flex gap-3 p-3.5 rounded-2xl transition-colors" style="background: rgba(255,255,255,0.025); border: 1px solid rgba(255,255,255,0.05);">
+                <div class="w-6 h-6 rounded-xl shrink-0 flex items-center justify-center mt-0.5" style="background: rgba(249,115,22,0.12); border: 1px solid rgba(249,115,22,0.18);">
+                  <svg class="w-3.5 h-3.5 text-orange-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                </div>
+                <p class="text-[11px] text-zinc-300 leading-relaxed">
+                  Se um jogo não tiver arte, marque-o como <strong class="text-orange-400 font-bold">Não Encontrado</strong> no Mural/Lista. Eles ficarão em uma seção separada para não poluir os provedores e você lembrar de ignorá-los.
+                </p>
+              </div>
             </div>
 
           </div>
