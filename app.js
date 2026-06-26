@@ -754,6 +754,12 @@ class ThumbSyncApp {
       if (!clean || clean.startsWith('#')) continue;
 
       let isNotFound = false;
+      let isPriority = false;
+      if (clean.includes('!')) {
+        isPriority = true;
+        clean = clean.replace(/!/g, '').trim();
+        if (!clean) continue;
+      }
       if (clean.includes('?')) {
         isNotFound = true;
         clean = clean.replace(/\?/g, '').trim();
@@ -772,7 +778,8 @@ class ThumbSyncApp {
         displayName: clean,
         normalizedName: this.normalizeName(clean),
         providerName: currentProvider,
-        isNotFound: isNotFound
+        isNotFound: isNotFound,
+        isPriority: isPriority
       });
     }
 
@@ -788,7 +795,8 @@ class ThumbSyncApp {
         providerName: game.providerName,
         isListed: true,
         hasWebp: false,
-        isNotFound: game.isNotFound
+        isNotFound: game.isNotFound,
+        isPriority: game.isPriority
       });
     });
 
@@ -859,7 +867,8 @@ class ThumbSyncApp {
       'Crash':        { color: '#f59e0b', pulse: false },
       'Mesa RNG':     { color: '#10b981', pulse: false },
       'Instant Win':  { color: '#a855f7', pulse: false },
-      'Scratchcard':  { color: '#ec4899', pulse: false }
+      'Scratchcard':  { color: '#ec4899', pulse: false },
+      'Prioridades':  { color: '#facc15', pulse: true }
     };
     const style = config[tag] || { color: '#8b8c89', pulse: false };
     return `
@@ -1413,6 +1422,9 @@ class ThumbSyncApp {
         if (cleanLine && !cleanLine.startsWith('#')) {
            isGame = true;
            let searchName = cleanLine;
+           if (searchName.includes('!')) {
+             searchName = searchName.replace(/!/g, '').trim();
+           }
            if (searchName.includes('?')) {
              searchName = searchName.replace(/\?/g, '').trim();
            }
@@ -1449,6 +1461,88 @@ class ThumbSyncApp {
           }
           edited = true;
           this.addLog(`Status "Não Encontrado" alterado com sucesso.`);
+          break;
+        }
+      }
+    }
+
+    if (edited) {
+      const finalLines = [...headerLines];
+      sections.forEach((sec) => {
+        if (finalLines.length > 0 && finalLines[finalLines.length - 1].trim() !== '') finalLines.push('');
+        finalLines.push(sec.providerLine);
+        sec.games.forEach(g => finalLines.push(g.originalLine));
+      });
+      const cleanedFileContent = finalLines.join('\n').replace(/\n\s*\n\s*\n/g, '\n\n').trim();
+      this.saveUpdatedList(cleanedFileContent);
+    }
+  }
+
+  handleTogglePriority(item) {
+    const lines = this.state.listContent.split(/\r?\n/);
+    const sections = [];
+    let currentSection = null;
+    const headerLines = [];
+
+    for (const line of lines) {
+      let cleanLine = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
+
+      const providerMatch = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        if (currentSection) sections.push(currentSection);
+        currentSection = {
+          providerLine: line,
+          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          games: []
+        };
+        continue;
+      }
+
+      if (currentSection) {
+        let isGame = false;
+        let normName = '';
+        if (cleanLine && !cleanLine.startsWith('#')) {
+           isGame = true;
+           let searchName = cleanLine;
+           if (searchName.includes('!')) {
+             searchName = searchName.replace(/!/g, '').trim();
+           }
+           if (searchName.includes('?')) {
+             searchName = searchName.replace(/\?/g, '').trim();
+           }
+           if (!searchName) isGame = false;
+           normName = this.normalizeName(searchName);
+        }
+
+        currentSection.games.push({
+          originalLine: line,
+          normalizedGameName: normName,
+          isBlankOrComment: !isGame,
+          cleanGameName: cleanLine
+        });
+      } else {
+        headerLines.push(line);
+      }
+    }
+    if (currentSection) sections.push(currentSection);
+
+    let edited = false;
+    const targetProviderNormalized = this.normalizeName(item.providerName);
+
+    for (const sec of sections) {
+      if (sec.providerNameNormalized === targetProviderNormalized) {
+        const idx = sec.games.findIndex(g => !g.isBlankOrComment && g.normalizedGameName === item.normalizedName);
+        if (idx !== -1) {
+          const game = sec.games[idx];
+          if (item.isPriority) {
+             // Already priority, let's remove '!'
+             game.originalLine = game.originalLine.replace(/!/g, '').trim();
+          } else {
+             // Mark as priority by appending ' !'
+             game.originalLine = game.originalLine.trimRight() + ' !';
+          }
+          edited = true;
+          this.addLog(`Status "Prioridade" alterado com sucesso.`);
           break;
         }
       }
@@ -2333,7 +2427,7 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
               <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                 <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-                ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard'].map(tag => `
+                ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard', 'Prioridades'].map(tag => `
                   <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
                 `).join('')}
               </select>
@@ -2539,6 +2633,12 @@ class ThumbSyncApp {
       if (!clean || clean.startsWith('#')) continue;
 
       let isNotFound = false;
+      let isPriority = false;
+      if (clean.includes('!')) {
+        isPriority = true;
+        clean = clean.replace(/!/g, '').trim();
+        if (!clean) continue;
+      }
       if (clean.includes('?')) {
         isNotFound = true;
         clean = clean.replace(/\?/g, '').trim();
@@ -2557,7 +2657,8 @@ class ThumbSyncApp {
         displayName: clean,
         normalizedName: this.normalizeName(clean),
         providerName: currentProvider,
-        isNotFound: isNotFound
+        isNotFound: isNotFound,
+        isPriority: isPriority
       });
     }
 
@@ -2572,9 +2673,12 @@ class ThumbSyncApp {
 
     const groupsMap = new Map();
     const notFoundGames = [];
+    const priorityGames = [];
 
     listGames.forEach(g => {
-      if (g.isNotFound) {
+      if (g.isPriority) {
+        priorityGames.push(g);
+      } else if (g.isNotFound) {
         notFoundGames.push(g);
       } else {
         const arr = groupsMap.get(g.providerName) || [];
@@ -2595,12 +2699,19 @@ class ThumbSyncApp {
       ]);
     }
 
+    if (priorityGames.length > 0) {
+      groupsList.unshift([
+        "Prioridades",
+        [...priorityGames].sort(sortGamesForProvider)
+      ]);
+    }
+
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
 
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
-      if (prov && prov !== "Sem provedor" && prov !== "Jogos Não Encontrados") {
+      if (prov && prov !== "Sem provedor" && prov !== "Jogos Não Encontrados" && prov !== "Prioridades") {
         modalProvidersSet.add(prov);
       }
     });
@@ -2718,12 +2829,13 @@ class ThumbSyncApp {
       const providerAttr = encodeURIComponent(providerKey);
       const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
       const isNotFoundSection = providerName === "Jogos Não Encontrados";
+      const isPrioritySection = providerName === "Prioridades";
 
       return `
-                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03] mb-4">
+                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03] mb-4">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                    <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
-                      <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : 'bg-blue-500'} shrink-0"></span>
+                    <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
+                      <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
                       <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
@@ -2733,7 +2845,7 @@ class ThumbSyncApp {
                       <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
-                      ${isNotFoundSection ? '' : `
+                      ${isNotFoundSection || isPrioritySection ? '' : `
                       <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
@@ -2753,19 +2865,24 @@ class ThumbSyncApp {
                         <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
                           <div class="flex items-center gap-2.5 min-w-0">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                            <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''}">
+                            <span class="w-1 h-1 rounded-full ${game.isPriority ? 'bg-yellow-500' : game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
+                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority ? 'text-yellow-200' : ''}">
                               ${game.displayName}
-                              ${isNotFoundSection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal">(${game.providerName})</span>` : ''}
+                              ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal">(${game.providerName})</span>` : ''}
                             </span>
                             <div class="flex items-center gap-1.5 shrink-0 pl-1">
-                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
-                                ${game.isNotFound ? 'NÃO ENCONTRADO' : (hasWebp ? '.WEBP OK' : 'SEM IMAGEM')}
+                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isPriority ? 'bg-yellow-500/10 text-yellow-500' : game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
+                                ${game.isPriority ? 'PRIORIDADE' : game.isNotFound ? 'NÃO ENCONTRADO' : (hasWebp ? '.WEBP OK' : 'SEM IMAGEM')}
                               </span>
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
                           </div>
                           <div class="flex items-center gap-1.5 shrink-0">
+                            <button data-priority-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-yellow-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-yellow-500/5 text-yellow-500/60 border-yellow-500/10'}" title="${game.isPriority ? 'Desmarcar Prioridade' : 'Marcar Prioridade'}">
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                              </svg>
+                            </button>
                             <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Não Encontrado' : 'Marcar Não Encontrado'}">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -3109,7 +3226,7 @@ class ThumbSyncApp {
                 SALVANDO...
               </div>
             ` : `
-            ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard'].map(tag => `
+            ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard', 'Prioridades'].map(tag => `
               <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
                 <span class="w-1.5 h-1.5 rounded-full ${currentTag === tag ? 'bg-[#0a84ff] animate-pulse' : 'bg-transparent border border-zinc-600'}"></span>
                 ${tag}
@@ -3812,6 +3929,17 @@ class ThumbSyncApp {
           const catalogItem = this.state.catalogItems.find(i => i.id === key);
           if (catalogItem) {
             this.handleToggleNotFound(catalogItem);
+          }
+        });
+      });
+
+      const priorityTriggers = document.querySelectorAll('[data-priority-catalog-key]');
+      priorityTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          const key = e.currentTarget.getAttribute('data-priority-catalog-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.handleTogglePriority(catalogItem);
           }
         });
       });
