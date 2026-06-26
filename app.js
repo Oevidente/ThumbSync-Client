@@ -2351,7 +2351,7 @@ class ThumbSyncApp {
           <button id="modal-close" class="absolute top-4 right-4 w-7 h-7 rounded-full bg-white/[0.05] hover:bg-white/[0.1] flex items-center justify-center cursor-pointer border border-white/5 z-10 transition-colors">
             <svg class="w-3.5 h-3.5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
           </button>
-          <div id="modal-content" class="flex flex-col h-full overflow-y-auto"></div>
+          <div id="modal-content" class="flex flex-col h-full overflow-y-auto [&::-webkit-scrollbar]:hidden [-ms-overflow-style:none] [scrollbar-width:none]"></div>
         </div>
       </div>
     `;
@@ -2945,15 +2945,15 @@ class ThumbSyncApp {
       const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 
         return `
-                        <div data-list-preview-key="${key}" class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-2 cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
-                          <div class="flex items-center gap-2.5 min-w-0">
+                        <div data-list-preview-key="${key}" class="flex flex-col md:flex-row justify-between items-start md:items-center py-3 md:py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-3 md:gap-2 cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
+                          <div class="flex items-center flex-wrap gap-2.5 min-w-0 w-full md:w-auto">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                             <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : (game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]')} shrink-0"></span>
                             <span class="text-xs font-medium text-zinc-100 truncate select-text cursor-text relative z-10 ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
                               ${game.displayName}
                               ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal select-none">(${game.providerName})</span>` : ''}
                             </span>
-                            <div class="flex items-center gap-1.5 shrink-0 pl-1">
+                            <div class="flex items-center flex-wrap gap-1.5 shrink-0 pl-1 mt-2 sm:mt-0">
                               ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
                               ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
                               ${(!game.isNotFound && hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
@@ -2961,7 +2961,7 @@ class ThumbSyncApp {
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
                           </div>
-                          <div class="flex items-center gap-1.5 shrink-0">
+                          <div class="flex items-center flex-wrap gap-1.5 shrink-0 ml-[26px] md:ml-0">
                             <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
