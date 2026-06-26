@@ -2945,18 +2945,19 @@ class ThumbSyncApp {
       const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 
         return `
-                        <div data-list-preview-key="${key}" class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-2 cursor-pointer transition-colors">
+                        <div data-list-preview-key="${key}" class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-2 cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
                           <div class="flex items-center gap-2.5 min-w-0">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                            <span class="w-1 h-1 rounded-full ${game.isPriority ? 'bg-yellow-500' : game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate select-text cursor-text relative z-10 ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority ? 'text-yellow-200' : ''}">
+                            <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : (game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]')} shrink-0"></span>
+                            <span class="text-xs font-medium text-zinc-100 truncate select-text cursor-text relative z-10 ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
                               ${game.displayName}
                               ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal select-none">(${game.providerName})</span>` : ''}
                             </span>
                             <div class="flex items-center gap-1.5 shrink-0 pl-1">
-                              <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isPriority ? 'bg-yellow-500/10 text-yellow-500' : game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
-                                ${game.isPriority ? 'PRIORIDADE' : game.isNotFound ? 'NÃO ENCONTRADO' : (hasWebp ? '.WEBP OK' : 'SEM IMAGEM')}
-                              </span>
+                              ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
+                              ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
+                              ${(!game.isNotFound && hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
+                              ${(!game.isNotFound && !hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
                           </div>
