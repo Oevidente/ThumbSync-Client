@@ -1039,6 +1039,65 @@ class ThumbSyncApp {
     }
   }
 
+  /**
+   * Copia a imagem .webp para a área de transferência como PNG
+   */
+  async copyImageToClipboard(item) {
+    if (!item.driveFileId) {
+      alert("Esta miniatura não possui imagem (.webp) no Google Drive para cópia.");
+      return;
+    }
+
+    this.addLog(`Copiando miniatura: ${item.displayName}...`);
+    try {
+      const btn = document.getElementById('modal-action-copy-img');
+      const originalHtml = btn ? btn.innerHTML : null;
+      if (btn) btn.innerHTML = '<svg class="w-4 h-4 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg><span>Copiando...</span>';
+
+      const blob = await driveClient.downloadBinaryFile(item.driveFileId);
+      
+      const img = new Image();
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      const blobUrl = URL.createObjectURL(blob);
+      
+      await new Promise((resolve, reject) => {
+        img.onload = resolve;
+        img.onerror = reject;
+        img.src = blobUrl;
+      });
+      
+      canvas.width = img.width;
+      canvas.height = img.height;
+      ctx.drawImage(img, 0, 0);
+      
+      canvas.toBlob(async (pngBlob) => {
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': pngBlob })
+        ]);
+        URL.revokeObjectURL(blobUrl);
+        if (btn) {
+          btn.innerHTML = '<svg class="w-4 h-4 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg><span class="text-emerald-400">Copiada!</span>';
+          setTimeout(() => {
+            btn.innerHTML = originalHtml;
+          }, 2000);
+        }
+      }, 'image/png');
+      
+      this.addLog(`Miniatura copiada para a área de transferência.`);
+    } catch (err) {
+      console.error(err);
+      alert('Erro ao copiar a imagem. O navegador pode não suportar esta ação.');
+      const btn = document.getElementById('modal-action-copy-img');
+      if (btn) {
+        btn.innerHTML = '<svg class="w-4 h-4 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg><span class="text-red-400">Erro</span>';
+        setTimeout(() => {
+          btn.innerHTML = '<svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg><span>Copiar Imagem</span>';
+        }, 2000);
+      }
+    }
+  }
+
   triggerBlobDownload(blob, fileName) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -2886,13 +2945,13 @@ class ThumbSyncApp {
       const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 
         return `
-                        <div class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.01] leading-none gap-2">
+                        <div data-list-preview-key="${key}" class="flex justify-between items-center py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-2 cursor-pointer transition-colors">
                           <div class="flex items-center gap-2.5 min-w-0">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                             <span class="w-1 h-1 rounded-full ${game.isPriority ? 'bg-yellow-500' : game.isNotFound ? 'bg-red-500' : (hasWebp ? 'bg-[#10b981]' : 'bg-[#f59e0b]')} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority ? 'text-yellow-200' : ''}">
+                            <span class="text-xs font-medium text-zinc-100 truncate select-text cursor-text relative z-10 ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority ? 'text-yellow-200' : ''}">
                               ${game.displayName}
-                              ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal">(${game.providerName})</span>` : ''}
+                              ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal select-none">(${game.providerName})</span>` : ''}
                             </span>
                             <div class="flex items-center gap-1.5 shrink-0 pl-1">
                               <span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md ${game.isPriority ? 'bg-yellow-500/10 text-yellow-500' : game.isNotFound ? 'bg-red-500/10 text-red-500' : (hasWebp ? 'bg-[#10b981]/10 text-[#10b981]' : 'bg-[#f59e0b]/10 text-[#f59e0b]')}">
@@ -2902,6 +2961,11 @@ class ThumbSyncApp {
                             </div>
                           </div>
                           <div class="flex items-center gap-1.5 shrink-0">
+                            <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
+                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                              </svg>
+                            </button>
                             <button data-priority-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-yellow-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-yellow-500/5 text-yellow-500/60 border-yellow-500/10'}" title="${game.isPriority ? 'Desmarcar Prioridade' : 'Marcar Prioridade'}">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -3261,6 +3325,14 @@ class ThumbSyncApp {
         </div>
 
         <div class="flex flex-col gap-2 select-none mt-auto pb-2">
+          <button id="modal-action-copy-name" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+            <span>Copiar Nome do Jogo</span>
+          </button>
+          <button id="modal-action-copy-img" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+            <span>Copiar Imagem (.webp -> .png)</span>
+          </button>
           <button id="modal-action-download" class="w-full py-2 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
             <span>Baixar Miniatura (.webp)</span>
@@ -3278,6 +3350,29 @@ class ThumbSyncApp {
     if (btnDownload) {
       btnDownload.addEventListener('click', () => {
         this.handleDownloadFile(item);
+      });
+    }
+
+    const btnCopyImg = document.getElementById('modal-action-copy-img');
+    if (btnCopyImg) {
+      btnCopyImg.addEventListener('click', () => {
+        this.copyImageToClipboard(item);
+      });
+    }
+
+    const btnCopyName = document.getElementById('modal-action-copy-name');
+    if (btnCopyName) {
+      btnCopyName.addEventListener('click', async () => {
+        try {
+          await navigator.clipboard.writeText(item.displayName);
+          const originalHtml = btnCopyName.innerHTML;
+          btnCopyName.innerHTML = '<svg class="w-4 h-4 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg><span class="text-emerald-400">Copiado!</span>';
+          setTimeout(() => {
+            btnCopyName.innerHTML = originalHtml;
+          }, 2000);
+        } catch (err) {
+          console.error(err);
+        }
       });
     }
 
@@ -3933,6 +4028,21 @@ class ThumbSyncApp {
         });
       }
 
+      const listPreviewTriggers = document.querySelectorAll('[data-list-preview-key]');
+      listPreviewTriggers.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          if (e.target.closest('button') || e.target.closest('input') || e.target.closest('.select-text')) {
+            return;
+          }
+          const key = e.currentTarget.getAttribute('data-list-preview-key');
+          const catalogItem = this.state.catalogItems.find(i => i.id === key);
+          if (catalogItem) {
+            this.state.selectedCatalogItem = catalogItem;
+            this.renderPreviewModal(catalogItem);
+          }
+        });
+      });
+
       const editTriggers = document.querySelectorAll('[data-edit-catalog-key]');
       editTriggers.forEach(btn => {
         btn.addEventListener('click', (e) => {
@@ -3964,6 +4074,25 @@ class ThumbSyncApp {
           const catalogItem = this.state.catalogItems.find(i => i.id === key);
           if (catalogItem) {
             this.handleTogglePriority(catalogItem);
+          }
+        });
+      });
+
+      const copyTriggers = document.querySelectorAll('[data-copy-catalog-name]');
+      copyTriggers.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          const name = e.currentTarget.getAttribute('data-copy-catalog-name');
+          if (name) {
+            try {
+              await navigator.clipboard.writeText(name);
+              const originalHTML = e.currentTarget.innerHTML;
+              e.currentTarget.innerHTML = '<svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>';
+              setTimeout(() => {
+                e.currentTarget.innerHTML = originalHTML;
+              }, 1500);
+            } catch (err) {
+              console.error('Failed to copy text: ', err);
+            }
           }
         });
       });
