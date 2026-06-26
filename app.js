@@ -3260,55 +3260,36 @@ class ThumbSyncApp {
     const content = document.getElementById('modal-content');
     if (!modal || !content) return;
 
+    if (modal.classList.contains('opacity-0')) {
+      this.state.isShowingModalCat = false;
+    }
+
     modal.classList.remove('pointer-events-none', 'opacity-0');
     const child = modal.firstElementChild;
     if (child) child.classList.remove('scale-95');
 
-    const fileSizeStr = item.fileSize ? `${Math.round(Number(item.fileSize) / 1024)} KB` : 'Indeterminado';
-    const modifiedStr = item.modifiedTime ? new Date(item.modifiedTime).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : 'Simulado / Local';
-
-    const providerKey = (item.providerName || '').toLowerCase().trim();
-    const customLogo = this.state.customLogos ? this.state.customLogos[providerKey] : null;
-
-    let pBadgeStyle = PROVIDER_BADGE_STYLE[providerKey];
-    if (!pBadgeStyle && customLogo) {
-      pBadgeStyle = 'bg-blue-500/10 text-blue-400 border-blue-500/15';
-    }
-    pBadgeStyle = pBadgeStyle || PROVIDER_BADGE_STYLE['default'];
-
     const currentTag = this.getGameTag(item);
+    const showCatEditor = this.state.isShowingModalCat || this.state.isSavingTag;
 
     content.innerHTML = `
-      <div class="flex flex-col gap-5 pt-4 text-left relative h-full">
-        <div class="relative w-full aspect-[2/3] rounded-2xl overflow-hidden bg-neutral-950 border border-white/5 shadow-inner">
+      <div class="flex flex-col gap-4 pt-3 text-left relative h-full">
+        <div class="relative w-full aspect-[2/3] rounded-2xl overflow-hidden bg-neutral-950 border border-white/5 shadow-inner shrink-0">
           <img id="modal-img-preview" src="" alt="${item.displayName}" class="w-full h-full object-cover">
           <div class="absolute inset-0 bg-gradient-to-t from-black/85 via-transparent to-transparent"></div>
         </div>
 
-        <div class="space-y-1 leading-none select-none">
-          <span class="text-[9px] font-black uppercase tracking-widest ${pBadgeStyle} px-2.5 py-0.5 rounded block w-fit h-fit">${item.providerName}</span>
-          <h2 class="text-base font-black text-white leading-normal mt-1 block">${item.displayName}</h2>
+        <div class="flex items-center justify-between gap-3 select-none">
+          <h2 class="text-base font-black text-white leading-snug break-words min-w-0 flex-1">${item.displayName}</h2>
+          <button id="modal-toggle-cat" class="shrink-0 py-1 px-2.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-[11px] font-medium text-zinc-400 hover:text-white border border-white/5 flex items-center gap-1.5 cursor-pointer transition-colors" title="Editar Categoria">
+            <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+            <span>${currentTag || 'Categoria'}</span>
+          </button>
         </div>
 
-        <div class="divide-y divide-white/[0.05] border-t border-b border-white/[0.05] py-1.5 text-[11px] text-zinc-400 select-none">
-          <div class="flex justify-between py-1.5">
-            <span>Listado em lista.txt:</span>
-            <span class="text-white font-bold">${item.isListed ? 'Sim, Ativo' : 'Não, avulso'}</span>
-          </div>
-          <div class="flex justify-between py-1.5">
-            <span>Tamanho do Arquivo:</span>
-            <span class="text-white font-bold font-mono">${fileSizeStr}</span>
-          </div>
-          <div class="flex justify-between py-1.5">
-            <span>Sincronizado:</span>
-            <span class="text-zinc-300 font-bold font-mono">${modifiedStr}</span>
-          </div>
-        </div>
-
-        <!-- Categoria do Jogo com controles de tag personalizados (iOS / Mac 2026 Style) -->
-        <div class="space-y-1.5 select-none">
-          <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</label>
-          <div class="flex gap-2 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl flex-wrap">
+        <!-- Categoria do Jogo oculto inicialmente -->
+        <div id="modal-cat-container" class="${showCatEditor ? '' : 'hidden'} space-y-1.5 select-none pt-1 transition-all">
+          <div class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</div>
+          <div class="flex gap-1.5 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl flex-wrap">
             ${this.state.isSavingTag ? `
               <div class="w-full py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
                 <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
@@ -3316,7 +3297,7 @@ class ThumbSyncApp {
               </div>
             ` : `
             ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard', 'Prioridades'].map(tag => `
-              <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1.5 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
+              <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
                 <span class="w-1.5 h-1.5 rounded-full ${currentTag === tag ? 'bg-[#0a84ff] animate-pulse' : 'bg-transparent border border-zinc-600'}"></span>
                 ${tag}
               </button>
@@ -3325,7 +3306,7 @@ class ThumbSyncApp {
           </div>
         </div>
 
-        <div class="flex flex-col gap-2 select-none mt-auto pb-2">
+        <div class="flex flex-col gap-2 select-none mt-auto pt-1 pb-2">
           <button id="modal-action-copy-name" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
             <span>Copiar Nome do Jogo</span>
@@ -3345,6 +3326,17 @@ class ThumbSyncApp {
     const previewImg = document.getElementById('modal-img-preview');
     if (previewImg) {
       this.loadThumbnailSrc(item, previewImg);
+    }
+
+    const btnToggleCat = document.getElementById('modal-toggle-cat');
+    if (btnToggleCat) {
+      btnToggleCat.addEventListener('click', () => {
+        this.state.isShowingModalCat = !this.state.isShowingModalCat;
+        const catContainer = document.getElementById('modal-cat-container');
+        if (catContainer) {
+          catContainer.classList.toggle('hidden', !this.state.isShowingModalCat);
+        }
+      });
     }
 
     const btnDownload = document.getElementById('modal-action-download');
@@ -3388,6 +3380,7 @@ class ThumbSyncApp {
   }
 
   closePreviewModal() {
+    this.state.isShowingModalCat = false;
     const modal = document.getElementById('preview-modal');
     if (!modal) return;
     modal.classList.add('pointer-events-none', 'opacity-0');
