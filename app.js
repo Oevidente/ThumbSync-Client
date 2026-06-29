@@ -1179,7 +1179,8 @@ class ThumbSyncApp {
   }
 
   /**
-   * Copia a imagem .webp para a área de transferência como PNG
+   * Copia a imagem .webp para a área de transferência no formato original (WEBP)
+   * Se o navegador não suportar gravação direta de WebP na área de transferência, realiza fallback para PNG.
    */
   async copyImageToClipboard(item) {
     if (!item.driveFileId) {
@@ -1194,39 +1195,63 @@ class ThumbSyncApp {
       if (btn) btn.innerHTML = '<svg class="w-4 h-4 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg><span>Copiando...</span>';
 
       const blob = await driveClient.downloadBinaryFile(item.driveFileId);
-      
-      const img = new Image();
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      const blobUrl = URL.createObjectURL(blob);
-      
-      await new Promise((resolve, reject) => {
-        img.onload = resolve;
-        img.onerror = reject;
-        img.src = blobUrl;
-      });
-      
-      canvas.width = img.width;
-      canvas.height = img.height;
-      ctx.drawImage(img, 0, 0);
-      
-      canvas.toBlob(async (pngBlob) => {
+      const webpBlob = new Blob([blob], { type: 'image/webp' });
+
+      try {
+        // Tenta copiar no formato original (.webp)
         await navigator.clipboard.write([
-          new ClipboardItem({ 'image/png': pngBlob })
+          new ClipboardItem({ 'image/webp': webpBlob })
         ]);
-        URL.revokeObjectURL(blobUrl);
-        if (btn) {
-          btn.innerHTML = '<svg class="w-4 h-4 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg><span class="text-emerald-400">Copiada!</span>';
-          setTimeout(() => {
-            btn.innerHTML = originalHtml;
-          }, 2000);
-        }
-      }, 'image/png');
-      
-      this.addLog(`Miniatura copiada para a área de transferência.`);
+        this.addLog(`Miniatura copiada no formato original (.webp) para a área de transferência.`);
+      } catch (webpError) {
+        console.warn("Navegador não suporta cópia direta de .webp. Convertendo para .png...", webpError);
+        
+        // Fallback: Converte .webp para .png para garantir compatibilidade com a área de transferência do sistema
+        const img = new Image();
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        const blobUrl = URL.createObjectURL(webpBlob);
+        
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = reject;
+          img.src = blobUrl;
+        });
+        
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        
+        await new Promise((resolve, reject) => {
+          canvas.toBlob(async (pngBlob) => {
+            try {
+              if (!pngBlob) {
+                reject(new Error("Erro na conversão para PNG"));
+                return;
+              }
+              await navigator.clipboard.write([
+                new ClipboardItem({ 'image/png': pngBlob })
+              ]);
+              URL.revokeObjectURL(blobUrl);
+              this.addLog(`Miniatura convertida e copiada como .png (fallback automático por limitação do navegador).`);
+              resolve();
+            } catch (err) {
+              URL.revokeObjectURL(blobUrl);
+              reject(err);
+            }
+          }, 'image/png');
+        });
+      }
+
+      if (btn) {
+        btn.innerHTML = '<svg class="w-4 h-4 shrink-0 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg><span class="text-emerald-400">Copiada!</span>';
+        setTimeout(() => {
+          btn.innerHTML = originalHtml;
+        }, 2000);
+      }
     } catch (err) {
       console.error(err);
-      alert('Erro ao copiar a imagem. O navegador pode não suportar esta ação.');
+      alert('Erro ao copiar a imagem. O navegador pode não suportar a cópia de imagens diretamente.');
       const btn = document.getElementById('modal-action-copy-img');
       if (btn) {
         btn.innerHTML = '<svg class="w-4 h-4 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg><span class="text-red-400">Erro</span>';
@@ -3447,7 +3472,7 @@ class ThumbSyncApp {
           </button>
           <button id="modal-action-copy-img" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-            <span>Copiar Imagem (.webp -> .png)</span>
+            <span>Copiar Imagem</span>
           </button>
           <button id="modal-action-download" class="w-full py-2 px-4 rounded-xl bg-blue-600 text-white font-bold text-xs hover:bg-blue-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" /></svg>
