@@ -290,6 +290,7 @@ class ThumbSyncApp {
       isLoading: false,
       logs: [],
       isSavingTag: false,
+      hasSeenOnboarding: false,
       filterProvider: 'todos',
       filterStatus: 'todos',
       filterTag: 'todos',
@@ -383,6 +384,7 @@ class ThumbSyncApp {
     }
     this.state.filterTag = localStorage.getItem('thumbsync_filter_tag') || 'todos';
     this.state.filterDate = localStorage.getItem('thumbsync_filter_date') || 'recent';
+    this.state.hasSeenOnboarding = localStorage.getItem('thumbsync_has_seen_onboarding') === 'true';
 
     this.syncLocalCatalog();
   }
@@ -851,6 +853,57 @@ class ThumbSyncApp {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  fuzzyMatch(text, query) {
+    if (!query) return true;
+    if (!text) return false;
+
+    if (text.includes(query)) return true;
+
+    const queryWords = query.split(/\s+/).filter(Boolean);
+    const textWords = text.split(/\s+/).filter(Boolean);
+
+    for (const qw of queryWords) {
+      let wordMatched = false;
+      for (const tw of textWords) {
+        if (tw.includes(qw) || qw.includes(tw)) {
+          wordMatched = true;
+          break;
+        }
+        const maxLen = Math.max(qw.length, tw.length);
+        const allowedTypos = maxLen <= 3 ? 1 : (maxLen <= 6 ? 2 : 3);
+        if (this.levenshteinDistance(qw, tw) <= allowedTypos) {
+          wordMatched = true;
+          break;
+        }
+      }
+      if (!wordMatched) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  levenshteinDistance(a, b) {
+    const tmp = [];
+    let i, j;
+    for (i = 0; i <= a.length; i++) {
+      tmp[i] = [i];
+    }
+    for (j = 0; j <= b.length; j++) {
+      tmp[0][j] = j;
+    }
+    for (i = 1; i <= a.length; i++) {
+      for (j = 1; j <= b.length; j++) {
+        tmp[i][j] = Math.min(
+          tmp[i - 1][j] + 1,
+          tmp[i][j - 1] + 1,
+          tmp[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)
+        );
+      }
+    }
+    return tmp[a.length][b.length];
   }
 
   getGameTag(item) {
@@ -1905,8 +1958,53 @@ class ThumbSyncApp {
       }
     }
 
+    const showOnboarding = !this.state.hasSeenOnboarding;
+
     root.innerHTML = `
       <div id="app-container" class="flex h-screen w-screen overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
+
+        ${showOnboarding ? `
+        <div id="onboarding-overlay" class="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center transition-opacity duration-300">
+          <div class="bg-[#131316] border border-white/10 rounded-[32px] p-8 max-w-lg w-[90%] shadow-2xl relative overflow-hidden">
+            <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-[50px] rounded-full pointer-events-none"></div>
+            <div class="absolute bottom-0 left-0 w-32 h-32 bg-purple-500/10 blur-[50px] rounded-full pointer-events-none"></div>
+            
+            <div class="relative z-10 space-y-6">
+              <div class="w-16 h-16 bg-blue-600/20 text-blue-500 rounded-2xl flex items-center justify-center mb-6">
+                <svg class="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+                </svg>
+              </div>
+              
+              <div>
+                <h2 class="text-2xl font-black text-white tracking-tight mb-2">Bem-vindo ao ThumbSync</h2>
+                <p class="text-zinc-400 text-sm leading-relaxed">Seu organizador de catálogos e miniaturas de jogos. Gerencie tudo diretamente pelo Google Drive com automação.</p>
+              </div>
+
+              <div class="space-y-4">
+                <div class="flex items-start gap-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span class="w-6 h-6 rounded-full bg-emerald-500/20 text-emerald-500 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">1</span>
+                  <div>
+                    <strong class="text-white text-xs block mb-1">Mural de Jogos</strong>
+                    <span class="text-zinc-500 text-[10px] leading-relaxed block">Cadastre os provedores e os jogos que deseja manter no catálogo. Você pode importar planilhas ou adicionar manualmente.</span>
+                  </div>
+                </div>
+                <div class="flex items-start gap-3 bg-white/5 p-4 rounded-2xl border border-white/5">
+                  <span class="w-6 h-6 rounded-full bg-blue-500/20 text-blue-500 flex items-center justify-center shrink-0 font-bold text-xs mt-0.5">2</span>
+                  <div>
+                    <strong class="text-white text-xs block mb-1">Miniaturas</strong>
+                    <span class="text-zinc-500 text-[10px] leading-relaxed block">Arraste imagens .webp na tela de Miniaturas. O ThumbSync fará upload direto para seu Drive.</span>
+                  </div>
+                </div>
+              </div>
+
+              <button id="btn-close-onboarding" class="w-full py-3.5 px-4 bg-white text-black font-bold rounded-2xl text-xs hover:bg-neutral-200 transition-colors cursor-pointer mt-4 shadow-[0_0_20px_rgba(255,255,255,0.1)]">
+                Começar a Organizar
+              </button>
+            </div>
+          </div>
+        </div>
+        ` : ''}
 
         <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
         ${!this.state.gdriveConnected ? `
@@ -2090,7 +2188,7 @@ class ThumbSyncApp {
               `, `
                 <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter(i => i.hasWebp).length}</span>
               `)}
-              ${this.renderNavItem('list_manager', 'Lista de Jogos', `
+              ${this.renderNavItem('list_manager', 'Mural de Jogos', `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
@@ -2449,7 +2547,13 @@ class ThumbSyncApp {
 
     if (this.state.searchQuery.trim() !== '') {
       const q = this.normalizeName(this.state.searchQuery);
-      items = items.filter(i => this.normalizeName(i.displayName).includes(q) || this.normalizeName(i.providerName).includes(q));
+      items = items.filter(i => {
+        const normDisplayName = this.normalizeName(i.displayName);
+        const normProviderName = this.normalizeName(i.providerName);
+        return this.fuzzyMatch(normDisplayName, q) || 
+               this.fuzzyMatch(normProviderName, q) ||
+               this.fuzzyMatch(normProviderName + ' ' + normDisplayName, q);
+      });
     }
 
     if (this.state.filterDate === 'recent') {
@@ -2492,35 +2596,51 @@ class ThumbSyncApp {
           </div>
 
           <!-- Filtros -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
-            <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
-              <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+          <div class="space-y-4">
+            <div class="flex flex-wrap gap-2">
+              <button data-quick-filter="todos" class="quick-filter-btn px-4 py-2 rounded-full text-xs font-bold transition-colors ${this.state.filterStatus === 'todos' ? 'bg-white text-black' : 'bg-white/5 text-zinc-400 hover:bg-white/10 hover:text-white'}">Todos os Jogos</button>
+              <button data-quick-filter="com_arte" class="quick-filter-btn flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-colors ${this.state.filterStatus === 'com_arte' ? 'bg-[#10b981] text-black' : 'bg-[#10b981]/10 text-[#10b981] hover:bg-[#10b981]/20'}">
+                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Prontos
+              </button>
+              <button data-quick-filter="sem_arte" class="quick-filter-btn flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-colors ${this.state.filterStatus === 'sem_arte' ? 'bg-[#f59e0b] text-black' : 'bg-[#f59e0b]/10 text-[#f59e0b] hover:bg-[#f59e0b]/20'}">
+                <span class="w-1.5 h-1.5 rounded-full bg-current"></span> Sem Arte
+              </button>
+              <button data-quick-filter="nao_listados" class="quick-filter-btn flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-colors ${this.state.filterStatus === 'nao_listados' ? 'bg-blue-500 text-black' : 'bg-blue-500/10 text-blue-400 hover:bg-blue-500/20'}">
+                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                Não Listados
+              </button>
             </div>
-            <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Filtrar por Provedor</label>
-              <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
-                ${uniqueProviders.map(p => `
-                  <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
-                `).join('')}
-              </select>
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
-              <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-                <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
-                ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard', 'Prioridades'].map(tag => `
-                  <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
-                `).join('')}
-              </select>
-            </div>
-            <div class="space-y-1">
-              <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Ordenar por Data</label>
-              <select id="catalouge-date-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
-                <option value="recent" class="bg-zinc-900 text-white" ${this.state.filterDate === 'recent' ? 'selected' : ''}>Mais Recentes</option>
-                <option value="oldest" class="bg-zinc-900 text-white" ${this.state.filterDate === 'oldest' ? 'selected' : ''}>Mais Antigos</option>
-              </select>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 bg-white/[0.01] border border-white/[0.04] p-4 rounded-2xl">
+              <div class="space-y-1">
+                <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Procurar</label>
+                <input type="text" id="catalouge-search" value="${this.state.searchQuery}" placeholder="Ex: Sweet Bonanza..." class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none focus:border-blue-500">
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Provedor</label>
+                <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                  <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
+                  ${uniqueProviders.map(p => `
+                    <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria (Tag)</label>
+                <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                  <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
+                  ${['Slot', 'Ao Vivo', 'Crash', 'Mesa RNG', 'Instant Win', 'Scratchcard', 'Prioridades'].map(tag => `
+                    <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
+                  `).join('')}
+                </select>
+              </div>
+              <div class="space-y-1">
+                <label class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Ordenar</label>
+                <select id="catalouge-date-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
+                  <option value="recent" class="bg-zinc-900 text-white" ${this.state.filterDate === 'recent' ? 'selected' : ''}>Mais Recentes</option>
+                  <option value="oldest" class="bg-zinc-900 text-white" ${this.state.filterDate === 'oldest' ? 'selected' : ''}>Mais Antigos</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -2840,8 +2960,8 @@ class ThumbSyncApp {
       <div class="space-y-6 text-left select-none relative w-full">
         <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div>
-            <h1 class="text-2xl font-black text-white tracking-tight">Gerenciador de lista.txt</h1>
-            <p class="text-zinc-500 text-xs mt-0.5">Defina novos jogos e gerencie o catálogo gravado no repositório.</p>
+            <h1 class="text-2xl font-black text-white tracking-tight">Mural de Jogos</h1>
+            <p class="text-zinc-500 text-xs mt-0.5">Gerencie os jogos, adicione novos provedores e controle seu catálogo visualmente.</p>
           </div>
           
           <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
@@ -2870,11 +2990,11 @@ class ThumbSyncApp {
               <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Novo Provedor</span>
             </button>
             
-            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar CSV">
+            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar Planilha">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Importar CSV</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Importar Planilha</span>
             </button>
             
             <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3 rounded-xl sm:flex-1 sm:py-2.5 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 shadow-md transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
@@ -2907,6 +3027,7 @@ class ThumbSyncApp {
             ` : groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
+              <div class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x">
               ${groupsList.map(([providerName, games]) => {
       const providerKey = this.normalizeName(providerName);
       const providerAttr = encodeURIComponent(providerKey);
@@ -2915,7 +3036,7 @@ class ThumbSyncApp {
       const isPrioritySection = providerName === "Prioridades";
 
       return `
-                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03] mb-4">
+                <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
                     <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
                       <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
@@ -2992,28 +3113,8 @@ class ThumbSyncApp {
                 </div>
               `;
     }).join('')}
+              </div>
             `}
-          </div>
-
-          <!-- Raw Live File Preview (Posicionado abaixo da lista em mobile, lateral direita em desktop) -->
-          <div class="rounded-3xl bg-neutral-950 border border-white/[0.05] p-6 flex flex-col justify-between w-full lg:w-80 xl:w-96 shrink-0 lg:sticky lg:top-4">
-            <div class="space-y-3">
-              <span class="text-[9px] text-blue-500 font-extrabold uppercase tracking-widest block leading-none">Visão Direta</span>
-              <h3 class="text-sm font-black text-white tracking-normal mt-1 block">lista.txt</h3>
-              <p class="text-[10px] text-zinc-500 leading-normal">O formato real do arquivo txt sincronizado que o seu sistema de miniaturas local lê para carregar os nomes correspondentes.</p>
-              
-              ${this.state.isLoading && this.state.listContent === '' ? `
-                <div class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl space-y-2 animate-pulse mt-4">
-                  <div class="w-1/3 h-2 bg-white/10 rounded"></div>
-                  <div class="w-full h-2 bg-white/5 rounded"></div>
-                  <div class="w-5/6 h-2 bg-white/5 rounded"></div>
-                  <div class="w-full h-2 bg-white/5 rounded"></div>
-                  <div class="w-2/3 h-2 bg-white/5 rounded"></div>
-                </div>
-              ` : `
-                <pre class="bg-[#0c0c0e] border border-white/[0.04] p-4 rounded-xl text-[10px] font-mono text-zinc-400 overflow-x-auto max-h-[300px] leading-relaxed custom-scrollbar select-text">${this.state.listContent}</pre>
-              `}
-            </div>
           </div>
         </div>
       </div>
@@ -3050,7 +3151,7 @@ class ThumbSyncApp {
       ${this.state.isImportingCSV ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar CSV</h3>
+            <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar Planilha</h3>
             
             <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
@@ -3062,9 +3163,9 @@ class ThumbSyncApp {
             </div>
 
             <div class="mb-5 text-left">
-              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Arquivo CSV</label>
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Arquivo CSV / Planilha</label>
               <input type="file" id="import-csv-file-input" accept=".csv" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
-              <p class="text-[9px] text-zinc-500 mt-2">O sistema reconhece colunas como 'name', 'game' ou 'jogo'.</p>
+              <p class="text-[9px] text-zinc-500 mt-2">O sistema reconhece colunas como 'name', 'game', 'titulo' ou 'jogo'. Salve sua planilha como .csv antes de enviar.</p>
             </div>
             
             <div class="flex items-center gap-3">
@@ -3111,144 +3212,63 @@ class ThumbSyncApp {
     `;
   }
 
-
-
   /**
    * TELA CONFIGURAÇÃO (GOOGLE CLIENT ID)
    */
   renderSettings(container) {
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none">
+      <div class="space-y-6 text-left select-none max-w-2xl">
         <div class="pb-2 border-b border-white/[0.05]">
-          <h1 class="text-2xl font-black text-white tracking-tight">Ajustes de Integração</h1>
-          <p class="text-zinc-500 text-xs mt-0.5">Siga os passos e insira as credenciais geradas no Google Developers Console.</p>
+          <h1 class="text-2xl font-black text-white tracking-tight">Conexão com a Nuvem</h1>
+          <p class="text-zinc-500 text-xs mt-0.5">Conecte sua conta do Google para sincronizar as miniaturas de jogos e gerenciar seu catálogo diretamente do Drive.</p>
         </div>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          
-          <div class="lg:col-span-2 space-y-6">
-            <!-- Google Login Card in Settings for Mobile & Desktop -->
-            <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
-              <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                  <div class="w-9 h-9 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-500 shadow-sm">
-                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
-                    </svg>
-                  </div>
-                  <div>
-                    <h3 class="text-xs font-black text-white uppercase tracking-wider">Conta do Google</h3>
-                    <span class="text-[10px] text-zinc-500 font-bold uppercase tracking-wider block mt-0.5">Sincronização Nuvem</span>
-                  </div>
+        <div class="space-y-6">
+          <!-- Google Login Card in Settings for Mobile & Desktop -->
+          <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-blue-600/10 border border-blue-500/20 flex items-center justify-center text-blue-500 shadow-sm">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 11c0 3.517-1.009 6.799-2.753 9.571m-3.44-2.04l.054-.09A13.916 13.916 0 008 11a4 4 0 118 0c0 1.017-.07 2.019-.203 3m-2.118 6.844A21.88 21.88 0 0015.171 17m3.839 1.132c.645-2.266.99-4.659.99-7.132A8 8 0 008 4.07M3 15.364c.64-1.319 1-2.8 1-4.364 0-1.457.39-2.823 1.07-4" />
+                  </svg>
                 </div>
-                <div class="flex items-center gap-1.5">
-                  <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'}"></span>
-                  <span class="text-xs font-bold text-zinc-400">
-                    ${this.state.gdriveConnected ? 'Conectado' : 'Desconectado'}
-                  </span>
-                </div>
+                <div>
+                  <h3 class="text-xs font-black t              <div class="flex items-center gap-1.5">
+                <span class="w-2.5 h-2.5 rounded-full ${this.state.gdriveConnected ? 'bg-[#10b981] shadow-[0_0_8px_#10b981]' : 'bg-[#f59e0b] shadow-[0_0_8px_#f59e0b]'}"></span>
+                <span class="text-xs font-bold text-zinc-400">
+                  ${this.state.gdriveConnected ? 'Conectado' : 'Desconectado'}
+                </span>
               </div>
-
-              ${this.state.gdriveConnected ? `
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
-                  <div class="min-w-0">
-                    <p class="text-xs font-bold text-white">Google Drive Sincronizando</p>
-                    <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista (lista.txt) estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
-                  </div>
-                  <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
-                    Sair do Google Drive
-                  </button>
-                </div>
-              ` : `
-                <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
-                  <div class="max-w-md">
-                    <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
-                    <p class="text-[10px] text-zinc-500 font-medium leading-relaxed mt-0.5">Inicie sessão para enviar suas imagens reais (.webp) e alterar o arquivo lista.txt direto na sua conta do Drive.</p>
-                  </div>
-                  <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
-                    <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
-                      <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
-                      <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
-                      <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
-                      <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
-                    </svg>
-                    <span>Entrar com o Google</span>
-                  </button>
-                </div>
-              `}
             </div>
 
-            <div class="rounded-3xl bg-white/[0.01] border border-white/[0.04] p-6 space-y-5 h-fit">
-              <h3 class="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
-                <span class="w-1.5 h-1.5 rounded-full bg-blue-500 shadow-[0_0_8px_#3b82f6]"></span>
-                Parâmetros de Integração
-              </h3>
-
-              <div class="space-y-1.5">
-                <div class="flex justify-between items-center text-xs font-semibold">
-                  <label for="conf-clientId" class="text-zinc-300">Google Client ID (OAuth 2.0)</label>
-                  <a href="https://console.cloud.google.com/" target="_blank" class="text-blue-500 hover:underline">Google Cloud Console</a>
+            ${this.state.gdriveConnected ? `
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                <div class="min-w-0">
+                  <p class="text-xs font-bold text-white">Google Drive Conectado</p>
+                  <p class="text-[10px] text-zinc-400 font-semibold leading-relaxed mt-0.5 max-w-md">Seu catálogo e arquivo de lista estão sendo salvos com segurança em sua própria pasta na nuvem.</p>
                 </div>
-                <input type="text" id="conf-clientId" value="${this.config.clientId}" placeholder="Faltando credencial client_id.apps.googleusercontent.com" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
-                
-                <!-- Aviso de Cuidado / Segurança iOS Callout -->
-                <div id="client-id-warning" class="flex items-start gap-2.5 p-3 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-500 text-[10px] leading-normal font-sans">
-                  <svg class="w-4 h-4 shrink-0 text-amber-400 mt-0.5 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
-                  </svg>
-                  <div>
-                    <span class="font-bold block text-amber-400 mb-0.5">⚠️ CUIDADO COM ALTERAÇÕES</span>
-                    <span>Este ID está pré-configurado com a credencial segura e homologada da aplicação. Se você alterar ou remover este valor, as conexões com o Google Drive poderão falhar ou apresentar erros críticos de autenticação de origem.</span>
-                  </div>
-                </div>
-
-                <p class="text-[9px] text-zinc-500 font-medium leading-normal">Seu Client ID do aplicativo Web. Google Auth requer que você adicione esta URL nas Origens JavaScript Autorizadas do seu ID de Cliente.</p>
-              </div>
-
-              <div class="space-y-1.5">
-                <label for="conf-folder" class="text-xs font-semibold text-zinc-300">Pasta no Google Drive</label>
-                <input type="text" id="conf-folder" value="${this.config.folderName}" placeholder="e.g. Thumbs" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
-                <p class="text-[9px] text-zinc-500 font-medium leading-normal">As imagens .webp e o arquivo de texto serão criados/salvos diretamente nesta pasta em formato absoluto.</p>
-              </div>
-
-              <div class="space-y-1.5">
-                <label for="conf-file" class="text-xs font-semibold text-zinc-300">Nome do arquivo da lista</label>
-                <input type="text" id="conf-file" value="${this.config.listFileName}" placeholder="e.g. lista.txt" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500">
-              </div>
-
-              <div class="flex items-center gap-3 pt-2">
-                <button id="btn-save-config" class="w-full py-2.5 px-4 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer select-none">
-                  Salvar Configurações
+                <button class="btn-logout-action flex items-center justify-center gap-2 text-xs font-bold py-2.5 px-4 text-center rounded-xl text-red-400 hover:bg-red-500/10 transition-colors border border-red-500/15 cursor-pointer shrink-0">
+                  Sair da Conta
                 </button>
               </div>
-            </div>
-          </div>
-
-          <!-- Tutorial de GDrive ID -->
-          <div class="rounded-3xl bg-[#09090b] border border-white/[0.05] p-6 flex flex-col justify-between">
-            <div class="space-y-4">
-              <span class="text-[9px] text-emerald-400 font-extrabold uppercase tracking-widest block leading-none">Passo a Passo</span>
-              <h3 class="text-sm font-black text-white tracking-normal block leading-tight">Como configurar o Google Drive</h3>
-
-              <div class="space-y-3.5 text-xs text-zinc-400 leading-normal max-h-[350px] overflow-y-auto pr-1">
-                <div class="flex gap-2.5">
-                  <span class="w-4.5 h-4.5 rounded-full bg-zinc-900 border border-white/5 shrink-0 flex items-center justify-center font-bold text-[9px] text-white">1</span>
-                  <p class="text-[10px]">Crie um projeto no <strong>Google Cloud Console</strong>.</p>
+            ` : `
+              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
+                <div class="max-w-md">
+                  <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
+                  <p class="text-[10px] text-zinc-500 font-medium leading-relaxed mt-0.5">Faça login com sua conta do Google para permitir que o sistema salve suas imagens e organize seu catálogo.</p>
                 </div>
-                <div class="flex gap-2.5">
-                  <span class="w-4.5 h-4.5 rounded-full bg-zinc-900 border border-white/5 shrink-0 flex items-center justify-center font-bold text-[9px] text-white">2</span>
-                  <p class="text-[10px]">Ative a API do <strong>Google Drive API</strong> na biblioteca.</p>
-                </div>
-                <div class="flex gap-2.5">
-                  <span class="w-4.5 h-4.5 rounded-full bg-zinc-900 border border-white/5 shrink-0 flex items-center justify-center font-bold text-[9px] text-white">3</span>
-                  <p class="text-[10px]">Na <strong>Tela de Consentimento OAuth</strong>, configure como Externo e adicione o escopo <code>.../auth/drive</code>.</p>
-                </div>
-                <div class="flex gap-2.5">
-                  <span class="w-4.5 h-4.5 rounded-full bg-zinc-900 border border-white/5 shrink-0 flex items-center justify-center font-bold text-[9px] text-white">4</span>
-                  <p class="text-[10px]">No menu <strong>Credenciais</strong>, crie um <strong>ID do cliente OAuth</strong> para "Aplicativo da Web". Em "Origens JavaScript autorizadas", insira o endereço exato que você vê no navegador (ex: <code>${window.location.origin}</code>) e salve.</p>
-                </div>
+                <button class="btn-login-action flex items-center justify-center gap-2.5 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md transition-all cursor-pointer shrink-0">
+                  <svg class="w-4 h-4 shrink-0" viewBox="0 0 48 48" style="display: block;">
+                    <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"></path>
+                    <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"></path>
+                    <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"></path>
+                    <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"></path>
+                  </svg>
+                  <span>Entrar com o Google</span>
+                </button>
               </div>
-            </div>
+            `}
           </div>
         </div>
       </div>
@@ -3625,6 +3645,16 @@ class ThumbSyncApp {
   }
 
   bindTabEvents() {
+    const btnCloseOnboarding = document.getElementById('btn-close-onboarding');
+    if (btnCloseOnboarding && !btnCloseOnboarding.dataset.bound) {
+      btnCloseOnboarding.dataset.bound = "true";
+      btnCloseOnboarding.addEventListener('click', () => {
+        this.state.hasSeenOnboarding = true;
+        localStorage.setItem('thumbsync_has_seen_onboarding', 'true');
+        this.render();
+      });
+    }
+
     // EVENTS DE CATALOGO - Otimizado com proteção de foco e debounce
     if (this.state.activeTab === 'catalog') {
       const searchInput = document.getElementById('catalouge-search');
@@ -3673,6 +3703,16 @@ class ThumbSyncApp {
           this.renderActiveTab();
         });
       }
+
+      const quickFilters = document.querySelectorAll('.quick-filter-btn');
+      quickFilters.forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          this.state.filterStatus = e.currentTarget.getAttribute('data-quick-filter');
+          this.state.catalogPage = 1;
+          this.saveStateToStorage();
+          this.renderActiveTab();
+        });
+      });
 
       const cardElements = document.querySelectorAll('[data-catalog-key]');
       cardElements.forEach(card => {
