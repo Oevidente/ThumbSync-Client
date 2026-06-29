@@ -906,6 +906,92 @@ class ThumbSyncApp {
     return tmp[a.length][b.length];
   }
 
+  calculateCompletionEstimate(pendingCount) {
+    if (pendingCount <= 0) {
+      return { dateStr: "Tudo em dia! 🎉" };
+    }
+
+    const maxGamesPerDay = 20;
+    const workStartHour = 14;   // 14:00
+    const workEndHour = 17.5;   // 17:30
+    const workDuration = 3.5;   // 3.5 hours
+
+    let tempPending = pendingCount;
+    let currentDate = new Date(); // Use local time
+
+    let iterations = 0;
+    while (tempPending > 0 && iterations < 365) {
+      iterations++;
+      const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
+      const isWeekend = (dayOfWeek === 0 || dayOfWeek === 6);
+
+      if (!isWeekend) {
+        let capacityToday = maxGamesPerDay;
+
+        // If today is a workday and we are on the first day, adjust based on current time
+        if (iterations === 1) {
+          const currentHour = currentDate.getHours() + currentDate.getMinutes() / 60;
+          if (currentHour >= workEndHour) {
+            capacityToday = 0;
+          } else if (currentHour > workStartHour) {
+            const timeLeft = workEndHour - currentHour;
+            const fraction = timeLeft / workDuration;
+            capacityToday = Math.floor(maxGamesPerDay * fraction);
+          }
+        }
+
+        if (capacityToday > 0) {
+          if (tempPending <= capacityToday) {
+            // Finish today!
+            let startHour = workStartHour;
+            if (iterations === 1) {
+              const currentHour = currentDate.getHours() + currentDate.getMinutes() / 60;
+              if (currentHour > workStartHour) {
+                startHour = currentHour;
+              }
+            }
+
+            const fractionNeeded = tempPending / capacityToday;
+            const hoursTodayLeft = (iterations === 1 && currentDate.getHours() + currentDate.getMinutes() / 60 > workStartHour)
+              ? (workEndHour - (currentDate.getHours() + currentDate.getMinutes() / 60))
+              : workDuration;
+
+            const hoursNeeded = fractionNeeded * hoursTodayLeft;
+            const finalDecimalHour = startHour + hoursNeeded;
+
+            const finalHour = Math.floor(finalDecimalHour);
+            const finalMinute = Math.floor((finalDecimalHour - finalHour) * 60);
+
+            currentDate.setHours(finalHour, finalMinute, 0, 0);
+            tempPending = 0;
+            break;
+          } else {
+            tempPending -= capacityToday;
+          }
+        }
+      }
+
+      // Move to next day, reset to work start time
+      currentDate.setDate(currentDate.getDate() + 1);
+      currentDate.setHours(14, 0, 0, 0);
+    }
+
+    const daysOfWeekPt = [
+      "Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira",
+      "Quinta-feira", "Sexta-feira", "Sábado"
+    ];
+
+    const dayName = daysOfWeekPt[currentDate.getDay()];
+    const dayOfMonth = String(currentDate.getDate()).padStart(2, '0');
+    const month = String(currentDate.getMonth() + 1).padStart(2, '0');
+    const hoursStr = String(currentDate.getHours()).padStart(2, '0');
+    const minutesStr = String(currentDate.getMinutes()).padStart(2, '0');
+
+    return {
+      dateStr: `${dayName}, ${dayOfMonth}/${month} às ${hoursStr}:${minutesStr}`
+    };
+  }
+
   getGameTag(item) {
     if (this.state.customTags && this.state.customTags[item.id]) {
       return this.state.customTags[item.id];
@@ -1946,6 +2032,8 @@ class ThumbSyncApp {
     const completedGames = listedItems.filter(i => i.hasWebp).length;
     const totalListedCount = listedItems.length;
     const pendingGamesCount = totalListedCount - completedGames;
+    const progressPercent = totalListedCount > 0 ? Math.round((completedGames / totalListedCount) * 100) : 0;
+    const estimatedCompletion = this.calculateCompletionEstimate(pendingGamesCount);
 
     if (!this.state.notifiedNotFoundGames) {
       const notFoundGames = this.state.catalogItems.filter(i => i.isNotFound);
@@ -2200,6 +2288,26 @@ class ThumbSyncApp {
                 </svg>
               `)}
             </nav>
+
+            <!-- Previsão de Conclusão / Barra de Progresso Widget -->
+            <div class="p-3.5 rounded-2xl bg-white/[0.015] border border-white/[0.04] space-y-3 select-none">
+              <div class="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                <span>Progresso</span>
+                <span class="text-white">${completedGames}/${totalListedCount} (${progressPercent}%)</span>
+              </div>
+              <div class="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full transition-all duration-500" style="width: ${progressPercent}%"></div>
+              </div>
+              <div class="pt-2 border-t border-white/[0.03] space-y-1">
+                <span class="text-[9px] text-zinc-500 font-extrabold uppercase tracking-widest block">Previsão PJ (14h - 17h30)</span>
+                <span class="text-xs font-bold text-white block leading-tight">
+                  ${estimatedCompletion.dateStr}
+                </span>
+                <p class="text-[9px] text-zinc-500 leading-normal mt-0.5">
+                  De segunda a sexta-feira.
+                </p>
+              </div>
+            </div>
           </div>
 
           <!-- Bottom account control -->
@@ -3060,29 +3168,35 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games.map(game => {
-      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-      const catalogItem = this.state.catalogItems.find(i => i.id === key);
-      const hasWebp = catalogItem?.hasWebp || false;
-      const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
+                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                      const catalogItem = this.state.catalogItems.find(i => i.id === key);
+                      const hasWebp = catalogItem?.hasWebp || false;
+                      const formattedDate = catalogItem?.modifiedTime ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' }) : '';
 
-        return `
-                        <div data-list-preview-key="${key}" class="flex flex-col md:flex-row justify-between items-start md:items-center py-3 md:py-2 px-3 text-sm rounded-lg hover:bg-white/[0.03] leading-none gap-3 md:gap-2 cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
-                          <div class="flex items-center flex-wrap gap-2.5 min-w-0 w-full md:w-auto">
-                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                            <span class="w-1 h-1 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : (game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]')} shrink-0"></span>
-                            <span class="text-xs font-medium text-zinc-100 truncate select-text cursor-text relative z-10 ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
-                              ${game.displayName}
-                              ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1.5 font-normal select-none">(${game.providerName})</span>` : ''}
-                            </span>
-                            <div class="flex items-center flex-wrap gap-1.5 shrink-0 pl-1 mt-2 sm:mt-0">
-                              ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
-                              ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
-                              ${(!game.isNotFound && hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
-                              ${(!game.isNotFound && !hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
-                              ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
+                      return `
+                        <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
+                          <div class="flex items-start gap-2.5 min-w-0 w-full">
+                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                            <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : (game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]')} shrink-0 mt-1.5"></span>
+                            <div class="flex-1 min-w-0">
+                              <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
+                                ${game.displayName}
+                                ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1 font-normal select-none">(${game.providerName})</span>` : ''}
+                              </span>
                             </div>
                           </div>
-                          <div class="flex items-center flex-wrap gap-1.5 shrink-0 ml-[26px] md:ml-0">
+
+                          <!-- Sub-row: Badges and date -->
+                          <div class="flex flex-wrap items-center gap-1.5 pl-6">
+                            ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
+                            ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
+                            ${(!game.isNotFound && hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
+                            ${(!game.isNotFound && !hasWebp) ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
+                            ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
+                          </div>
+
+                          <!-- Action buttons row, aligned below the information -->
+                          <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
                             <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -3107,7 +3221,7 @@ class ThumbSyncApp {
                           </div>
                         </div>
                       `;
-      }).join('')}
+                    }).join('')}
                   </div>
                   `}
                 </div>
