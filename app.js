@@ -2400,6 +2400,27 @@ class ThumbSyncApp {
             </div>
           </header>
 
+          <!-- MOBILE PROGRESS WIDGET -->
+          <div class="lg:hidden px-4 pt-4 shrink-0">
+            <div class="p-3.5 rounded-2xl bg-[#0f0f13] border border-white/[0.06] space-y-3 select-none w-full shadow-sm">
+              <div class="flex justify-between items-center text-[10px] text-zinc-400 font-bold uppercase tracking-wider">
+                <span>Progresso</span>
+                <span class="text-white">${completedGames}/${totalListedCount} (${progressPercent}%)</span>
+              </div>
+              <div class="w-full bg-white/5 h-1.5 rounded-full overflow-hidden">
+                <div class="bg-gradient-to-r from-blue-500 to-emerald-500 h-full rounded-full transition-all duration-500" style="width: ${progressPercent}%"></div>
+              </div>
+              <div class="flex justify-between items-end pt-2 border-t border-white/[0.03]">
+                <div class="space-y-1">
+                  <span class="text-[9px] text-zinc-500 font-extrabold uppercase tracking-widest block">Previsão PJ (14h - 17h30)</span>
+                  <span class="text-xs font-bold text-white block leading-tight">
+                    ${estimatedCompletion.dateStr}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- TAB CONTENT DISPLAY FRAME -->
           <div class="flex-1 overflow-y-auto p-4 sm:p-6 md:p-8 pb-20 md:pb-8 custom-scrollbar relative z-0 h-full w-full">
             <div id="tab-content" class="h-full w-full"></div>
