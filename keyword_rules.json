@@ -1,0 +1,600 @@
+{
+  "exactProviders": {
+    "1x2": "Slot",
+    "amatic": "Slot",
+    "amigo gaming": "Slot",
+    "booming games": "Slot",
+    "btg": "Slot",
+    "creedroomz": "Ao Vivo",
+    "endorphina": "Slot",
+    "fat panda": "Slot",
+    "fazi": "Slot",
+    "habanero": "Slot",
+    "iron dog": "Slot",
+    "no limit": "Slot",
+    "pg soft": "Slot",
+    "platipus": "Slot",
+    "play n go": "Slot",
+    "playson": "Slot",
+    "prospect gaming": "Slot",
+    "red tiger": "Slot",
+    "rubyplay": "Slot",
+    "spinomenal": "Slot",
+    "wazdan": "Slot",
+    "aviator studio": "Crash",
+    "turbo games": "Crash",
+    "imagine live": "Ao Vivo"
+  },
+  "keywordCategories": [
+    {
+      "category": "Crash",
+      "keywords": [
+        "crash",
+        "jet",
+        "barão vermelho",
+        "red baron",
+        "aero",
+        "limbo",
+        "rocket",
+        "stock market",
+        "race track",
+        "crasher",
+        "spaceman",
+        "aviator",
+        "balloon",
+        "fogo do brasil",
+        "zeppelin",
+        "jetx",
+        "cricketx",
+        "helicopterx",
+        "balloon race",
+        "high flyer",
+        "maverick"
+      ]
+    },
+    {
+      "category": "Ao Vivo",
+      "keywords": [
+        "live",
+        "brasileira",
+        "lobby",
+        "dealer",
+        "game show",
+        "mega wheel",
+        "roulette",
+        "roleta",
+        "blackjack",
+        "black jack",
+        "baccarat",
+        "bacara",
+        "poker",
+        "keno",
+        "dice",
+        "sic bo",
+        "dragontiger",
+        "dragon tiger",
+        "bac bo",
+        "teen patti",
+        "andar bahar",
+        "wheel",
+        "monopoly",
+        "crazy time",
+        "sweet bonanza candyland",
+        "boom city",
+        "vip",
+        "creed",
+        "salon prive",
+        "auto-roulette",
+        "auto roulette",
+        "speed baccarat",
+        "mega ball",
+        "futebol studio",
+        "football studio",
+        "funky time",
+        "dream catcher",
+        "cash or crash",
+        "triple card",
+        "peek baccarat",
+        "super wheel",
+        "adventures beyond wonderland",
+        "lightning ball",
+        "andar bahar",
+        "lucky 6",
+        "mega sic bac"
+      ]
+    },
+    {
+      "category": "Scratchcard",
+      "keywords": [
+        "scratch",
+        "raspadinha",
+        "bilhete",
+        "scratchcard",
+        "scratch match"
+      ]
+    },
+    {
+      "category": "Instant Win",
+      "keywords": [
+        "mines",
+        "plinko",
+        "penalty",
+        "goal",
+        "dare2win",
+        "coins",
+        "boxes",
+        "hi-lo",
+        "hilo",
+        "coin flip",
+        "mini roulette",
+        "heads and tails xy",
+        "shoot out",
+        "mine field",
+        "mr.thimble",
+        "magic dice"
+      ]
+    },
+    {
+      "category": "Slot",
+      "keywords": [
+        "ways",
+        "megaways",
+        "1000",
+        "fortune",
+        "wild",
+        "hot",
+        "fruit",
+        "shining",
+        "bonanza",
+        "book of",
+        "reels",
+        "jackpot",
+        "spin",
+        "slots"
+      ]
+    }
+  ],
+  "specialRules": [
+    {
+      "ifNameIncludes": [
+        "virtual",
+        "first person",
+        "deluxe",
+        "rng"
+      ],
+      "ifAlsoIncludes": [
+        "roulette",
+        "roleta",
+        "blackjack",
+        "black jack",
+        "baccarat",
+        "bacara",
+        "poker",
+        "keno",
+        "dice",
+        "sic bo",
+        "wheel",
+        "mega ball",
+        "dragon tiger",
+        "bac bo"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "creedroomz",
+      "thenCategory": "Ao Vivo"
+    },
+    {
+      "ifProvider": "imagine live",
+      "ifNameIncludes": [
+        "piggy bank",
+        "leprechaun",
+        "robin the fair",
+        "wheelionaire",
+        "dragon fortune"
+      ],
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "imagine live",
+      "thenCategory": "Ao Vivo"
+    },
+    {
+      "ifProvider": "evolution",
+      "ifNameIncludes": [
+        "serial",
+        "manhattan goes wild",
+        "dj psycho",
+        "kiss my chainsaw",
+        "little bighorn",
+        "brick snake",
+        "blood & shadow",
+        "benji killed in vegas",
+        "xways",
+        "whacked",
+        "warrior graveyard",
+        "walk of shame",
+        "ugliest catch",
+        "true kult",
+        "true grit",
+        "tombstone",
+        "the crypt",
+        "the cage",
+        "stockholm syndrome",
+        "space donkey",
+        "skate or die",
+        "san quentin",
+        "rock bottom",
+        "road rage",
+        "roadkill",
+        "punk rocker",
+        "possessed",
+        "poison eve",
+        "pearl harbor",
+        "owls",
+        "outsourced",
+        "oktoberfest",
+        "nine to five",
+        "munchies",
+        "monkey's gold",
+        "mental",
+        "loner",
+        "land of the free",
+        "kill em all",
+        "kenneth must die",
+        "kd bbq frenzy",
+        "jingle balls",
+        "home of the brave",
+        "harlequin carnival",
+        "golden genie",
+        "gluttony",
+        "gator hunters",
+        "gaelic gold",
+        "fire in the hole",
+        "evil goblins",
+        "dungeon quest",
+        "duck hunters",
+        "disturbed",
+        "devil's crossroad",
+        "deadwood",
+        "dead, dead or deader",
+        "d day",
+        "creepy carnival",
+        "coins of fortune",
+        "casino win spin",
+        "bushido ways",
+        "brute force",
+        "bounty hunters",
+        "book of shadows",
+        "blood diamond",
+        "beheaded",
+        "barbarian fury",
+        "apocalypse",
+        "busters bones",
+        "cinderellas ball",
+        "christmas catch",
+        "christmas bonanza",
+        "cahs noire",
+        "chinese treasures",
+        "castle terror",
+        "book of gods",
+        "evolution",
+        "mystery joker"
+      ],
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "evolution",
+      "ifNameIncludes": [
+        "roulette",
+        "roleta",
+        "blackjack",
+        "baccarat",
+        "bacara",
+        "poker",
+        "sic bo",
+        "dragon tiger",
+        "bac bo",
+        "craps",
+        "deal or no deal",
+        "monopoly",
+        "crazy time",
+        "mega ball",
+        "dream catcher",
+        "cash or crash",
+        "lightning",
+        "xxxtreme",
+        "super",
+        "football studio",
+        "futebol studio",
+        "barão vermelho",
+        "red baron",
+        "funky time",
+        "crazy balls",
+        "ice fishing",
+        "marble race",
+        "war",
+        "godbreaker",
+        "immersive",
+        "fireball"
+      ],
+      "thenCategory": "Ao Vivo"
+    },
+    {
+      "ifProvider": "spribe",
+      "ifNameIncludes": [
+        "aviator"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "spribe",
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "hacksaw",
+      "ifNameIncludes": [
+        "mines",
+        "boxes",
+        "coins"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "hacksaw",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "smartsoft",
+      "ifNameIncludes": [
+        "jetx",
+        "balloon",
+        "cricketx",
+        "helicopterx",
+        "crash",
+        "plinko",
+        "mines",
+        "x"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "smartsoft",
+      "ifNameIncludes": [
+        "roulette",
+        "keno"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "smartsoft",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "galaxsys",
+      "ifNameIncludes": [
+        "crash",
+        "crasher",
+        "rocket",
+        "starlight"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "galaxsys",
+      "ifNameIncludes": [
+        "keno",
+        "hilo",
+        "mines",
+        "plinko",
+        "sic bo",
+        "dice",
+        "penalty"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "galaxsys",
+      "ifNameIncludes": [
+        "roulette",
+        "blackjack"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "gamingcorps",
+      "ifNameIncludes": [
+        "plinko",
+        "mines",
+        "penalty",
+        "shootout",
+        "smash",
+        "coin miner",
+        "samba soccer"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "gamingcorps",
+      "ifNameIncludes": [
+        "crash",
+        "skyliner",
+        "jet lucky",
+        "to mars and beyond",
+        "stormy witch"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "gamingcorps",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "bgaming",
+      "ifNameIncludes": [
+        "space xy",
+        "minesweeper",
+        "heads and tails",
+        "plinko",
+        "scratch",
+        "dice",
+        "sic bo",
+        "hilo"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "bgaming",
+      "ifNameIncludes": [
+        "roulette",
+        "blackjack",
+        "baccarat",
+        "poker"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "bgaming",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "evoplay",
+      "ifNameIncludes": [
+        "penalty",
+        "scratch",
+        "mine field",
+        "high striker",
+        "save the hamster",
+        "goblin run"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "evoplay",
+      "ifNameIncludes": [
+        "roulette",
+        "blackjack",
+        "baccarat",
+        "poker"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "evoplay",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "playtech",
+      "ifNameIncludes": [
+        "live",
+        "mega fire blaze",
+        "roleta",
+        "blackjack",
+        "adventures beyond wonderland"
+      ],
+      "thenCategory": "Ao Vivo"
+    },
+    {
+      "ifProvider": "playtech",
+      "ifNameIncludes": [
+        "roulette",
+        "blackjack",
+        "baccarat",
+        "poker"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "playtech",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "pragmatic play",
+      "ifNameIncludes": [
+        "spaceman",
+        "big bass crash",
+        "high flyer"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "pragmatic play",
+      "ifNameIncludes": [
+        "baccarat",
+        "blackjack",
+        "roulette",
+        "roleta",
+        "mega wheel",
+        "sweet bonanza candyland",
+        "boom city",
+        "mega sic bac",
+        "dragon tiger",
+        "andar bahar",
+        "teen patti",
+        "sic bo",
+        "dice",
+        "powerup",
+        "lucky 6"
+      ],
+      "thenCategory": "Ao Vivo"
+    },
+    {
+      "ifProvider": "pragmatic play",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "popok",
+      "ifNameIncludes": [
+        "crash",
+        "avi"
+      ],
+      "thenCategory": "Crash"
+    },
+    {
+      "ifProvider": "popok",
+      "ifNameIncludes": [
+        "mines",
+        "plinko",
+        "keno",
+        "hilo",
+        "dice"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "popok",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "tada gaming",
+      "ifNameIncludes": [
+        "crash",
+        "mines",
+        "plinko"
+      ],
+      "thenCategory": "Instant Win"
+    },
+    {
+      "ifProvider": "tada gaming",
+      "thenCategory": "Slot"
+    },
+    {
+      "ifProvider": "amusnet",
+      "ifNameIncludes": [
+        "roulette",
+        "keno",
+        "dice",
+        "sic bo",
+        "blackjack",
+        "baccarat",
+        "poker"
+      ],
+      "thenCategory": "Mesa RNG"
+    },
+    {
+      "ifProvider": "amusnet",
+      "thenCategory": "Slot"
+    }
+  ],
+  "defaultCategory": "Slot"
+}

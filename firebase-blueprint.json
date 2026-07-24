@@ -1,0 +1,27 @@
+{
+  "entities": {
+    "app_data": {
+      "title": "AppData",
+      "description": "Global application state synchronized between Firebase Firestore and Google Drive",
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string",
+          "description": "Raw string content for text lists"
+        },
+        "data": {
+          "type": "object",
+          "description": "Key-value dictionary object"
+        },
+        "items": {
+          "type": "array",
+          "description": "List of items or accounts"
+        },
+        "updatedAt": {
+          "type": "string",
+          "description": "ISO Timestamp of last update"
+        }
+      }
+    }
+  }
+}
