@@ -3173,8 +3173,48 @@ class ThumbSyncApp {
     }
   }
 
+  saveScrollState() {
+    if ((this._renderDepth || 0) > 0) return;
+    this.savedScrolls = this.savedScrolls || {};
+    const main = document.getElementById('main-scroll-container');
+    if (main) {
+      this.savedScrolls.mainScrollY = main.scrollTop;
+      this.savedScrolls.mainScrollX = main.scrollLeft;
+    }
+    const horizontal = document.getElementById('mural-horizontal-scroll');
+    if (horizontal) {
+      this.savedScrolls.muralScrollX = horizontal.scrollLeft;
+      this.savedScrolls.muralScrollY = horizontal.scrollTop;
+    }
+    this.savedScrolls.windowY = window.scrollY;
+    this.savedScrolls.windowX = window.scrollX;
+  }
+
+  restoreScrollState() {
+    if ((this._renderDepth || 0) > 0) return;
+    if (!this.savedScrolls) return;
+    requestAnimationFrame(() => {
+      if (this.savedScrolls.windowY !== undefined) {
+        window.scrollTo(this.savedScrolls.windowX || 0, this.savedScrolls.windowY || 0);
+      }
+      const main = document.getElementById('main-scroll-container');
+      if (main && this.savedScrolls.mainScrollY !== undefined) {
+        main.scrollTop = this.savedScrolls.mainScrollY;
+        main.scrollLeft = this.savedScrolls.mainScrollX || 0;
+      }
+      const horizontal = document.getElementById('mural-horizontal-scroll');
+      if (horizontal && this.savedScrolls.muralScrollX !== undefined) {
+        horizontal.scrollLeft = this.savedScrolls.muralScrollX;
+        horizontal.scrollTop = this.savedScrolls.muralScrollY || 0;
+      }
+    });
+  }
+
   // --- HTML DRAW PIPELINE ---
   render() {
+    this._renderDepth = (this._renderDepth || 0);
+    this.saveScrollState();
+    this._renderDepth++;
     const root = document.getElementById('root');
     if (!root) return;
 
@@ -3565,7 +3605,7 @@ class ThumbSyncApp {
           </div>
 
           <!-- TAB CONTENT DISPLAY FRAME -->
-          <div class="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8 pb-32 lg:pb-12 custom-scrollbar relative z-0 w-full">
+          <div id="main-scroll-container" class="flex-1 min-h-0 overflow-y-auto p-4 sm:p-6 md:p-8 pb-32 lg:pb-12 custom-scrollbar relative z-0 w-full">
             <div id="tab-content" class="w-full"></div>
           </div>
         </main>
@@ -3764,6 +3804,8 @@ class ThumbSyncApp {
       this._assistantStarted = true;
       this.startAssistantMessages();
     }
+    this._renderDepth--;
+    this.restoreScrollState();
   }
 
   setActiveTab(tab) {
@@ -3808,6 +3850,9 @@ class ThumbSyncApp {
   }
 
   renderActiveTab() {
+    this._renderDepth = (this._renderDepth || 0);
+    this.saveScrollState();
+    this._renderDepth++;
     const contentFrame = document.getElementById('tab-content');
     if (!contentFrame) return;
 
@@ -3846,6 +3891,8 @@ class ThumbSyncApp {
     }
 
     this.bindTabEvents();
+    this._renderDepth--;
+    this.restoreScrollState();
   }
 
   /**
@@ -4621,7 +4668,7 @@ class ThumbSyncApp {
             ` : groupsList.length === 0 ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             ` : `
-              <div class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x">
+              <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x">
               ${groupsList.map(([providerName, games]) => {
       const providerKey = this.normalizeName(providerName);
       const providerAttr = encodeURIComponent(providerKey);
