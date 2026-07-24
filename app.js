@@ -166,6 +166,18 @@ export class DriveApiClient {
    * Cria ou atualiza um arquivo de texto no Google Drive
    */
   async saveTextFile(fileName, content, parentFolderId, fileId) {
+    if (!fileId && parentFolderId) {
+      try {
+        const existingFiles = await this.listFilesInFolder(parentFolderId);
+        const match = existingFiles.find(f => f.name.toLowerCase() === fileName.toLowerCase());
+        if (match) {
+          fileId = match.id;
+        }
+      } catch (err) {
+        console.warn(`Erro ao verificar existência de ${fileName} antes de salvar:`, err);
+      }
+    }
+
     if (fileId) {
       const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
       const res = await this.fetchWithAuth(updateUrl, {
@@ -785,6 +797,18 @@ class ThumbSyncApp {
       localStorage.setItem('thumbsync_history_already_set', 'true');
     } else if (this.state.historyItems && this.state.historyItems.length > 0) {
       localStorage.setItem('thumbsync_history_already_set', 'true');
+    }
+
+    if (this.state.historyItems) {
+      this.state.historyItems.forEach(item => {
+        if (!item.addedDate) {
+          if (item.addedAt) {
+            item.addedDate = item.addedAt.split('T')[0];
+          } else {
+            item.addedDate = this.getAddedDateForItem(item.id);
+          }
+        }
+      });
     }
 
     localStorage.setItem('thumbsync_item_added_dates', JSON.stringify(this.state.itemAddedDates));
@@ -1677,9 +1701,28 @@ class ThumbSyncApp {
     const lines = this.state.listContent.split(/\r?\n/);
 
     let currentProvider = "Sem provedor";
+    const priorityProvidersSet = new Set();
+
     for (const line of lines) {
       let clean = line.replace(/^\uFEFF/, '').replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '').trim();
       if (!clean || clean.startsWith('#')) continue;
+
+      const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
+      if (providerMatch) {
+        let provName = providerMatch[1].trim();
+        let isProvPriority = false;
+        if (provName.includes('!')) {
+          isProvPriority = true;
+          provName = provName.replace(/!/g, '').trim();
+        }
+        currentProvider = provName;
+        if (isProvPriority) {
+          priorityProvidersSet.add(this.normalizeName(provName));
+        }
+        continue;
+      }
+
+      if (/^provedor\s*:/i.test(clean)) continue;
 
       let isNotFound = false;
       let isPriority = false;
@@ -1694,14 +1737,6 @@ class ThumbSyncApp {
         if (!clean) continue;
       }
 
-      const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
-      if (providerMatch) {
-        currentProvider = providerMatch[1].trim();
-        continue;
-      }
-
-      if (/^provedor\s*:/i.test(clean)) continue;
-
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
@@ -1710,6 +1745,8 @@ class ThumbSyncApp {
         isPriority: isPriority
       });
     }
+
+    this.state.priorityProvidersSet = priorityProvidersSet;
 
     const driveFiles = this.state.driveFiles;
     const itemsMap = new Map();
@@ -2324,6 +2361,7 @@ class ThumbSyncApp {
   }
 
   showNotFoundGamesToast(notFoundGames) {
+    if (this.isAdmin()) return;
     if (!notFoundGames || notFoundGames.length === 0) return;
     
     let existingToast = document.getElementById('notfound-game-toast');
@@ -2440,7 +2478,7 @@ class ThumbSyncApp {
     this.addLog(`Adicionando ${gamesToAdd.length} jogos ao provedor '${providerName}'...`);
 
     const lines = this.state.listContent.split(/\r?\n/);
-    const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*$`, 'i');
+    const targetHeaderRegex = new RegExp(`^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*(!)?\\s*$`, 'i');
 
     let injected = false;
     const updatedLines = [];
@@ -2493,7 +2531,7 @@ class ThumbSyncApp {
         }
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -2590,7 +2628,7 @@ class ThumbSyncApp {
         if (currentSection) sections.push(currentSection);
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -2673,7 +2711,7 @@ class ThumbSyncApp {
         if (currentSection) sections.push(currentSection);
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -2741,6 +2779,49 @@ class ThumbSyncApp {
     }
   }
 
+  async handleToggleProviderPriority(providerName) {
+    if (!providerName || providerName === "Sem provedor" || providerName === "Jogos Não Encontrados" || providerName === "Prioridades") return;
+
+    await this.fetchLatestListContent();
+    const lines = this.state.listContent.split(/\r?\n/);
+    const targetNorm = this.normalizeName(providerName);
+
+    let found = false;
+    const updatedLines = lines.map(line => {
+      const cleanLine = line.replace(/^\uFEFF/, '').trim();
+      const match = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
+      if (match) {
+        let rawProv = match[1].trim();
+        let isPriority = false;
+        if (rawProv.includes('!')) {
+          isPriority = true;
+          rawProv = rawProv.replace(/!/g, '').trim();
+        }
+        if (this.normalizeName(rawProv) === targetNorm) {
+          found = true;
+          if (isPriority) {
+            this.addLog(`Removida prioridade do provedor '${rawProv}'.`);
+            return `Provedor: ${rawProv}`;
+          } else {
+            this.addLog(`Provedor '${rawProv}' marcado como prioritário.`);
+            return `Provedor: ${rawProv} !`;
+          }
+        }
+      }
+      return line;
+    });
+
+    if (!found) {
+      if (updatedLines.length > 0 && updatedLines[updatedLines.length - 1].trim() !== '') {
+        updatedLines.push('');
+      }
+      updatedLines.push(`Provedor: ${providerName} !`);
+      this.addLog(`Provedor '${providerName}' marcado como prioritário.`);
+    }
+
+    await this.saveUpdatedList(updatedLines.join('\n'));
+  }
+
   async handleExcludeGameFromList(item) {
     const isConfirmed = confirm(`Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo list.txt.`);
     if (!isConfirmed) return;
@@ -2764,7 +2845,7 @@ class ThumbSyncApp {
         }
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -2873,7 +2954,7 @@ class ThumbSyncApp {
         if (currentSection) sections.push(currentSection);
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -2970,7 +3051,7 @@ class ThumbSyncApp {
         if (currentSection) sections.push(currentSection);
         currentSection = {
           providerLine: line,
-          providerNameNormalized: this.normalizeName(providerMatch[1].trim()),
+          providerNameNormalized: this.normalizeName(providerMatch[1].replace(/!/g, '').trim()),
           games: []
         };
         continue;
@@ -4312,7 +4393,11 @@ class ThumbSyncApp {
 
       const providerMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
       if (providerMatch) {
-        currentProvider = providerMatch[1].trim();
+        let provName = providerMatch[1].trim();
+        if (provName.includes('!')) {
+          provName = provName.replace(/!/g, '').trim();
+        }
+        currentProvider = provName;
         continue;
       }
 
@@ -4386,7 +4471,10 @@ class ThumbSyncApp {
       const cleanLine = line.replace(/^\uFEFF/, '').trim();
       const match = cleanLine.match(/^provedor\s*:\s*(.+)$/i);
       if (match) {
-        const prov = match[1].trim();
+        let prov = match[1].trim();
+        if (prov.includes('!')) {
+          prov = prov.replace(/!/g, '').trim();
+        }
         if (prov && prov !== "Sem provedor") {
           modalProvidersSet.add(prov);
         }
@@ -4524,14 +4612,20 @@ class ThumbSyncApp {
                       <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
-                      <span class="truncate pr-2">${providerName}</span>
+                      <span class="truncate pr-2 flex items-center gap-1 ${this.state.priorityProvidersSet?.has(providerKey) ? 'text-yellow-400' : ''}">
+                        ${providerName}
+                        ${this.state.priorityProvidersSet?.has(providerKey) ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
+                      </span>
                     </span>
                     <div class="flex items-center gap-2 shrink-0">
                       <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
                       ${isNotFoundSection || isPrioritySection ? '' : `
-                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0">
+                      <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${this.state.priorityProvidersSet?.has(providerKey) ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/15' : 'bg-white/5 hover:bg-white/10 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer shrink-0" title="Marcar/Desmarcar como Prioridade">
+                        <svg class="w-3.5 h-3.5" fill="${this.state.priorityProvidersSet?.has(providerKey) ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                      </button>
+                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
                       `}
@@ -5659,6 +5753,17 @@ class ThumbSyncApp {
           this.state.isAddingGame = true;
           this.state.addingGameToProvider = provider;
           this.renderActiveTab();
+        });
+      });
+
+      const togglePriorityTriggers = document.querySelectorAll('[data-trigger-toggle-provider-priority]');
+      togglePriorityTriggers.forEach(btn => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const provider = e.currentTarget.getAttribute('data-trigger-toggle-provider-priority') || '';
+          if (provider) {
+            await this.handleToggleProviderPriority(provider);
+          }
         });
       });
 
