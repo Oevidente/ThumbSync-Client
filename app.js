@@ -545,6 +545,14 @@ class ThumbSyncApp {
     } catch (e) {
       this.state.customTags = {};
     }
+    try {
+      const savedCollapsed = localStorage.getItem('thumbsync_collapsed_providers');
+      if (savedCollapsed) {
+        this.state.collapsedProviderKeys = new Set(JSON.parse(savedCollapsed));
+      }
+    } catch (e) {
+      this.state.collapsedProviderKeys = new Set();
+    }
     this.state.historyItems = [];
     this.state.itemAddedDates = {};
 
@@ -609,6 +617,14 @@ class ThumbSyncApp {
           localStorage.setItem('thumbsync_emerson_accounts', JSON.stringify(combined));
           loadedAny = true;
         }
+        if (data.collapsed_andre && Array.isArray(data.collapsed_andre.items)) {
+          const profile = this.getProfile();
+          if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
+            this.state.collapsedProviderKeys = new Set(data.collapsed_andre.items);
+            localStorage.setItem('thumbsync_collapsed_providers', JSON.stringify(data.collapsed_andre.items));
+            loadedAny = true;
+          }
+        }
 
         this.state.activeDatabase = 'Firebase';
         this.addLog("Dados sincronizados com o Firebase Firestore.");
@@ -637,10 +653,17 @@ class ThumbSyncApp {
       const p4 = firebaseService.saveData('dates', { data: this.state.itemAddedDates || {} });
       const p5 = firebaseService.saveData('emerson_accounts', { items: this.getEmersonAccounts() || [] });
 
-      const results = await Promise.all([p1, p2, p3, p4, p5]);
+      const profile = this.getProfile();
+      let p6 = Promise.resolve(true);
+      if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
+        const items = Array.from(this.state.collapsedProviderKeys);
+        p6 = firebaseService.saveData('collapsed_providers_andre', { items });
+      }
+
+      const results = await Promise.all([p1, p2, p3, p4, p5, p6]);
       if (results.every(r => r === true)) {
         this.state.activeDatabase = 'Firebase';
-        this.addLog("Todos os 5 arquivos foram sincronizados no Firebase Firestore.");
+        this.addLog("Todos os arquivos foram sincronizados no Firebase Firestore.");
       } else {
         this.state.activeDatabase = 'Google Drive (Fallback)';
         this.addLog("Aviso: Falha parcial no Firebase. O Google Drive está operando como BD de fallback.");
@@ -648,6 +671,24 @@ class ThumbSyncApp {
     } catch (e) {
       console.warn("Erro ao sincronizar dados com o Firebase:", e);
       this.state.activeDatabase = 'Google Drive (Fallback)';
+    }
+  }
+
+  async saveCollapsedProviders() {
+    const profile = this.getProfile();
+    const items = Array.from(this.state.collapsedProviderKeys);
+    
+    // Save locally for instant persistency
+    localStorage.setItem('thumbsync_collapsed_providers', JSON.stringify(items));
+
+    // Persist to database if André Luiz
+    if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
+      try {
+        await firebaseService.saveData('collapsed_providers_andre', { items });
+        this.addLog("Estado de recolhimento das listas salvo no Firebase.");
+      } catch (e) {
+        console.warn("Erro ao salvar estado de recolhimento no Firebase:", e);
+      }
     }
   }
 
@@ -5824,6 +5865,7 @@ class ThumbSyncApp {
             this.state.collapsedProviderKeys.add(providerKey);
           }
 
+          this.saveCollapsedProviders();
           this.renderActiveTab();
         };
 
