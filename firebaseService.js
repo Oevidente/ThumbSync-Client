@@ -102,12 +102,13 @@ export const firebaseService = {
       return null;
     }
     try {
-      const [lista, tags, history, dates, emerson] = await Promise.all([
+      const [lista, tags, history, dates, emerson, admin_accs] = await Promise.all([
         this.loadData('lista'),
         this.loadData('tags'),
         this.loadData('history'),
         this.loadData('dates'),
-        this.loadData('emerson_accounts')
+        this.loadData('emerson_accounts'),
+        this.loadData('admin_accounts')
       ]);
 
       return {
@@ -115,7 +116,8 @@ export const firebaseService = {
         tags,
         history,
         dates,
-        emerson
+        emerson,
+        admin_accs
       };
     } catch (e) {
       console.warn("Erro ao carregar dados do Firebase:", e);

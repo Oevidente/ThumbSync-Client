@@ -7,13 +7,6 @@
 import { classifyGame, loadMappings } from './gameClassifier.js';
 import { firebaseService } from './firebaseService.js';
 
-// --- CONFIGURAÇÃO DE CONTAS ADMINISTRADORAS ---
-export const ADMIN_EMAILS = [
-  'andreluiz1902@gmail.com',
-  'decoalves1503@gmail.com',
-  'twdrannokill@gmail.com',
-  'apdesigncontactus@gmail.com'
-];
 
 // --- GOOGLE DRIVE WEB API CLIENT ---
 export class DriveApiClient {
@@ -430,7 +423,7 @@ class ThumbSyncApp {
     try {
       const saved = this.getEmersonAccounts();
       const lower = email.toLowerCase().trim();
-      const isAdminEmail = ADMIN_EMAILS.map(e => e.toLowerCase()).includes(lower);
+      const isAdminEmail = this.getAdminAccounts().map(e => e.toLowerCase()).includes(lower);
       if (!isAdminEmail && !saved.includes(lower)) {
         saved.push(lower);
         localStorage.setItem('thumbsync_emerson_accounts', JSON.stringify(saved));
@@ -470,6 +463,14 @@ class ThumbSyncApp {
     }
   }
 
+  getAdminAccounts() {
+    try {
+      return JSON.parse(localStorage.getItem('thumbsync_admin_accounts') || '[]');
+    } catch (e) {
+      return [];
+    }
+  }
+
   getEmersonAccounts() {
     try {
       return JSON.parse(localStorage.getItem('thumbsync_emerson_accounts') || '[]');
@@ -480,7 +481,7 @@ class ThumbSyncApp {
 
   getProfile() {
     const email = (this.getUserEmail()).toLowerCase().trim();
-    const isAdminEmail = email && ADMIN_EMAILS.map(e => e.toLowerCase()).includes(email);
+    const isAdminEmail = email && this.getAdminAccounts().map(e => e.toLowerCase()).includes(email);
 
     if (isAdminEmail) {
       return {
@@ -604,6 +605,12 @@ class ThumbSyncApp {
         }
         if (data.dates && data.dates.data && Object.keys(data.dates.data).length > 0) {
           this.state.itemAddedDates = { ...this.state.itemAddedDates, ...data.dates.data };
+          loadedAny = true;
+        }
+        if (data.admin_accs && Array.isArray(data.admin_accs.items) && data.admin_accs.items.length > 0) {
+          const local = this.getAdminAccounts();
+          const combined = Array.from(new Set([...local, ...data.admin_accs.items].map(a => a.toLowerCase().trim()))).filter(Boolean);
+          localStorage.setItem('thumbsync_admin_accounts', JSON.stringify(combined));
           loadedAny = true;
         }
         if (data.emerson && Array.isArray(data.emerson.items) && data.emerson.items.length > 0) {
@@ -1470,7 +1477,7 @@ class ThumbSyncApp {
       }
 
       const currentEmail = (this.getUserEmail()).toLowerCase().trim();
-      if (currentEmail && !ADMIN_EMAILS.map(e => e.toLowerCase()).includes(currentEmail)) {
+      if (currentEmail && !this.getAdminAccounts().map(e => e.toLowerCase()).includes(currentEmail)) {
         await this.registerEmersonAccount(currentEmail);
       }
 
@@ -1697,6 +1704,9 @@ class ThumbSyncApp {
    * Reconstrói catálogo unificando o arquivo lista.txt com as artes encontradas no Drive
    */
   syncLocalCatalog() {
+    const oldCatalogItems = this.state.catalogItems || [];
+    const oldWebpStatus = new Map(oldCatalogItems.map(item => [item.id, item.hasWebp]));
+
     const listGames = [];
     const lines = this.state.listContent.split(/\r?\n/);
 
@@ -1805,7 +1815,22 @@ class ThumbSyncApp {
       }
     });
 
-    this.state.catalogItems = Array.from(itemsMap.values());
+    const newItems = Array.from(itemsMap.values());
+
+    const newlyCompleted = [];
+    if (this.state.hasSeenOnboarding && oldCatalogItems.length > 0) {
+      newItems.forEach(item => {
+        if (item.hasWebp && oldWebpStatus.has(item.id) && !oldWebpStatus.get(item.id)) {
+          newlyCompleted.push(item);
+        }
+      });
+    }
+
+    if (newlyCompleted.length > 0) {
+      this.notifyNewlyCompleted(newlyCompleted);
+    }
+
+    this.state.catalogItems = newItems;
   }
 
   normalizeName(val) {
@@ -4984,7 +5009,7 @@ class ThumbSyncApp {
                 <div class="pt-2 border-t border-white/5 space-y-1">
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Atreladas ao Administrador:</span>
                   <div class="flex flex-wrap gap-1.5">
-                    ${ADMIN_EMAILS.map(email => `
+                    ${this.getAdminAccounts().map(email => `
                       <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">${email}</span>
                     `).join('')}
                   </div>
@@ -5004,15 +5029,12 @@ class ThumbSyncApp {
                 </p>
                 <div class="pt-2 border-t border-white/5 space-y-1">
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Registradas sob este Perfil:</span>
-                  ${emersonAccounts.length > 0 ? `
-                    <div class="flex flex-wrap gap-1.5">
-                      ${emersonAccounts.map(email => `
-                        <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">${email}</span>
-                      `).join('')}
-                    </div>
-                  ` : `
-                    <p class="text-[10px] text-zinc-500 italic">Contas adicionais conectadas ao sistema são mapeadas automaticamente para este perfil.</p>
-                  `}
+                  <div class="flex flex-wrap gap-1.5">
+                    <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === 'emerson@betdasorte.com' ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">emerson@betdasorte.com</span>
+                    ${emersonAccounts.filter(e => e.toLowerCase() !== 'emerson@betdasorte.com' && !this.getAdminAccounts().map(a => a.toLowerCase()).includes(e.toLowerCase())).map(email => `
+                      <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">${email}</span>
+                    `).join('')}
+                  </div>
                 </div>
               </div>
             </div>
@@ -5311,6 +5333,9 @@ class ThumbSyncApp {
     const btnSync = document.getElementById('btn-sync-gdrive');
     if (btnSync) {
       btnSync.addEventListener('click', () => {
+        if ('Notification' in window && Notification.permission === 'default') {
+          Notification.requestPermission();
+        }
         this.syncWithGoogleDrive();
       });
     }
@@ -6002,6 +6027,131 @@ class ThumbSyncApp {
         });
       }
     }
+  }
+  notifyNewlyCompleted(games) {
+    if (!games || games.length === 0) return;
+    if (this.isAdmin()) return; // Não exibe para administrador, apenas para Emerson
+
+    // 1. In-site Toast
+    this.showNewCompletedGameToast(games);
+
+    // 2. Sound Effect
+    this.playNotificationSound();
+
+    // 3. Browser Notification
+    if ('Notification' in window) {
+      if (Notification.permission === 'granted') {
+        this.sendBrowserNotification(games);
+      } else if (Notification.permission !== 'denied') {
+        Notification.requestPermission().then(permission => {
+          if (permission === 'granted') {
+            this.sendBrowserNotification(games);
+          }
+        });
+      }
+    }
+  }
+
+  playNotificationSound() {
+    try {
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const oscillator = audioCtx.createOscillator();
+      const gainNode = audioCtx.createGain();
+      
+      oscillator.type = 'sine';
+      oscillator.frequency.setValueAtTime(523.25, audioCtx.currentTime); // C5
+      oscillator.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.1); // A5
+      
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.5, audioCtx.currentTime + 0.05);
+      gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+      
+      oscillator.connect(gainNode);
+      gainNode.connect(audioCtx.destination);
+      
+      oscillator.start(audioCtx.currentTime);
+      oscillator.stop(audioCtx.currentTime + 0.5);
+    } catch (e) {
+      console.warn("Erro ao tocar som de notificação:", e);
+    }
+  }
+
+  sendBrowserNotification(games) {
+    const title = 'Miniatura(s) Finalizada(s)!';
+    const body = games.length === 1 
+      ? `O jogo "${games[0].displayName}" foi marcado como feito.` 
+      : `${games.length} jogos foram marcados como feitos.`;
+    
+    try {
+      new Notification(title, {
+        body: body,
+        icon: 'favicon.png'
+      });
+    } catch (e) {
+      console.warn("Erro ao enviar notificação do navegador:", e);
+    }
+  }
+
+  showNewCompletedGameToast(games) {
+    let existingToast = document.getElementById('completed-game-toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+    
+    const toast = document.createElement('div');
+    toast.id = 'completed-game-toast';
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '24px',
+      right: '24px',
+      transform: 'scale(0.9) translateX(120%)',
+      backgroundColor: '#10b981', // emerald-500
+      color: '#fff',
+      padding: '16px 24px',
+      borderRadius: '16px',
+      boxShadow: '0 20px 25px -5px rgba(0, 0, 0, 0.3), 0 10px 10px -5px rgba(0, 0, 0, 0.2)',
+      zIndex: '10000',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '15px',
+      fontWeight: '600',
+      opacity: '0',
+      transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)'
+    });
+
+    const gamesText = games.length === 1 
+      ? `<span style="color:#a7f3d0;">${games[0].displayName}</span>`
+      : `${games.length} jogos`;
+
+    toast.innerHTML = `
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path>
+        <polyline points="22 4 12 14.01 9 11.01"></polyline>
+      </svg>
+      <div style="display:flex; flex-direction:column;">
+        <span>Miniatura finalizada!</span>
+        <span style="font-weight:400; font-size:13px; opacity:0.9;">${gamesText} marcado(s) como feito(s).</span>
+      </div>
+      <button id="completed-game-toast-close" style="background:transparent; border:none; cursor:pointer; padding:8px; display:flex; align-items:flex-start; justify-content:center; opacity:0.7; height:100%; color:white; margin-left: 8px;">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </button>
+    `;
+
+    document.body.appendChild(toast);
+    toast.getBoundingClientRect(); // force reflow
+    toast.style.opacity = '1';
+    toast.style.transform = 'scale(1) translateX(0)';
+
+    const removeToast = () => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'scale(0.9) translateX(120%)';
+      setTimeout(() => toast.remove(), 400);
+    };
+
+    toast.querySelector('#completed-game-toast-close').addEventListener('click', removeToast);
+    setTimeout(removeToast, 6000);
   }
 }
 
