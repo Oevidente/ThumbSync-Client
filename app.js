@@ -545,16 +545,8 @@ class ThumbSyncApp {
     } catch (e) {
       this.state.customTags = {};
     }
-    try {
-      this.state.historyItems = JSON.parse(localStorage.getItem('thumbsync_history_items')) || [];
-    } catch (e) {
-      this.state.historyItems = [];
-    }
-    try {
-      this.state.itemAddedDates = JSON.parse(localStorage.getItem('thumbsync_item_added_dates')) || {};
-    } catch (e) {
-      this.state.itemAddedDates = {};
-    }
+    this.state.historyItems = [];
+    this.state.itemAddedDates = {};
 
     // Unificar e garantir que os dados do histórico fornecidos estejam sempre presentes
     this.ensureSeedHistoryAndDates();
@@ -580,10 +572,8 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_tags_file_name', this.config.tagsFileName);
     localStorage.setItem('thumbsync_cached_list_content', this.state.listContent);
     localStorage.setItem('thumbsync_custom_tags', JSON.stringify(this.state.customTags || {}));
-    localStorage.setItem('thumbsync_history_items', JSON.stringify(this.state.historyItems || []));
-    localStorage.setItem('thumbsync_item_added_dates', JSON.stringify(this.state.itemAddedDates || {}));
-    localStorage.setItem('thumbsync_filter_tag', this.state.filterTag || 'todos');
-    localStorage.setItem('thumbsync_filter_date', this.state.filterDate || 'recent');
+    this.state.filterTag = this.state.filterTag || 'todos';
+    this.state.filterDate = this.state.filterDate || 'recent';
   }
 
   async loadDataFromFirebase() {
@@ -796,14 +786,8 @@ class ThumbSyncApp {
     if (!this.state.itemAddedDates) this.state.itemAddedDates = {};
     this.state.itemAddedDates = { ...seedAddedDates, ...this.state.itemAddedDates };
 
-    const historyAlreadySet = localStorage.getItem('thumbsync_history_already_set') === 'true';
-    if (!historyAlreadySet) {
-      if (!this.state.historyItems || this.state.historyItems.length === 0) {
-        this.state.historyItems = seedHistoryItems;
-      }
-      localStorage.setItem('thumbsync_history_already_set', 'true');
-    } else if (this.state.historyItems && this.state.historyItems.length > 0) {
-      localStorage.setItem('thumbsync_history_already_set', 'true');
+    if (!this.state.historyItems || this.state.historyItems.length === 0) {
+      this.state.historyItems = seedHistoryItems;
     }
 
     if (this.state.historyItems) {
@@ -817,9 +801,6 @@ class ThumbSyncApp {
         }
       });
     }
-
-    localStorage.setItem('thumbsync_item_added_dates', JSON.stringify(this.state.itemAddedDates));
-    localStorage.setItem('thumbsync_history_items', JSON.stringify(this.state.historyItems || []));
   }
 
   getTodayDateString() {
@@ -871,8 +852,6 @@ class ThumbSyncApp {
   }
 
   async saveAddedDates() {
-    localStorage.setItem('thumbsync_item_added_dates', JSON.stringify(this.state.itemAddedDates || {}));
-
     // Sincronização Dupla: Firebase Firestore
     try {
       const fbOk = await firebaseService.saveData('dates', { data: this.state.itemAddedDates || {} });
@@ -899,8 +878,6 @@ class ThumbSyncApp {
   }
 
   async saveHistory() {
-    localStorage.setItem('thumbsync_history_items', JSON.stringify(this.state.historyItems || []));
-
     // Sincronização Dupla: Firebase Firestore
     try {
       const fbOk = await firebaseService.saveData('history', { items: this.state.historyItems || [] });
@@ -964,10 +941,6 @@ class ThumbSyncApp {
       }
     });
     this.state.historyItems = Array.from(map.values());
-    localStorage.setItem('thumbsync_history_items', JSON.stringify(this.state.historyItems));
-    if (this.state.historyItems.length > 0) {
-      localStorage.setItem('thumbsync_history_already_set', 'true');
-    }
   }
 
   async handleImportHistoryFiles(files) {
