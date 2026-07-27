@@ -4942,7 +4942,7 @@ class ThumbSyncApp {
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                             <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : (game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]')} shrink-0 mt-1.5"></span>
                             <div class="flex-1 min-w-0">
-                              <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'line-through opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
+                              <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
                                 ${game.displayName}
                                 ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1 font-normal select-none">(${game.providerName})</span>` : ''}
                               </span>
