@@ -2719,7 +2719,11 @@ class ThumbSyncApp {
 
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -2818,7 +2822,11 @@ class ThumbSyncApp {
     await this.fetchLatestListContent();
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -2901,7 +2909,11 @@ class ThumbSyncApp {
     await this.fetchLatestListContent();
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -2981,7 +2993,7 @@ class ThumbSyncApp {
   }
 
   async handleToggleProviderPriority(providerName) {
-    if (!providerName || providerName === "Sem provedor" || providerName === "Jogos Não Encontrados" || providerName === "Prioridades") return;
+    if (!providerName || providerName === "Sem provedor" || providerName === "Não Foi Possível Criar" || providerName === "Prioridades") return;
 
     await this.fetchLatestListContent();
     const lines = this.state.listContent.split(/\r?\n/);
@@ -3033,7 +3045,11 @@ class ThumbSyncApp {
 
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -3109,7 +3125,7 @@ class ThumbSyncApp {
 
     const filteredSections = sections.filter(sec => {
       const genuineGames = sec.games.filter(g => !g.isBlankOrComment);
-      if (genuineGames.length === 0) {
+      if (genuineGames.length === 0 && sec.providerLine) {
         this.addLog(`Provedor '${item.providerName}' não possui mais jogos na lista. Seção removida.`);
         return false;
       }
@@ -3144,7 +3160,11 @@ class ThumbSyncApp {
 
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -3212,7 +3232,7 @@ class ThumbSyncApp {
       await this.addItemsToHistory(itemsMovedToHistory);
     }
 
-    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment) || !sec.providerLine);
 
     const finalLines = [...headerLines];
     filteredSections.forEach(sec => {
@@ -3241,7 +3261,11 @@ class ThumbSyncApp {
 
     const lines = this.state.listContent.split(/\r?\n/);
     const sections = [];
-    let currentSection = null;
+    let currentSection = {
+      providerLine: '',
+      providerNameNormalized: 'sem provedor',
+      games: []
+    };
     const headerLines = [];
 
     for (const line of lines) {
@@ -3302,7 +3326,7 @@ class ThumbSyncApp {
       await this.addItemsToHistory(itemsMovedToHistory);
     }
 
-    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment));
+    const filteredSections = sections.filter(sec => sec.games.some(g => !g.isBlankOrComment) || !sec.providerLine);
 
     const finalLines = [...headerLines];
     filteredSections.forEach(sec => {
@@ -4716,7 +4740,7 @@ class ThumbSyncApp {
 
     if (notFoundGames.length > 0) {
       groupsList.unshift([
-        "Jogos Não Encontrados",
+        "Não Foi Possível Criar",
         [...notFoundGames].sort(sortGamesForProvider)
       ]);
     }
@@ -4733,7 +4757,7 @@ class ThumbSyncApp {
 
     // 1. Dos grupos do lista.txt
     groupsList.forEach(([prov]) => {
-      if (prov && prov !== "Sem provedor" && prov !== "Jogos Não Encontrados" && prov !== "Prioridades") {
+      if (prov && prov !== "Sem provedor" && prov !== "Não Foi Possível Criar" && prov !== "Prioridades") {
         modalProvidersSet.add(prov);
       }
     });
@@ -4873,7 +4897,7 @@ class ThumbSyncApp {
       const providerKey = this.normalizeName(providerName);
       const providerAttr = encodeURIComponent(providerKey);
       const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-      const isNotFoundSection = providerName === "Jogos Não Encontrados";
+      const isNotFoundSection = providerName === "Não Foi Possível Criar";
       const isPrioritySection = providerName === "Prioridades";
 
       return `
