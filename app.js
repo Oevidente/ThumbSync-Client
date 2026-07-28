@@ -3106,7 +3106,7 @@ class ThumbSyncApp {
 
     const count = notFoundGames.length;
     const title =
-      count === 1 ? '1 jogo indisponível' : `${count} jogos indisponíveis`;
+      count === 1 ? '1 jogo não encontrado' : `${count} jogos não encontrados`;
 
     const displayGames = notFoundGames.slice(0, 5).map((g) => g.displayName);
     let messageHtml = `<ul style="margin:0; padding-left:16px; margin-top:4px;">`;
@@ -3120,7 +3120,7 @@ class ThumbSyncApp {
       messageHtml += `<p style="margin: 6px 0 0 0; font-style: italic;">...e mais ${remaining} jogo${remaining > 1 ? 's' : ''}</p>`;
     }
 
-    messageHtml += `<p style="margin: 12px 0 0 0; font-weight: 600; line-height: 1.3;">Estes jogos estão indisponíveis no momento e não devem entrar no progresso de confecção das artes.</p>`;
+    messageHtml += `<p style="margin: 12px 0 0 0; font-weight: 600; line-height: 1.3;">Estes jogos não foram de fato encontrados e não foi possível prosseguir com a confecção das artes.</p>`;
 
     toast.innerHTML = `
       <div style="width:64px; height:64px; border-radius:16px; background:rgba(239, 68, 68, 0.2); border:2px solid rgba(239, 68, 68, 0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
@@ -3443,7 +3443,7 @@ class ThumbSyncApp {
             game.originalLine = game.originalLine.trimRight() + ' ?';
           }
           edited = true;
-          this.addLog(`Status "Indisponível" alterado com sucesso.`);
+          this.addLog(`Status "Não Encontrado" alterado com sucesso.`);
           break;
         }
       }
@@ -3575,7 +3575,6 @@ class ThumbSyncApp {
       !providerName ||
       providerName === 'Sem provedor' ||
       providerName === 'Não Foi Possível Criar' ||
-      providerName === 'Indisponível' ||
       providerName === 'Prioridades'
     )
       return;
@@ -4689,7 +4688,7 @@ class ThumbSyncApp {
                   </svg>
                 </div>
                 <p class="text-[11px] text-zinc-300 leading-relaxed">
-                  Se um jogo não tiver arte, marque-o como <strong class="text-orange-400 font-bold">Indisponível</strong> no Mural/Lista. Eles ficarão em uma seção separada para não poluir os provedores e você lembrar de ignorá-los.
+                  Se um jogo não tiver arte, marque-o como <strong class="text-orange-400 font-bold">Não Encontrado</strong> no Mural/Lista. Eles ficarão em uma seção separada para não poluir os provedores e você lembrar de ignorá-los.
                 </p>
               </div>
             </div>
@@ -5589,7 +5588,7 @@ class ThumbSyncApp {
 
     if (notFoundGames.length > 0) {
       groupsList.unshift([
-        'Indisponível',
+        'Não Foi Possível Criar',
         [...notFoundGames].sort(sortGamesForProvider),
       ]);
     }
@@ -5610,7 +5609,6 @@ class ThumbSyncApp {
         prov &&
         prov !== 'Sem provedor' &&
         prov !== 'Não Foi Possível Criar' &&
-        prov !== 'Indisponível' &&
         prov !== 'Prioridades'
       ) {
         modalProvidersSet.add(prov);
@@ -5766,7 +5764,6 @@ class ThumbSyncApp {
                   const isCollapsed =
                     this.state.collapsedProviderKeys.has(providerKey);
                   const isNotFoundSection =
-                    providerName === 'Indisponível' ||
                     providerName === 'Não Foi Possível Criar';
                   const isPrioritySection = providerName === 'Prioridades';
 
@@ -5840,7 +5837,7 @@ class ThumbSyncApp {
                           <!-- Sub-row: Badges and date -->
                           <div class="flex flex-wrap items-center gap-1.5 pl-6">
                             ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
-                            ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">INDISPONÍVEL</span>` : ''}
+                            ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
                             ${!game.isNotFound && hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
                             ${!game.isNotFound && !hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
                             ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
@@ -5875,7 +5872,7 @@ class ThumbSyncApp {
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
                               </svg>
                             </button>
-                            <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Indisponível' : 'Marcar Indisponível'}">
+                            <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Não Encontrado' : 'Marcar Não Encontrado'}">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                               </svg>
