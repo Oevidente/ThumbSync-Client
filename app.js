@@ -1183,7 +1183,7 @@ class ThumbSyncApp {
   }
 
   async saveHistory() {
-    // Persistência Exclusiva de Histórico: Firebase Firestore
+    // Persistência: Firebase Firestore + Google Drive (historico.json)
     try {
       const fbOk = await firebaseService.saveData('history', {
         items: this.state.historyItems || [],
@@ -1192,7 +1192,24 @@ class ThumbSyncApp {
     } catch (e) {
       console.warn('Erro ao salvar histórico no Firebase:', e);
     }
+
+    if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
+      try {
+        const fileId = await driveClient.saveTextFile(
+          this.config.historyFileName || 'historico.json',
+          JSON.stringify(this.state.historyItems || [], null, 2),
+          this.state.thumbsFolderId,
+          this.state.historyFileId,
+        );
+        if (fileId) {
+          this.state.historyFileId = fileId;
+        }
+      } catch (e) {
+        console.warn('Erro ao salvar historico.json no Drive:', e);
+      }
+    }
   }
+
 
   safeJsonParse(text, fallback = null) {
     if (!text || typeof text !== 'string' || !text.trim()) {
@@ -1214,14 +1231,31 @@ class ThumbSyncApp {
     // 1. Tentar parsear como JSON
     try {
       const json = JSON.parse(trimmed);
+      let list = [];
       if (Array.isArray(json)) {
-        return json;
+        list = json;
       } else if (json && typeof json === 'object') {
-        if (Array.isArray(json.history)) return json.history;
-        if (Array.isArray(json.items)) return json.items;
-        if (Array.isArray(json.data)) return json.data;
-        if (json.displayName || json.providerName) return [json];
+        if (Array.isArray(json.history)) list = json.history;
+        else if (Array.isArray(json.items)) list = json.items;
+        else if (Array.isArray(json.data)) list = json.data;
+        else if (json.displayName || json.providerName) list = [json];
       }
+      return list.map((item) => {
+        if (!item || typeof item !== 'object') return item;
+        const providerName = item.providerName || 'Geral';
+        const displayName = item.displayName || item.name || '';
+        const normProv = this.normalizeName(providerName);
+        const normName = this.normalizeName(displayName || item.normalizedName || '');
+        const id = `${normProv}::${normName}`;
+        return {
+          ...item,
+          id: id || item.id,
+          providerName,
+          displayName: displayName || item.displayName,
+          normalizedName: normName,
+          isHistoryItem: true,
+        };
+      });
     } catch (jsonErr) {
       // 2. Se não for JSON válido (ex: lista em texto puro [Provedor] Nome), parsear linha a linha
       const items = [];
@@ -1247,13 +1281,20 @@ class ThumbSyncApp {
           const parts = line.split(' / ');
           providerName = parts[0].trim();
           displayName = parts.slice(1).join(' / ').trim();
+        } else if (line.includes(': ')) {
+          const parts = line.split(': ');
+          providerName = parts[0].trim();
+          displayName = parts.slice(1).join(': ').trim();
         }
 
         if (displayName) {
+          const normProv = this.normalizeName(providerName);
+          const normName = this.normalizeName(displayName);
           items.push({
-            id: `${providerName}::${displayName}`.toLowerCase(),
+            id: `${normProv}::${normName}`,
             providerName: providerName,
             displayName: displayName,
+            normalizedName: normName,
             completedAt: new Date().toISOString(),
             isHistoryItem: true,
           });
@@ -1261,7 +1302,6 @@ class ThumbSyncApp {
       });
       return items;
     }
-    return [];
   }
 
   isHistoryCandidateFile(f) {
@@ -1283,7 +1323,13 @@ class ThumbSyncApp {
     if (name === 'custom_logos.json') return false;
     if (name === 'keyword_rules.json') return false;
 
-    return name.includes('historico') || name.includes('history');
+    return (
+      name.includes('historico') ||
+      name.includes('history') ||
+      name.includes('concluido') ||
+      name.includes('concluidos') ||
+      name.includes('untitled')
+    );
   }
 
   mergeDriveHistory(driveHistory) {
@@ -1291,23 +1337,30 @@ class ThumbSyncApp {
     const map = new Map();
     // 1. Inserir primeiro o histórico atual local
     (this.state.historyItems || []).forEach((item) => {
-      if (item) {
-        const id =
-          item.id ||
-          `${item.providerName || ''}::${item.displayName || ''}`.toLowerCase();
-        if (id && id !== '::') {
-          map.set(id, { ...item, id, isHistoryItem: true });
+      if (item && (item.displayName || item.name)) {
+        const normProv = this.normalizeName(item.providerName || 'Geral');
+        const normName = this.normalizeName(item.displayName || item.normalizedName || '');
+        const id = `${normProv}::${normName}`;
+        if (id && id !== 'sem provedor::' && id !== 'geral::') {
+          map.set(id, { ...item, id, normalizedName: normName, isHistoryItem: true });
         }
       }
     });
     // 2. Mesclar todos os itens do Drive (incluindo historico.json e untitled.json)
     driveHistory.forEach((item) => {
-      if (item) {
-        const id =
-          item.id ||
-          `${item.providerName || ''}::${item.displayName || ''}`.toLowerCase();
-        if (id && id !== '::') {
-          map.set(id, { ...item, id, isHistoryItem: true });
+      if (item && (item.displayName || item.name)) {
+        const normProv = this.normalizeName(item.providerName || 'Geral');
+        const normName = this.normalizeName(item.displayName || item.normalizedName || '');
+        const id = `${normProv}::${normName}`;
+        if (id && id !== 'sem provedor::' && id !== 'geral::') {
+          const existing = map.get(id);
+          map.set(id, {
+            ...(existing || {}),
+            ...item,
+            id,
+            normalizedName: normName,
+            isHistoryItem: true,
+          });
         }
       }
     });
@@ -1323,55 +1376,7 @@ class ThumbSyncApp {
       const file = files[i];
       try {
         const text = await file.text();
-        let itemsToMerge = [];
-
-        // 1. Tentar parsear como JSON
-        try {
-          const json = JSON.parse(text);
-          if (Array.isArray(json)) {
-            itemsToMerge = json;
-          } else if (json && typeof json === 'object') {
-            if (Array.isArray(json.history)) itemsToMerge = json.history;
-            else if (Array.isArray(json.items)) itemsToMerge = json.items;
-            else if (Array.isArray(json.data)) itemsToMerge = json.data;
-            else if (json.displayName || json.providerName)
-              itemsToMerge = [json];
-          }
-        } catch (jsonErr) {
-          // 2. Se falhar o JSON, parsear como TXT (linha por linha)
-          const lines = text
-            .split(/\r?\n/)
-            .map((l) => l.trim())
-            .filter(Boolean);
-          lines.forEach((line) => {
-            if (line.startsWith('#') || line.startsWith('//')) return;
-
-            let providerName = 'Geral';
-            let displayName = line;
-
-            const bracketMatch = line.match(/^\[(.*?)\]\s*(.*)$/);
-            if (bracketMatch) {
-              providerName = bracketMatch[1].trim() || 'Geral';
-              displayName = bracketMatch[2].trim();
-            } else if (line.includes(' - ')) {
-              const parts = line.split(' - ');
-              providerName = parts[0].trim();
-              displayName = parts.slice(1).join(' - ').trim();
-            } else if (line.includes(': ')) {
-              const parts = line.split(': ');
-              providerName = parts[0].trim();
-              displayName = parts.slice(1).join(': ').trim();
-            }
-
-            if (displayName) {
-              itemsToMerge.push({
-                displayName,
-                providerName,
-                isHistoryItem: true,
-              });
-            }
-          });
-        }
+        const itemsToMerge = this.parseHistoryText(text);
 
         if (itemsToMerge.length > 0) {
           this.mergeDriveHistory(itemsToMerge);
@@ -1384,6 +1389,7 @@ class ThumbSyncApp {
 
     this.ensureSeedHistoryAndDates();
     await this.saveHistory();
+    this.syncLocalCatalog();
 
     const finalCount = (this.state.historyItems || []).length;
     const addedCount = Math.max(0, finalCount - initialCount);
@@ -2661,6 +2667,18 @@ class ThumbSyncApp {
           .map((item) => item.normalizedName),
       );
 
+      // Cache de jogos que já constam no Histórico de Concluídos
+      const historySet = new Set(
+        (this.state.historyItems || [])
+          .filter(
+            (item) =>
+              this.normalizeName(item.providerName) === targetProviderNorm,
+          )
+          .map((item) =>
+            this.normalizeName(item.displayName || item.normalizedName),
+          ),
+      );
+
       const startIndex = hasHeader ? 1 : 0;
 
       for (let i = startIndex; i < rows.length; i++) {
@@ -2671,8 +2689,12 @@ class ThumbSyncApp {
 
         if (gameName) {
           const norm = this.normalizeName(gameName);
-          // Evita duplicatas dentro do CSV e conflitos com o que já está na lista.txt
-          if (!seenInCSV.has(norm) && !currentlyListedNorms.has(norm)) {
+          // Evita duplicatas dentro do CSV, conflitos com o que já está na lista.txt ou no Histórico
+          if (
+            !seenInCSV.has(norm) &&
+            !currentlyListedNorms.has(norm) &&
+            !historySet.has(norm)
+          ) {
             gamesToImport.push(gameName);
             seenInCSV.add(norm);
           }
@@ -3203,12 +3225,32 @@ class ThumbSyncApp {
 
     const normProvider = this.normalizeName(providerName);
     const existingItems = [];
+    const historyMap = new Map(
+      (this.state.historyItems || []).map((h) => [
+        h.id ||
+          `${this.normalizeName(h.providerName)}::${this.normalizeName(h.displayName || h.normalizedName)}`,
+        h,
+      ]),
+    );
+
     const existingOnDriveNames = validGames.filter((gameName) => {
       const normGame = this.normalizeName(gameName);
       const key = `${normProvider}::${normGame}`;
       const catalogItem = this.state.catalogItems.find((i) => i.id === key);
+      const historyItem = historyMap.get(key);
+
       if (catalogItem && catalogItem.hasWebp) {
         existingItems.push(catalogItem);
+        return true;
+      }
+      if (historyItem) {
+        existingItems.push({
+          ...historyItem,
+          displayName: historyItem.displayName || gameName,
+          providerName: historyItem.providerName || providerName,
+          hasWebp: historyItem.hasWebp || false,
+          isHistoryItem: true,
+        });
         return true;
       }
       return false;
@@ -3216,7 +3258,9 @@ class ThumbSyncApp {
 
     if (existingOnDriveNames.length > 0) {
       this.showDuplicatedGameToast(existingOnDriveNames);
-      this.renderPreviewModal(existingItems[0]);
+      if (existingItems[0]) {
+        this.renderPreviewModal(existingItems[0]);
+      }
     }
 
     const gamesToAdd = validGames.filter(
@@ -3224,7 +3268,9 @@ class ThumbSyncApp {
     );
 
     if (gamesToAdd.length === 0) {
-      this.addLog('Nenhum jogo novo adicionado. Todos já possuíam miniatura.');
+      this.addLog(
+        'Nenhum jogo novo adicionado. Todos já possuíam miniatura ou constavam no Histórico de Concluídos.',
+      );
       return;
     }
 
