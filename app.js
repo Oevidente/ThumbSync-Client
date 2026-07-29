@@ -504,7 +504,6 @@ class ThumbSyncApp {
 
   async loadInitialData() {
     await this.loadDataFromFirebase();
-    this.loadHistoryFromFirebase(); // Dispara em paralelo
   }
 
   /**
@@ -886,10 +885,15 @@ class ThumbSyncApp {
   async loadHistoryOnDemand() {
     if (this.state.historyLoaded || this.state.isLoadingHistory) return;
     this.state.isLoadingHistory = true;
-    this.render();
+    this.state.historyPage = 1;
+    this.state.historyPageSize = 30;
+    this.renderActiveTab();
+
+    // Yield to event loop so loading state renders immediately
+    await new Promise((resolve) => setTimeout(resolve, 50));
 
     try {
-      this.addLog('Carregando histórico sob demanda...');
+      this.addLog('Carregando histórico sob demanda (máx 30 por lote)...');
       let loadedHistory = false;
 
       // 1. Tentar carregar do Firebase primeiro (se disponível)
@@ -909,6 +913,8 @@ class ThumbSyncApp {
           console.warn('Falha ao carregar histórico do Firebase sob demanda:', e);
         }
       }
+
+      await new Promise((resolve) => setTimeout(resolve, 20));
 
       // 2. Se o Drive estiver autenticado e não carregou do Firebase, carregar do Drive
       if (!loadedHistory && driveClient.isAuthenticated()) {
@@ -968,7 +974,7 @@ class ThumbSyncApp {
     } finally {
       this.state.isLoadingHistory = false;
       this.syncLocalCatalog();
-      this.render();
+      this.renderActiveTab();
     }
   }
 
@@ -1942,8 +1948,13 @@ class ThumbSyncApp {
         }
       }
 
-      // Dispara a sincronização do histórico em paralelo, sem bloquear a UI
-      this.syncHistoryFromDrive();
+      // Sincroniza o histórico sob demanda apenas se a aba do histórico estiver aberta
+      if (
+        this.state.muralSubTab === 'history' ||
+        this.state.activeTab === 'history'
+      ) {
+        this.loadHistoryOnDemand();
+      }
 
       // Sincronizar Datas de Adição (added_dates.json)
       const datesFiles = allFiles.filter(
@@ -1973,9 +1984,14 @@ class ThumbSyncApp {
         }
       }
 
-      // Garantir mesclagem do histórico base fornecido pelo usuário e salvar no Drive
+      // Garantir mesclagem do histórico base fornecido pelo usuário e salvar no Drive apenas se o histórico estiver carregado/ativo
       this.ensureSeedHistoryAndDates();
-      await this.saveHistory();
+      if (
+        this.state.historyLoaded &&
+        (this.state.muralSubTab === 'history' || this.state.activeTab === 'history')
+      ) {
+        await this.saveHistory();
+      }
       await this.saveAddedDates();
 
       const listFile = allFiles.find(
@@ -4893,6 +4909,10 @@ class ThumbSyncApp {
     if (tab === 'history') {
       this.state.activeTab = 'list_manager';
       this.state.muralSubTab = 'history';
+      this.state.historyPage = 1;
+      if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
+        this.loadHistoryOnDemand();
+      }
     } else if (tab === 'list_manager') {
       this.state.activeTab = 'list_manager';
       this.state.muralSubTab = 'mural';
@@ -5447,8 +5467,8 @@ class ThumbSyncApp {
             `
         : ''
       }
-            <span class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold shrink-0">
-              ${historyList.length} ${historyList.length === 1 ? 'jogo concluído' : 'jogos concluídos'}
+            <span class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold shrink-0" title="Exibição em blocos de até 30 itens por vez">
+              Exibindo ${visibleItems.length} de ${historyList.length} ${historyList.length === 1 ? 'concluído' : 'concluídos'}
             </span>
           </div>
         </div>
@@ -5604,8 +5624,11 @@ class ThumbSyncApp {
             ${hasMoreItems
             ? `
               <div class="pt-4 text-center">
-                <button id="btn-load-more-history" class="px-6 py-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg active:scale-95">
-                  Carregar mais concluídos (${sortedItems.length - maxVisible} restantes)
+                <button id="btn-load-more-history" class="px-6 py-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 mx-auto">
+                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                  </svg>
+                  <span>Carregar mais +30 concluídos (${sortedItems.length - maxVisible} restantes)</span>
                 </button>
               </div>
             `
@@ -7158,8 +7181,11 @@ class ThumbSyncApp {
       if (btnSubtabHistory) {
         btnSubtabHistory.addEventListener('click', () => {
           this.state.muralSubTab = 'history';
+          this.state.historyPage = 1;
           this.renderActiveTab();
-          this.syncHistoryFromDrive();
+          if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
+            this.loadHistoryOnDemand();
+          }
         });
       }
 
@@ -7167,8 +7193,11 @@ class ThumbSyncApp {
       if (btnViewHistory) {
         btnViewHistory.addEventListener('click', () => {
           this.state.muralSubTab = 'history';
+          this.state.historyPage = 1;
           this.renderActiveTab();
-          this.syncHistoryFromDrive();
+          if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
+            this.loadHistoryOnDemand();
+          }
         });
       }
 
