@@ -442,6 +442,7 @@ class ThumbSyncApp {
       historyFileId: null,
       datesFileId: null,
       emersonAccountsFileId: null,
+      isLoadingHistory: false,
 
       // Database status (Firebase as primary, Drive as backup/fallback)
       activeDatabase: 'Firebase',
@@ -483,7 +484,7 @@ class ThumbSyncApp {
       });
 
     this.loadStateFromStorage();
-    this.loadDataFromFirebase();
+    this.loadInitialData();
     this.initGISAutomatic();
 
     // Fallback listeners para expiração de token
@@ -496,6 +497,11 @@ class ThumbSyncApp {
 
     // Smart Sync Strategy: Sincronização inteligente sem estourar cotas da API do Google Drive
     this.startSmartSync();
+  }
+
+  async loadInitialData() {
+    await this.loadDataFromFirebase();
+    this.loadHistoryFromFirebase(); // Dispara em paralelo
   }
 
   /**
@@ -709,8 +715,15 @@ class ThumbSyncApp {
     } catch (e) {
       this.state.collapsedProviderKeys = new Set();
     }
-    this.state.historyItems = [];
     this.state.itemAddedDates = {};
+
+    // Carregar histórico do cache local para exibição imediata
+    try {
+      this.state.historyItems =
+        JSON.parse(localStorage.getItem('thumbsync_cached_history')) || [];
+    } catch (e) {
+      this.state.historyItems = [];
+    }
 
     // Unificar e garantir que os dados do histórico fornecidos estejam sempre presentes
     this.ensureSeedHistoryAndDates();
@@ -753,11 +766,15 @@ class ThumbSyncApp {
       'thumbsync_custom_tags',
       JSON.stringify(this.state.customTags || {}),
     );
+    localStorage.setItem(
+      'thumbsync_cached_history',
+      JSON.stringify(this.state.historyItems || []),
+    );
     this.state.filterTag = this.state.filterTag || 'todos';
     this.state.filterDate = this.state.filterDate || 'recent';
   }
 
-  async loadDataFromFirebase() {
+  async loadDataFromFirebase() { // Carrega dados essenciais, sem o histórico
     try {
       const data = await firebaseService.loadAllData();
       if (data && firebaseService.getStatus().connected) {
@@ -779,14 +796,6 @@ class ThumbSyncApp {
             ...this.state.customTags,
             ...data.tags.data,
           };
-          loadedAny = true;
-        }
-        if (
-          data.history &&
-          Array.isArray(data.history.items) &&
-          data.history.items.length > 0
-        ) {
-          this.mergeDriveHistory(data.history.items);
           loadedAny = true;
         }
         if (
@@ -868,6 +877,27 @@ class ThumbSyncApp {
       this.state.activeDatabase = 'Google Drive (Fallback)';
       this.render();
       return false;
+    }
+  }
+
+  async loadHistoryFromFirebase() {
+    this.state.isLoadingHistory = true;
+    this.render();
+
+    try {
+      const historyData = await firebaseService.loadData('history');
+      if (historyData && Array.isArray(historyData.items)) {
+        this.mergeDriveHistory(historyData.items);
+        this.ensureSeedHistoryAndDates();
+        await this.saveHistory(); // Salva o histórico mesclado
+        this.addLog('Histórico sincronizado com o Firebase em segundo plano.');
+      }
+    } catch (e) {
+      console.warn('Erro ao carregar histórico do Firebase em paralelo:', e);
+    } finally {
+      this.state.isLoadingHistory = false;
+      this.syncLocalCatalog();
+      this.render();
     }
   }
 
@@ -1183,6 +1213,12 @@ class ThumbSyncApp {
   }
 
   async saveHistory() {
+    // Salvar em cache local para persistência instantânea
+    localStorage.setItem(
+      'thumbsync_cached_history',
+      JSON.stringify(this.state.historyItems || []),
+    );
+
     // Persistência: Firebase Firestore + Google Drive (historico.json)
     try {
       const fbOk = await firebaseService.saveData('history', {
@@ -1401,54 +1437,50 @@ class ThumbSyncApp {
   }
 
   async syncHistoryFromDrive() {
-    if (!driveClient.isAuthenticated()) return;
+    if (!driveClient.isAuthenticated() || !this.state.thumbsFolderId) return;
+
+    this.state.isLoadingHistory = true;
+    this.render();
+
     try {
-      if (!this.state.thumbsFolderId) {
-        this.state.thumbsFolderId = await driveClient.findOrCreateFolder(
-          this.config.folderName,
+      const files = await driveClient.listFilesInFolder(
+        this.state.thumbsFolderId,
+      );
+      const historyCandidateFiles = files.filter((f) =>
+        this.isHistoryCandidateFile(f),
+      );
+
+      if (historyCandidateFiles.length > 0) {
+        this.addLog(
+          `Sincronizando histórico do Drive em paralelo (${historyCandidateFiles.length} arquivo(s)...)`,
         );
-      }
-      if (this.state.thumbsFolderId) {
-        const files = await driveClient.listFilesInFolder(
-          this.state.thumbsFolderId,
-        );
-        const historyCandidateFiles = files.filter((f) =>
-          this.isHistoryCandidateFile(f),
-        );
-        if (historyCandidateFiles.length > 0) {
-          historyCandidateFiles.sort(
-            (a, b) =>
-              new Date(a.modifiedTime || 0) - new Date(b.modifiedTime || 0),
-          );
-          for (const hFile of historyCandidateFiles) {
+
+        await Promise.all(
+          historyCandidateFiles.map(async (hFile) => {
             try {
               const historyText = await driveClient.downloadTextFile(hFile.id);
               const driveHistory = this.parseHistoryText(historyText);
+              this.mergeDriveHistory(driveHistory);
               if (
-                Array.isArray(driveHistory) &&
-                (driveHistory.length === 0 ||
-                  driveHistory.some(
-                    (i) =>
-                      i && (i.displayName || i.isHistoryItem || i.providerName),
-                  ))
+                hFile.name.toLowerCase() ===
+                this.config.historyFileName.toLowerCase()
               ) {
-                this.mergeDriveHistory(driveHistory);
-                if (
-                  hFile.name.toLowerCase() ===
-                  this.config.historyFileName.toLowerCase()
-                ) {
-                  this.state.historyFileId = hFile.id;
-                }
+                this.state.historyFileId = hFile.id;
               }
-            } catch (e) {}
-          }
-          this.ensureSeedHistoryAndDates();
-          await this.saveHistory();
-          this.render();
-        }
+            } catch (e) {
+              console.warn(`Aviso ao ler arquivo de histórico ${hFile.name}:`, e);
+            }
+          }),
+        );
+
+        this.ensureSeedHistoryAndDates();
+        await this.saveHistory();
       }
     } catch (err) {
       console.warn('Erro ao sincronizar histórico direto do Drive:', err);
+    } finally {
+      this.state.isLoadingHistory = false;
+      this.render();
     }
   }
 
@@ -1837,44 +1869,8 @@ class ThumbSyncApp {
         }
       }
 
-      // Sincronizar Histórico de Concluídos (historico.json, untitled.json e variações)
-      const historyCandidateFiles = allFiles.filter((f) =>
-        this.isHistoryCandidateFile(f),
-      );
-      if (historyCandidateFiles.length > 0) {
-        this.addLog(
-          `Sincronizando histórico do Drive (${historyCandidateFiles.length} arquivo(s)...)`,
-        );
-        historyCandidateFiles.sort(
-          (a, b) =>
-            new Date(a.modifiedTime || 0) - new Date(b.modifiedTime || 0),
-        );
-
-        for (const hFile of historyCandidateFiles) {
-          try {
-            const historyText = await driveClient.downloadTextFile(hFile.id);
-            const driveHistory = this.parseHistoryText(historyText);
-            if (
-              Array.isArray(driveHistory) &&
-              (driveHistory.length === 0 ||
-                driveHistory.some(
-                  (i) =>
-                    i && (i.displayName || i.isHistoryItem || i.providerName),
-                ))
-            ) {
-              this.mergeDriveHistory(driveHistory);
-              if (
-                hFile.name.toLowerCase() ===
-                this.config.historyFileName.toLowerCase()
-              ) {
-                this.state.historyFileId = hFile.id;
-              }
-            }
-          } catch (e) {
-            console.warn('Aviso ao ler arquivo de histórico do Drive:', e);
-          }
-        }
-      }
+      // Dispara a sincronização do histórico em paralelo, sem bloquear a UI
+      this.syncHistoryFromDrive();
 
       // Sincronizar Datas de Adição (added_dates.json)
       const datesFiles = allFiles.filter(
@@ -2268,7 +2264,7 @@ class ThumbSyncApp {
         (f) =>
           this.isDriveWebpFile(f) ||
           (f.name || '').toLowerCase() ===
-            (this.config.listFileName || 'lista.txt').toLowerCase(),
+          (this.config.listFileName || 'lista.txt').toLowerCase(),
       )
       .map(
         (f) =>
@@ -2530,10 +2526,10 @@ class ThumbSyncApp {
             const fractionNeeded = tempPending / capacityToday;
             const hoursTodayLeft =
               iterations === 1 &&
-              currentDate.getHours() + currentDate.getMinutes() / 60 >
+                currentDate.getHours() + currentDate.getMinutes() / 60 >
                 workStartHour
                 ? workEndHour -
-                  (currentDate.getHours() + currentDate.getMinutes() / 60)
+                (currentDate.getHours() + currentDate.getMinutes() / 60)
                 : workDuration;
 
             const hoursNeeded = fractionNeeded * hoursTodayLeft;
@@ -3228,7 +3224,7 @@ class ThumbSyncApp {
     const historyMap = new Map(
       (this.state.historyItems || []).map((h) => [
         h.id ||
-          `${this.normalizeName(h.providerName)}::${this.normalizeName(h.displayName || h.normalizedName)}`,
+        `${this.normalizeName(h.providerName)}::${this.normalizeName(h.displayName || h.normalizedName)}`,
         h,
       ]),
     );
@@ -4178,9 +4174,8 @@ class ThumbSyncApp {
     root.innerHTML = `
       <div id="app-container" class="flex h-screen h-[100dvh] w-full overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
 
-        ${
-          showOnboarding
-            ? `
+        ${showOnboarding
+        ? `
         <div id="onboarding-overlay" class="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center transition-opacity duration-300">
           <div class="bg-[#131316] border border-white/10 rounded-[32px] p-8 max-w-lg w-[90%] shadow-2xl relative overflow-hidden">
             <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-[50px] rounded-full pointer-events-none"></div>
@@ -4222,13 +4217,12 @@ class ThumbSyncApp {
           </div>
         </div>
         `
-            : ''
-        }
+        : ''
+      }
 
         <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
-        ${
-          !this.state.gdriveConnected
-            ? `
+        ${!this.state.gdriveConnected
+        ? `
         <!-- Overlay + card: visível só no desktop (>= 1024px) -->
         <div id="disconnected-overlay" style="
           position: fixed;
@@ -4369,8 +4363,8 @@ class ThumbSyncApp {
           }
         </style>
         `
-            : ''
-        }
+        : ''
+      }
         
         <!-- SIDEBAR -->
         <aside class="hidden lg:flex w-64 max-w-64 border-r border-white/[0.06] bg-[#0f0f13] flex-col justify-between shrink-0 h-full p-5 relative z-10">
@@ -4405,52 +4399,53 @@ class ThumbSyncApp {
             <!-- Side Nav Tabs -->
             <nav class="space-y-1">
               ${this.renderNavItem(
-                'catalog',
-                'Miniaturas',
-                `
+        'catalog',
+        'Miniaturas',
+        `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               `,
-                `
+        `
                 <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter((i) => i.hasWebp).length}</span>
               `,
-              )}
+      )}
               ${this.renderNavItem(
-                'list_manager',
-                'Mural de Jogos',
-                `
+        'list_manager',
+        'Mural de Jogos',
+        `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               `,
-              )}
+      )}
               ${this.renderNavItem(
-                'history',
-                'Histórico',
-                `
+        'history',
+        'Histórico',
+        `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
               `,
-                `
+        this.state.isLoadingHistory
+          ? `<svg class="ml-auto w-3.5 h-3.5 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>`
+          : `
                 <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">${(this.state.historyItems || []).length}</span>
               `,
-              )}
-              ${
-                this.isAdmin()
-                  ? this.renderNavItem(
-                      'settings',
-                      'Configurações',
-                      `
+      )}
+              ${this.isAdmin()
+        ? this.renderNavItem(
+          'settings',
+          'Configurações',
+          `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
                 </svg>
               `,
-                    )
-                  : ''
-              }
+        )
+        : ''
+      }
             </nav>
 
             <!-- Previsão de Conclusão / Barra de Progresso Widget -->
@@ -4476,9 +4471,8 @@ class ThumbSyncApp {
 
           <!-- Bottom account control -->
           <div class="border-t border-white/[0.05] pt-4 flex flex-col gap-2 relative z-10 w-full select-none">
-            ${
-              this.state.gdriveConnected
-                ? `
+            ${this.state.gdriveConnected
+        ? `
               <div class="flex flex-col gap-1.5 bg-white/[0.015] border border-white/[0.04] p-3 rounded-2xl w-full">
                 <div class="flex items-center gap-2.5 min-w-0">
                   <div class="w-8 h-8 rounded-full ${profile.isAdmin ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-blue-600/20 text-blue-300 border border-blue-500/30'} flex items-center justify-center font-black text-xs uppercase shrink-0">
@@ -4495,12 +4489,12 @@ class ThumbSyncApp {
                 Desconectar Google
               </button>
             `
-                : `
+        : `
               <button id="btn-login" class="flex items-center justify-center gap-2 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md w-full transition-all cursor-pointer">
                 Conectar Google Drive
               </button>
             `
-            }
+      }
           </div>
         </aside>
 
@@ -4516,15 +4510,14 @@ class ThumbSyncApp {
                 <span class="hidden sm:inline">${this.state.gdriveConnected ? 'GOOGLE DRIVE CONECTADO' : 'NÃO CONECTADO'}</span>
                 <span class="inline sm:hidden">${this.state.gdriveConnected ? 'CONECTADO' : 'OFFLINE'}</span>
               </span>
-              ${
-                this.state.gdriveConnected
-                  ? `
+              ${this.state.gdriveConnected
+        ? `
                 <span class="px-2.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black border ${profile.badgeColor} flex items-center gap-1 shadow-sm">
                   ${profile.isAdmin ? 'André Luiz' : 'Emerson'}
                 </span>
               `
-                  : ''
-              }
+        : ''
+      }
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
@@ -4534,9 +4527,8 @@ class ThumbSyncApp {
 
             <div class="flex items-center gap-3">
               <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0" title="Sincronizar Google Drive">
-                ${
-                  this.state.isLoading
-                    ? `
+                ${this.state.isLoading
+        ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
                       <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
@@ -4550,12 +4542,12 @@ class ThumbSyncApp {
                     </g>
                   </svg>
                 `
-                    : `
+        : `
                   <svg id="sync-icon" class="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
                 `
-                }
+      }
                 <span class="hidden sm:inline ml-1.5">Sincronizar</span>
               </button>
             </div>
@@ -4591,45 +4583,44 @@ class ThumbSyncApp {
         <!-- MOBILE TAB BAR -->
         <nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0c0c0f]/90 backdrop-blur-md border-t border-white/[0.06] flex items-center justify-around z-30">
           ${this.renderMobileNavItem(
-            'catalog',
-            'Miniaturas',
-            `
+        'catalog',
+        'Miniaturas',
+        `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
             </svg>
           `,
-          )}
+      )}
           ${this.renderMobileNavItem(
-            'list_manager',
-            'Mural',
-            `
+        'list_manager',
+        'Mural',
+        `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           `,
-          )}
+      )}
           ${this.renderMobileNavItem(
-            'history',
-            'Histórico',
-            `
+        'history',
+        'Histórico',
+        `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           `,
-          )}
-          ${
-            this.isAdmin()
-              ? this.renderMobileNavItem(
-                  'settings',
-                  'Ajustes',
-                  `
+      )}
+          ${this.isAdmin()
+        ? this.renderMobileNavItem(
+          'settings',
+          'Ajustes',
+          `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
             </svg>
           `,
-                )
-              : ''
-          }
+        )
+        : ''
+      }
         </nav>
       </div>
 
@@ -4658,16 +4649,15 @@ class ThumbSyncApp {
       <!-- Bubble Trigger Button -->
       <button id="assistant-bubble" aria-label="Dicas e avisos do desenvolvedor" class="fixed z-50 bottom-20 right-4 lg:bottom-6 lg:right-6 w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_32px_rgba(59,130,246,0.45)] transition-all duration-300 active:scale-95 hover:scale-105 focus:outline-none" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: 1px solid rgba(255,255,255,0.15);">
         <!-- Pulsing green dot — shown only on first visit -->
-        ${
-          !localStorage.getItem('thumbsync_assistant_opened')
-            ? `
+        ${!localStorage.getItem('thumbsync_assistant_opened')
+        ? `
           <span class="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-[#0c0c0e]"></span>
           </span>
         `
-            : ''
-        }
+        : ''
+      }
         <!-- Icon: sparkle / help -->
         <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -5046,12 +5036,12 @@ class ThumbSyncApp {
                 <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                   <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
                   ${uniqueProviders
-                    .map(
-                      (p) => `
+          .map(
+            (p) => `
                     <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
                   `,
-                    )
-                    .join('')}
+          )
+          .join('')}
                 </select>
               </div>
               <div class="space-y-1">
@@ -5059,20 +5049,20 @@ class ThumbSyncApp {
                 <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                   <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
                   ${[
-                    'Slot',
-                    'Ao Vivo',
-                    'Crash',
-                    'Mesa RNG',
-                    'Instant Win',
-                    'Scratchcard',
-                    'Prioridades',
-                  ]
-                    .map(
-                      (tag) => `
+          'Slot',
+          'Ao Vivo',
+          'Crash',
+          'Mesa RNG',
+          'Instant Win',
+          'Scratchcard',
+          'Prioridades',
+        ]
+          .map(
+            (tag) => `
                     <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
                   `,
-                    )
-                    .join('')}
+          )
+          .join('')}
                 </select>
               </div>
               <div class="space-y-1">
@@ -5096,57 +5086,55 @@ class ThumbSyncApp {
       resultsArea.innerHTML = `
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
           ${Array.from({ length: 15 })
-            .map(
-              () => `
+          .map(
+            () => `
             <div class="aspect-[2/3] rounded-2xl bg-white/[0.02] border border-white/[0.03] animate-pulse flex flex-col justify-end p-4">
               <div class="w-1/2 h-2.5 bg-white/10 rounded mb-2"></div>
               <div class="w-3/4 h-3.5 bg-white/20 rounded"></div>
             </div>
           `,
-            )
-            .join('')}
+          )
+          .join('')}
         </div>
       `;
     } else {
       resultsArea.innerHTML = `
-        ${
-          items.length === 0
-            ? `
+        ${items.length === 0
+          ? `
           <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
         `
-            : `
+          : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
             ${itemsToShow
-              .map((item) => {
-                const providerKey = (item.providerName || '')
-                  .toLowerCase()
-                  .trim();
-                const customLogo = this.state.customLogos
-                  ? this.state.customLogos[providerKey]
-                  : null;
+            .map((item) => {
+              const providerKey = (item.providerName || '')
+                .toLowerCase()
+                .trim();
+              const customLogo = this.state.customLogos
+                ? this.state.customLogos[providerKey]
+                : null;
 
-                const gradient =
-                  customLogo && customLogo.customBgGradient
-                    ? customLogo.customBgGradient
-                    : PROVIDER_GRADIENTS[providerKey] ||
-                      PROVIDER_GRADIENTS['default'];
+              const gradient =
+                customLogo && customLogo.customBgGradient
+                  ? customLogo.customBgGradient
+                  : PROVIDER_GRADIENTS[providerKey] ||
+                  PROVIDER_GRADIENTS['default'];
 
-                const boardGlow = customLogo
-                  ? customLogo.customGlowColor || 'rgba(255,255,255,0.08)'
-                  : PROVIDER_BORDER_GLOWS[providerKey] ||
-                    PROVIDER_BORDER_GLOWS['default'];
+              const boardGlow = customLogo
+                ? customLogo.customGlowColor || 'rgba(255,255,255,0.08)'
+                : PROVIDER_BORDER_GLOWS[providerKey] ||
+                PROVIDER_BORDER_GLOWS['default'];
 
-                const hasWebp = item.hasWebp;
-                const tag = this.getGameTag(item);
-                const tagHtml = this.getGameTagHTML(tag);
+              const hasWebp = item.hasWebp;
+              const tag = this.getGameTag(item);
+              const tagHtml = this.getGameTagHTML(tag);
 
-                return `
+              return `
               <div data-catalog-key="${item.id}" 
                    style="--card-glow: ${boardGlow}" 
                    class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 hover:shadow-[0_0_22px_var(--card-glow)] shadow-md cursor-pointer transition-all transform hover:scale-[1.02] duration-300">
-                ${
-                  hasWebp
-                    ? `
+                ${hasWebp
+                  ? `
                   <img id="thumb-${item.id}" 
                        data-catalog-key="${item.id}" 
                        loading="lazy" 
@@ -5155,8 +5143,8 @@ class ThumbSyncApp {
                        alt="${item.displayName}" 
                        class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
                 `
-                    : customLogo
-                      ? `
+                  : customLogo
+                    ? `
                   <div class="absolute inset-0 bg-gradient-to-tr ${customLogo.customBgGradient} flex flex-col justify-between p-4 text-left overflow-hidden select-none">
                     <img src="${customLogo.customCover}" class="absolute inset-0 w-full h-full object-cover opacity-[0.22] mix-blend-overlay filter blur-[0.3px] scale-105 transition-transform duration-700 hover:scale-110 pointer-events-none">
                     <div class="text-[8px] font-extrabold uppercase tracking-widest text-[#0a84ff] bg-[#0a84ff]/10 border border-[#0a84ff]/20 px-2.5 py-0.5 rounded-full w-fit z-10">
@@ -5173,7 +5161,7 @@ class ThumbSyncApp {
                     </div>
                   </div>
                 `
-                      : `
+                    : `
                   <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
                     <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
                       PENDENTE
@@ -5193,15 +5181,14 @@ class ThumbSyncApp {
 
                 <div class="absolute inset-0 ${hasWebp ? 'bg-gradient-to-t from-black/80 via-transparent to-transparent' : `bg-gradient-to-t ${gradient} opacity-90`} pointer-events-none"></div>
                 
-                ${
-                  hasWebp
-                    ? `
+                ${hasWebp
+                  ? `
                   <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
                     <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
                     <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
                   </div>
                 `
-                    : ''
+                  : ''
                 }
 
                 <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
@@ -5210,18 +5197,17 @@ class ThumbSyncApp {
                 </div>
               </div>
             `;
-              })
-              .join('')}
+            })
+            .join('')}
         </div>
-        ${
-          totalItemsCount > itemsToShow.length
+        ${totalItemsCount > itemsToShow.length
             ? `
           <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
             <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         `
             : ''
-        }
+          }
       `
         }
     `;
@@ -5343,7 +5329,7 @@ class ThumbSyncApp {
     const datesList = Array.from(groupsByDate.entries());
 
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative w-full">
+      <div class="space-y-4 sm:space-y-6 text-left select-none relative w-full">
         <!-- Subtabs e Voltar -->
         <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
           <div>
@@ -5353,14 +5339,22 @@ class ThumbSyncApp {
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
                 </svg>
               </button>
-              <h1 class="text-2xl font-black text-white tracking-tight">Histórico de Concluídos</h1>
+              <div class="flex items-center gap-2.5">
+                <h1 class="text-2xl font-black text-white tracking-tight">Histórico de Concluídos</h1>
+                ${this.state.isLoadingHistory
+        ? `
+                  <svg class="w-4 h-4 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>
+                  <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Sincronizando...</span>
+                `
+        : ''
+      }
+              </div>
             </div>
             <p class="text-zinc-500 text-xs mt-1">Jogos que foram marcados com miniatura (.webp) e removidos do Mural de Demandas, organizados por dia de adição.</p>
           </div>
           <div class="flex items-center gap-2 shrink-0">
-            ${
-              this.isAdmin()
-                ? `
+            ${this.isAdmin()
+        ? `
               <input type="file" id="input-import-history-json" accept=".json,.txt,application/json,text/plain" multiple class="hidden" />
               <button id="btn-import-history-json" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition-all text-xs font-bold cursor-pointer" title="Importar arquivo(s) JSON ou TXT de histórico">
                 <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -5369,17 +5363,16 @@ class ThumbSyncApp {
                 <span>Importar JSON/TXT</span>
               </button>
             `
-                : ''
-            }
+        : ''
+      }
             <span class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold shrink-0">
               ${historyList.length} ${historyList.length === 1 ? 'jogo concluído' : 'jogos concluídos'}
             </span>
           </div>
         </div>
 
-        ${
-          this.isAdmin()
-            ? `
+        ${this.isAdmin()
+        ? `
           <div class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-300 text-xs shadow-lg shadow-amber-500/5">
             <div class="flex items-start gap-3">
               <div class="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
@@ -5402,12 +5395,34 @@ class ThumbSyncApp {
             </button>
           </div>
         `
-            : ''
-        }
+        : ''
+      }
 
-        ${
-          historyList.length === 0
-            ? `
+        ${this.state.isLoadingHistory && historyList.length === 0
+        ? `
+          <div class="space-y-4 pt-4">
+            ${Array.from({ length: 3 })
+          .map(
+            () => `
+              <div class="bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4 sm:p-5 space-y-3 animate-pulse">
+                <div class="flex items-center justify-between border-b border-white/[0.04] pb-2.5">
+                  <div class="w-48 h-4 bg-white/10 rounded-md"></div>
+                  <div class="w-16 h-4 bg-white/5 rounded-md"></div>
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
+                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl"></div>
+                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl"></div>
+                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl hidden sm:block"></div>
+                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl hidden md:block"></div>
+                </div>
+              </div>
+            `,
+          )
+          .join('')}
+          </div>
+        `
+        : historyList.length === 0
+          ? `
           <div class="py-16 text-center space-y-3 bg-white/[0.01] border border-white/[0.04] rounded-3xl p-8">
             <div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto text-blue-400">
               <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
@@ -5420,17 +5435,17 @@ class ThumbSyncApp {
             </p>
           </div>
         `
-            : `
-          <div class="space-y-6">
+          : `
+          <div class="space-y-4 sm:space-y-6">
             ${datesList
-              .map(([dateStr, items]) => {
-                let formattedDateHeader = dateStr;
-                if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-                  const parts = dateStr.split('-');
-                  formattedDateHeader = `${parts[2]}/${parts[1]}/${parts[0]}`;
-                }
+            .map(([dateStr, items]) => {
+              let formattedDateHeader = dateStr;
+              if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+                const parts = dateStr.split('-');
+                formattedDateHeader = `${parts[2]}/${parts[1]}/${parts[0]}`;
+              }
 
-                return `
+              return `
                 <div class="bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4 sm:p-5 space-y-3">
                   <div class="flex items-center justify-between border-b border-white/[0.04] pb-2.5">
                     <div class="flex items-center gap-2">
@@ -5446,18 +5461,18 @@ class ThumbSyncApp {
 
                   <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
                     ${items
-                      .map((item) => {
-                        const key =
-                          item.id ||
-                          `${this.normalizeName(item.providerName)}::${this.normalizeName(item.displayName || item.normalizedName)}`;
-                        const catalogItem = this.state.catalogItems.find(
-                          (ci) => ci.id === key,
-                        );
-                        const hasWebp = catalogItem
-                          ? catalogItem.hasWebp
-                          : item.hasWebp;
+                  .map((item) => {
+                    const key =
+                      item.id ||
+                      `${this.normalizeName(item.providerName)}::${this.normalizeName(item.displayName || item.normalizedName)}`;
+                    const catalogItem = this.state.catalogItems.find(
+                      (ci) => ci.id === key,
+                    );
+                    const hasWebp = catalogItem
+                      ? catalogItem.hasWebp
+                      : item.hasWebp;
 
-                        return `
+                    return `
                         <div data-catalog-key="${key}" class="group relative bg-[#131317] border border-white/[0.06] hover:border-blue-500/40 rounded-xl p-3.5 flex flex-col justify-between transition-all hover:bg-white/[0.03] cursor-pointer">
                           <div class="flex items-start justify-between gap-2">
                             <div class="min-w-0 flex-1">
@@ -5481,9 +5496,8 @@ class ThumbSyncApp {
                               <span>Copiar Nome</span>
                             </button>
 
-                            ${
-                              hasWebp
-                                ? `
+                            ${hasWebp
+                        ? `
                               <button data-preview-history-key="${key}" class="flex items-center gap-1 text-[10px] font-semibold text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 transition-colors cursor-pointer" title="Ver / Baixar Arte">
                                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
@@ -5492,21 +5506,21 @@ class ThumbSyncApp {
                                 <span>Ver Arte</span>
                               </button>
                             `
-                                : ''
-                            }
+                        : ''
+                      }
                           </div>
                         </div>
                       `;
-                      })
-                      .join('')}
+                  })
+                  .join('')}
                   </div>
                 </div>
               `;
-              })
-              .join('')}
+            })
+            .join('')}
           </div>
         `
-        }
+      }
       </div>
     `;
 
@@ -5756,7 +5770,12 @@ class ThumbSyncApp {
               </button>
               <button id="subtab-btn-history" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${this.state.muralSubTab === 'history' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'}">
                 <span>Histórico</span>
-                <span class="px-1.5 py-0.2 text-[9px] rounded-full bg-white/10 text-white font-extrabold">${(this.state.historyItems || []).length}</span>
+                ${this.state.isLoadingHistory
+        ? `<svg class="w-3 h-3 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>`
+        : `
+                  <span class="px-1.5 py-0.2 text-[9px] rounded-full bg-white/10 text-white font-extrabold">${(this.state.historyItems || []).length}</span>
+                `
+      }
               </button>
             </div>
           </div>
@@ -5774,7 +5793,13 @@ class ThumbSyncApp {
               <svg class="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Histórico (${(this.state.historyItems || []).length})</span>
+              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">
+                Histórico 
+                ${this.state.isLoadingHistory
+        ? ' (Sincronizando...)'
+        : `(${(this.state.historyItems || []).length})`
+      }
+              </span>
             </button>
             
             <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
@@ -5813,13 +5838,12 @@ class ThumbSyncApp {
         <div class="flex flex-col lg:flex-row gap-6 w-full items-start">
           <!-- Lista Principal de Provedores e Jogos -->
           <div class="space-y-4 w-full lg:flex-1 lg:min-w-0">
-            ${
-              this.state.isLoading && groupsList.length === 0
-                ? `
+            ${this.state.isLoading && groupsList.length === 0
+        ? `
               <div class="space-y-4">
                 ${Array.from({ length: 4 })
-                  .map(
-                    () => `
+          .map(
+            () => `
                   <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
                     <div class="flex items-center gap-3">
                       <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
@@ -5831,27 +5855,27 @@ class ThumbSyncApp {
                     </div>
                   </div>
                 `,
-                  )
-                  .join('')}
+          )
+          .join('')}
               </div>
             `
-                : groupsList.length === 0
-                  ? `
+        : groupsList.length === 0
+          ? `
               <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
             `
-                  : `
+          : `
               <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x">
               ${groupsList
-                .map(([providerName, games]) => {
-                  const providerKey = this.normalizeName(providerName);
-                  const providerAttr = encodeURIComponent(providerKey);
-                  const isCollapsed =
-                    this.state.collapsedProviderKeys.has(providerKey);
-                  const isNotFoundSection =
-                    providerName === 'Não Foi Possível Criar';
-                  const isPrioritySection = providerName === 'Prioridades';
+            .map(([providerName, games]) => {
+              const providerKey = this.normalizeName(providerName);
+              const providerAttr = encodeURIComponent(providerKey);
+              const isCollapsed =
+                this.state.collapsedProviderKeys.has(providerKey);
+              const isNotFoundSection =
+                providerName === 'Não Foi Possível Criar';
+              const isPrioritySection = providerName === 'Prioridades';
 
-                  return `
+              return `
                 <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
                   <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
                     <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
@@ -5868,10 +5892,9 @@ class ThumbSyncApp {
                       <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                         ${games.length} jogos
                       </span>
-                      ${
-                        isNotFoundSection || isPrioritySection
-                          ? ''
-                          : `
+                      ${isNotFoundSection || isPrioritySection
+                  ? ''
+                  : `
                       <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${this.state.priorityProvidersSet?.has(providerKey) ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/15' : 'bg-white/5 hover:bg-white/10 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer shrink-0" title="Marcar/Desmarcar como Prioridade">
                         <svg class="w-3.5 h-3.5" fill="${this.state.priorityProvidersSet?.has(providerKey) ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
                       </button>
@@ -5879,33 +5902,32 @@ class ThumbSyncApp {
                         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
                       `
-                      }
+                }
                     </div>
                   </div>
 
-                  ${
-                    isCollapsed
-                      ? ''
-                      : `
+                  ${isCollapsed
+                  ? ''
+                  : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games
-                      .map((game) => {
-                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                        const catalogItem = this.state.catalogItems.find(
-                          (i) => i.id === key,
-                        );
-                        const hasWebp = catalogItem?.hasWebp || false;
-                        const formattedDate = catalogItem?.modifiedTime
-                          ? new Date(
-                              catalogItem.modifiedTime,
-                            ).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: '2-digit',
-                            })
-                          : '';
+                    .map((game) => {
+                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                      const catalogItem = this.state.catalogItems.find(
+                        (i) => i.id === key,
+                      );
+                      const hasWebp = catalogItem?.hasWebp || false;
+                      const formattedDate = catalogItem?.modifiedTime
+                        ? new Date(
+                          catalogItem.modifiedTime,
+                        ).toLocaleDateString('pt-BR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: '2-digit',
+                        })
+                        : '';
 
-                        return `
+                      return `
                         <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
                           <div class="flex items-start gap-2.5 min-w-0 w-full">
                             <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
@@ -5929,9 +5951,8 @@ class ThumbSyncApp {
 
                           <!-- Action buttons row, aligned below the information -->
                           <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
-                            ${
-                              this.isAdmin()
-                                ? `
+                            ${this.isAdmin()
+                          ? `
                             <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" 
                                target="_blank" 
                                rel="noopener noreferrer" 
@@ -5944,8 +5965,8 @@ class ThumbSyncApp {
                               </svg>
                             </a>
                             `
-                                : ''
-                            }
+                          : ''
+                        }
                             <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
                               <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -5970,26 +5991,25 @@ class ThumbSyncApp {
                           </div>
                         </div>
                       `;
-                      })
-                      .join('')}
+                    })
+                    .join('')}
                   </div>
                   `
-                  }
+                }
                 </div>
               `;
-                })
-                .join('')}
+            })
+            .join('')}
               </div>
             `
-            }
+      }
           </div>
         </div>
       </div>
 
       <!-- Add Game Modal -->
-      ${
-        this.state.isAddingGame
-          ? `
+      ${this.state.isAddingGame
+        ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
@@ -5998,12 +6018,12 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-add-game-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
                 ${modalProvidersList
-                  .map(
-                    (prov) => `
+          .map(
+            (prov) => `
                   <option value="${prov}" ${prov === this.state.addingGameToProvider ? 'selected' : ''}>${prov}</option>
                 `,
-                  )
-                  .join('')}
+          )
+          .join('')}
               </select>
             </div>
 
@@ -6019,13 +6039,12 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-          : ''
+        : ''
       }
 
       <!-- Import CSV Modal -->
-      ${
-        this.state.isImportingCSV
-          ? `
+      ${this.state.isImportingCSV
+        ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar Planilha</h3>
@@ -6034,12 +6053,12 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-import-csv-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
                 ${modalProvidersList
-                  .map(
-                    (prov) => `
+          .map(
+            (prov) => `
                   <option value="${prov}">${prov}</option>
                 `,
-                  )
-                  .join('')}
+          )
+          .join('')}
               </select>
             </div>
 
@@ -6056,13 +6075,12 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-          : ''
+        : ''
       }
       
       <!-- Edit Game Name Modal -->
-      ${
-        this.state.isEditingGameName && this.state.editingGameItem
-          ? `
+      ${this.state.isEditingGameName && this.state.editingGameItem
+        ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Editar Nome do Jogo</h3>
@@ -6079,7 +6097,7 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-          : ''
+        : ''
       }
 
       <!-- Add Provider Modal -->
@@ -6146,11 +6164,10 @@ class ThumbSyncApp {
               </div>
 
               <p class="text-[11px] text-zinc-400 leading-relaxed">
-                ${
-                  this.state.activeDatabase === 'Firebase'
-                    ? 'O sistema está lendo os dados do <strong class="text-amber-300">Firebase Firestore</strong> (banco principal) e realizando a <strong class="text-blue-300">Sincronização Dupla</strong> no seu Google Drive como backup contínuo.'
-                    : 'O Firebase Firestore está inativo ou inacessível no momento. O sistema alternou automaticamente para o <strong class="text-amber-300">Google Drive como Banco de Dados de Contingência</strong>.'
-                }
+                ${this.state.activeDatabase === 'Firebase'
+        ? 'O sistema está lendo os dados do <strong class="text-amber-300">Firebase Firestore</strong> (banco principal) e realizando a <strong class="text-blue-300">Sincronização Dupla</strong> no seu Google Drive como backup contínuo.'
+        : 'O Firebase Firestore está inativo ou inacessível no momento. O sistema alternou automaticamente para o <strong class="text-amber-300">Google Drive como Banco de Dados de Contingência</strong>.'
+      }
               </p>
 
               <!-- Grid de Mapeamento das 5 Entidades do Banco de Dados -->
@@ -6216,9 +6233,8 @@ class ThumbSyncApp {
               </div>
             </div>
 
-            ${
-              this.state.gdriveConnected
-                ? `
+            ${this.state.gdriveConnected
+        ? `
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                 <div class="min-w-0">
                   <p class="text-xs font-bold text-white truncate">${profile.email ? profile.email : 'Google Drive Conectado'}</p>
@@ -6229,7 +6245,7 @@ class ThumbSyncApp {
                 </button>
               </div>
             `
-                : `
+        : `
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                 <div class="max-w-md">
                   <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
@@ -6246,13 +6262,12 @@ class ThumbSyncApp {
                 </button>
               </div>
             `
-            }
+      }
           </div>
 
           <!-- Gestão de Perfis Card (RESTRITO AO ADMINISTRADOR) -->
-          ${
-            isAdmin
-              ? `
+          ${isAdmin
+        ? `
             <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-5">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -6286,12 +6301,12 @@ class ThumbSyncApp {
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Atreladas ao Administrador:</span>
                   <div class="flex flex-wrap gap-1.5">
                     ${this.getAdminAccounts()
-                      .map(
-                        (email) => `
+          .map(
+            (email) => `
                       <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">${email}</span>
                     `,
-                      )
-                      .join('')}
+          )
+          .join('')}
                   </div>
                 </div>
               </div>
@@ -6312,26 +6327,26 @@ class ThumbSyncApp {
                   <div class="flex flex-wrap gap-1.5">
                     <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === 'emerson@betdasorte.com' ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">emerson@betdasorte.com</span>
                     ${emersonAccounts
-                      .filter(
-                        (e) =>
-                          e.toLowerCase() !== 'emerson@betdasorte.com' &&
-                          !this.getAdminAccounts()
-                            .map((a) => a.toLowerCase())
-                            .includes(e.toLowerCase()),
-                      )
-                      .map(
-                        (email) => `
+          .filter(
+            (e) =>
+              e.toLowerCase() !== 'emerson@betdasorte.com' &&
+              !this.getAdminAccounts()
+                .map((a) => a.toLowerCase())
+                .includes(e.toLowerCase()),
+          )
+          .map(
+            (email) => `
                       <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">${email}</span>
                     `,
-                      )
-                      .join('')}
+          )
+          .join('')}
                   </div>
                 </div>
               </div>
             </div>
           `
-              : ''
-          }
+        : ''
+      }
         </div>
       </div>
     `;
@@ -6373,35 +6388,34 @@ class ThumbSyncApp {
         <div id="modal-cat-container" class="${showCatEditor ? '' : 'hidden'} space-y-1.5 select-none pt-1 transition-all">
           <div class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</div>
           <div class="flex gap-1.5 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl flex-wrap">
-            ${
-              this.state.isSavingTag
-                ? `
+            ${this.state.isSavingTag
+        ? `
               <div class="w-full py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
                 <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
                 SALVANDO...
               </div>
             `
-                : `
+        : `
             ${[
-              'Slot',
-              'Ao Vivo',
-              'Crash',
-              'Mesa RNG',
-              'Instant Win',
-              'Scratchcard',
-              'Prioridades',
-            ]
-              .map(
-                (tag) => `
+          'Slot',
+          'Ao Vivo',
+          'Crash',
+          'Mesa RNG',
+          'Instant Win',
+          'Scratchcard',
+          'Prioridades',
+        ]
+          .map(
+            (tag) => `
               <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
                 <span class="w-1.5 h-1.5 rounded-full ${currentTag === tag ? 'bg-[#0a84ff] animate-pulse' : 'bg-transparent border border-zinc-600'}"></span>
                 ${tag}
               </button>
             `,
-              )
-              .join('')}
+          )
+          .join('')}
             `
-            }
+      }
           </div>
         </div>
 

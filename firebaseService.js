@@ -102,20 +102,17 @@ export const firebaseService = {
       return null;
     }
     try {
-      const [lista, tags, history, dates, emerson, admin_accs, collapsed_andre] = await Promise.all([
+      const [lista, tags, dates, emerson, admin_accs, collapsed_andre] = await Promise.all([
         this.loadData('lista'),
         this.loadData('tags'),
-        this.loadData('history'),
         this.loadData('dates'),
         this.loadData('emerson_accounts'),
         this.loadData('admin_accounts'),
         this.loadData('collapsed_providers_andre')
       ]);
-
       return {
         lista,
         tags,
-        history,
         dates,
         emerson,
         admin_accs,
