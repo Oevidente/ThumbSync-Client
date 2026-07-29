@@ -197,25 +197,63 @@ export class DriveApiClient {
     return await res.blob();
   }
 
+  async findExistingTextFileId(fileName, parentFolderId) {
+    const safeName = (fileName || '').trim();
+    if (!safeName) return null;
+
+    const normalizedName = safeName.toLowerCase();
+
+    if (parentFolderId) {
+      try {
+        const existingFiles = await this.listFilesInFolder(parentFolderId);
+        const match = existingFiles.find(
+          (f) => (f.name || '').toLowerCase() === normalizedName,
+        );
+        if (match) {
+          return match.id;
+        }
+      } catch (err) {
+        console.warn(
+          `Erro ao verificar existência de ${safeName} na pasta do Drive:`,
+          err,
+        );
+      }
+    }
+
+    try {
+      const escapedName = safeName.replace(/'/g, "\\'");
+      const files = await this.queryFiles(
+        `name = '${escapedName}' and trashed = false`,
+        'files(id,name,parents,mimeType)',
+        1000,
+      );
+      const exactNameMatch = files.find(
+        (f) => (f.name || '').toLowerCase() === normalizedName,
+      );
+      if (exactNameMatch) {
+        return exactNameMatch.id;
+      }
+      return files[0]?.id || null;
+    } catch (err) {
+      console.warn(
+        `Erro ao buscar ${safeName} no Drive por nome antes de salvar:`,
+        err,
+      );
+      return null;
+    }
+  }
+
   /**
    * Cria ou atualiza um arquivo de texto no Google Drive
    */
   async saveTextFile(fileName, content, parentFolderId, fileId) {
-    if (!fileId && parentFolderId) {
-      try {
-        const existingFiles = await this.listFilesInFolder(parentFolderId);
-        const match = existingFiles.find(
-          (f) => f.name.toLowerCase() === fileName.toLowerCase(),
-        );
-        if (match) {
-          fileId = match.id;
-        }
-      } catch (err) {
-        console.warn(
-          `Erro ao verificar existência de ${fileName} antes de salvar:`,
-          err,
-        );
-      }
+    const safeName = (fileName || '').trim();
+    if (!safeName) {
+      throw new Error('fileName é obrigatório para salvar no Drive.');
+    }
+
+    if (!fileId) {
+      fileId = await this.findExistingTextFileId(safeName, parentFolderId);
     }
 
     if (fileId) {
@@ -231,33 +269,33 @@ export class DriveApiClient {
         );
       }
       return fileId;
-    } else {
-      if (!parentFolderId) {
-        throw new Error(
-          'parentFolderId é obrigatório para criar novos arquivos.',
-        );
-      }
-
-      // 1. Criar metadados
-      const createMetaUrl = 'https://www.googleapis.com/drive/v3/files';
-      const metaRes = await this.fetchWithAuth(createMetaUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: fileName,
-          parents: [parentFolderId],
-          mimeType: 'text/plain',
-        }),
-      });
-
-      if (!metaRes.ok) {
-        throw new Error(
-          `Erro ao registrar metadados do arquivo: ${metaRes.statusText}`,
-        );
-      }
-      const newFile = await metaRes.json();
-      return await this.saveTextFile(fileName, content, undefined, newFile.id);
     }
+
+    if (!parentFolderId) {
+      throw new Error(
+        'parentFolderId é obrigatório para criar novos arquivos.',
+      );
+    }
+
+    // 1. Criar metadados
+    const createMetaUrl = 'https://www.googleapis.com/drive/v3/files';
+    const metaRes = await this.fetchWithAuth(createMetaUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: safeName,
+        parents: [parentFolderId],
+        mimeType: 'text/plain',
+      }),
+    });
+
+    if (!metaRes.ok) {
+      throw new Error(
+        `Erro ao registrar metadados do arquivo: ${metaRes.statusText}`,
+      );
+    }
+    const newFile = await metaRes.json();
+    return await this.saveTextFile(safeName, content, undefined, newFile.id);
   }
 
   /**
