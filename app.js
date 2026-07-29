@@ -436,13 +436,16 @@ class ThumbSyncApp {
 
       // History state
       historyItems: [],
+      historyLoaded: false,
+      isLoadingHistory: false,
+      historyPage: 1,
+      historyPageSize: 30,
       itemAddedDates: {},
       muralSubTab: 'active',
       historySearchQuery: '',
       historyFileId: null,
       datesFileId: null,
       emersonAccountsFileId: null,
-      isLoadingHistory: false,
 
       // Database status (Firebase as primary, Drive as backup/fallback)
       activeDatabase: 'Firebase',
@@ -880,20 +883,88 @@ class ThumbSyncApp {
     }
   }
 
-  async loadHistoryFromFirebase() {
+  async loadHistoryOnDemand() {
+    if (this.state.historyLoaded || this.state.isLoadingHistory) return;
     this.state.isLoadingHistory = true;
     this.render();
 
     try {
-      const historyData = await firebaseService.loadData('history');
-      if (historyData && Array.isArray(historyData.items)) {
-        this.mergeDriveHistory(historyData.items);
-        this.ensureSeedHistoryAndDates();
-        await this.saveHistory(); // Salva o histórico mesclado
-        this.addLog('Histórico sincronizado com o Firebase em segundo plano.');
+      this.addLog('Carregando histórico sob demanda...');
+      let loadedHistory = false;
+
+      // 1. Tentar carregar do Firebase primeiro (se disponível)
+      if (firebaseService.isConfigured()) {
+        try {
+          const historyData = await firebaseService.loadData('history');
+          if (
+            historyData &&
+            Array.isArray(historyData.items) &&
+            historyData.items.length > 0
+          ) {
+            this.mergeDriveHistory(historyData.items);
+            loadedHistory = true;
+            this.addLog('Histórico lido com sucesso do Firebase.');
+          }
+        } catch (e) {
+          console.warn('Falha ao carregar histórico do Firebase sob demanda:', e);
+        }
       }
-    } catch (e) {
-      console.warn('Erro ao carregar histórico do Firebase em paralelo:', e);
+
+      // 2. Se o Drive estiver autenticado e não carregou do Firebase, carregar do Drive
+      if (!loadedHistory && driveClient.isAuthenticated()) {
+        try {
+          let folderId = this.state.thumbsFolderId;
+          if (!folderId) {
+            folderId = await driveClient.findOrCreateFolder(
+              this.config.folderName,
+            );
+            this.state.thumbsFolderId = folderId;
+          }
+          if (folderId) {
+            const files = await driveClient.listFilesInFolder(folderId);
+            const historyCandidateFiles = files.filter((f) =>
+              this.isHistoryCandidateFile(f),
+            );
+            if (historyCandidateFiles.length > 0) {
+              historyCandidateFiles.sort(
+                (a, b) =>
+                  new Date(a.modifiedTime || 0) - new Date(b.modifiedTime || 0),
+              );
+              const results = await Promise.all(
+                historyCandidateFiles.map(async (hFile) => {
+                  try {
+                    const text = await driveClient.downloadTextFile(hFile.id);
+                    return { hFile, items: this.parseHistoryText(text) };
+                  } catch (err) {
+                    return null;
+                  }
+                }),
+              );
+              results.forEach((res) => {
+                if (res && res.items) {
+                  this.mergeDriveHistory(res.items);
+                  if (
+                    res.hFile.name.toLowerCase() ===
+                    this.config.historyFileName.toLowerCase()
+                  ) {
+                    this.state.historyFileId = res.hFile.id;
+                  }
+                }
+              });
+              loadedHistory = true;
+              this.addLog('Histórico lido com sucesso do Google Drive.');
+            }
+          }
+        } catch (e) {
+          console.warn('Falha ao carregar histórico do Drive sob demanda:', e);
+        }
+      }
+
+      this.ensureSeedHistoryAndDates();
+      this.state.historyLoaded = true;
+      this.saveStateToStorage();
+    } catch (err) {
+      console.error('Erro ao carregar histórico sob demanda:', err);
     } finally {
       this.state.isLoadingHistory = false;
       this.syncLocalCatalog();
@@ -917,11 +988,13 @@ class ThumbSyncApp {
       const p2 = withTimeout(
         firebaseService.saveData('tags', { data: this.state.customTags || {} }),
       );
-      const p3 = withTimeout(
-        firebaseService.saveData('history', {
-          items: this.state.historyItems || [],
-        }),
-      );
+      const p3 = this.state.historyLoaded
+        ? withTimeout(
+            firebaseService.saveData('history', {
+              items: this.state.historyItems || [],
+            }),
+          )
+        : Promise.resolve(true);
       const p4 = withTimeout(
         firebaseService.saveData('dates', {
           data: this.state.itemAddedDates || {},
@@ -5304,10 +5377,11 @@ class ThumbSyncApp {
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
   renderHistory(container) {
-    const historyList = this.state.historyItems || [];
+    if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
+      this.loadHistoryOnDemand();
+    }
 
-    // Agrupar itens por data de adição (addedDate)
-    const groupsByDate = new Map();
+    const historyList = this.state.historyItems || [];
 
     // Ordenar itens com datas mais recentes primeiro
     const sortedItems = [...historyList].sort((a, b) => {
@@ -5316,7 +5390,14 @@ class ThumbSyncApp {
       return dateB.localeCompare(dateA);
     });
 
-    sortedItems.forEach((item) => {
+    const pageSize = this.state.historyPageSize || 30;
+    const maxVisible = (this.state.historyPage || 1) * pageSize;
+    const visibleItems = sortedItems.slice(0, maxVisible);
+    const hasMoreItems = sortedItems.length > maxVisible;
+
+    // Agrupar itens visíveis por data de adição (addedDate)
+    const groupsByDate = new Map();
+    visibleItems.forEach((item) => {
       const dateKey =
         item.addedDate ||
         (item.addedAt ? item.addedAt.split('T')[0] : 'Sem Data');
@@ -5341,13 +5422,14 @@ class ThumbSyncApp {
               </button>
               <div class="flex items-center gap-2.5">
                 <h1 class="text-2xl font-black text-white tracking-tight">Histórico de Concluídos</h1>
-                ${this.state.isLoadingHistory
-        ? `
+                ${
+                  this.state.isLoadingHistory
+                    ? `
                   <svg class="w-4 h-4 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>
-                  <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Sincronizando...</span>
+                  <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Carregando...</span>
                 `
-        : ''
-      }
+                    : ''
+                }
               </div>
             </div>
             <p class="text-zinc-500 text-xs mt-1">Jogos que foram marcados com miniatura (.webp) e removidos do Mural de Demandas, organizados por dia de adição.</p>
@@ -5518,6 +5600,17 @@ class ThumbSyncApp {
               `;
             })
             .join('')}
+
+            ${hasMoreItems
+            ? `
+              <div class="pt-4 text-center">
+                <button id="btn-load-more-history" class="px-6 py-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg active:scale-95">
+                  Carregar mais concluídos (${sortedItems.length - maxVisible} restantes)
+                </button>
+              </div>
+            `
+            : ''
+          }
           </div>
         `
       }
@@ -5529,6 +5622,14 @@ class ThumbSyncApp {
     if (btnBack) {
       btnBack.addEventListener('click', () => {
         this.setActiveTab('list_manager');
+      });
+    }
+
+    const btnLoadMore = container.querySelector('#btn-load-more-history');
+    if (btnLoadMore) {
+      btnLoadMore.addEventListener('click', () => {
+        this.state.historyPage = (this.state.historyPage || 1) + 1;
+        this.render();
       });
     }
 
