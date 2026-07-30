@@ -3606,6 +3606,20 @@ class ThumbSyncApp {
     const showOnboarding = !this.state.hasSeenOnboarding;
 
     root.innerHTML = `
+      <style>
+        /* Garante que a barra de navegação inferior (mobile) seja exibida apenas em telas menores. */
+        /* A classe 'lg:hidden' do Tailwind a esconde em telas grandes (>=1024px). */
+        @media (max-width: 1023px) {
+          nav.lg\\:hidden {
+            display: flex !important; /* Exibe em mobile */
+          }
+        }
+        @media (min-width: 1024px) {
+          nav.lg\\:hidden {
+            display: none !important; /* Força ocultar em desktop, caso o Tailwind não esteja aplicando */
+          }
+        }
+      </style>
       <div id="app-container" class="flex h-screen h-[100dvh] w-full overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]">
 
         ${showOnboarding
@@ -3794,9 +3808,6 @@ class ThumbSyncApp {
             #disconnected-overlay      { display: none !important; }
             #disconnected-card-desktop { display: none !important; }
             #disconnected-toast-mobile { display: flex !important; }
-          }
-          @media (max-width: 1023px) {
-            .lg\\:hidden { display: flex !important; }
           }
         </style>
         `
@@ -4003,7 +4014,7 @@ class ThumbSyncApp {
         </main>
 
         <!-- MOBILE TAB BAR -->
-        <nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0c0c0f]/90 backdrop-blur-md border-t border-white/[0.06] flex items-center justify-around z-30">
+        <nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0c0c0f]/90 backdrop-blur-md border-t border-white/[0.06] items-center justify-around z-30">
           ${this.renderMobileNavItem(
         'catalog',
         'Miniaturas',
