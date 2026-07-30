@@ -502,6 +502,15 @@ class ThumbSyncApp {
     this.startSmartSync();
   }
 
+  safeJsonParse(text, fallback) {
+    try {
+      if (!text || typeof text !== 'string') return fallback;
+      return JSON.parse(text);
+    } catch (e) {
+      return fallback;
+    }
+  }
+
   async loadInitialData() {
     await this.loadDataFromFirebase();
   }
@@ -778,8 +787,14 @@ class ThumbSyncApp {
 
   async loadDataFromFirebase() { // Carrega dados essenciais, sem o histórico
     try {
+      if (firebaseService.getStatus().quotaExceeded) {
+        this.state.activeDatabase = 'Google Drive (Fallback)';
+        this.addLog('Aviso: Quota do Firebase excedida (Free tier). Operando via Google Drive / Cache local.');
+        this.render();
+        return false;
+      }
       const data = await firebaseService.loadAllData();
-      if (data && firebaseService.getStatus().connected) {
+      if (data && firebaseService.getStatus().connected && !firebaseService.getStatus().quotaExceeded) {
         let loadedAny = false;
         if (
           data.lista &&
@@ -889,6 +904,10 @@ class ThumbSyncApp {
 
   async pushAllToFirebase() {
     try {
+      if (firebaseService.getStatus().quotaExceeded) {
+        this.state.activeDatabase = 'Google Drive (Fallback)';
+        return;
+      }
       const withTimeout = (promise, ms = 6000) =>
         Promise.race([
           promise,

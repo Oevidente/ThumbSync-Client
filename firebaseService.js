@@ -70,14 +70,19 @@ export const firebaseService = {
       return true;
     } catch (e) {
       console.warn(`Erro ao salvar '${docId}' no Firebase:`, e);
+      const msg = String(e?.message || '');
+      const code = String(e?.code || '');
       if (
-        e?.code === 'resource-exhausted' ||
-        (e?.message && (e.message.includes('Quota limit exceeded') || e.message.includes('resource-exhausted')))
+        code === 'resource-exhausted' ||
+        code === '8' ||
+        msg.includes('Quota limit exceeded') ||
+        msg.includes('resource-exhausted') ||
+        msg.includes('Quota exceeded')
       ) {
         isQuotaExceeded = true;
         firebaseErrorMessage = 'Quota do Firebase excedida (Free tier). Usando Google Drive / Cache local.';
       } else {
-        firebaseErrorMessage = e.message;
+        firebaseErrorMessage = msg;
       }
       isFirebaseConnected = false;
       return false;
@@ -103,14 +108,19 @@ export const firebaseService = {
       }
     } catch (e) {
       console.warn(`Erro ao ler '${docId}' do Firebase:`, e);
+      const msg = String(e?.message || '');
+      const code = String(e?.code || '');
       if (
-        e?.code === 'resource-exhausted' ||
-        (e?.message && (e.message.includes('Quota limit exceeded') || e.message.includes('resource-exhausted')))
+        code === 'resource-exhausted' ||
+        code === '8' ||
+        msg.includes('Quota limit exceeded') ||
+        msg.includes('resource-exhausted') ||
+        msg.includes('Quota exceeded')
       ) {
         isQuotaExceeded = true;
         firebaseErrorMessage = 'Quota do Firebase excedida (Free tier). Usando Google Drive / Cache local.';
       } else {
-        firebaseErrorMessage = e.message;
+        firebaseErrorMessage = msg;
       }
       isFirebaseConnected = false;
       return null;
