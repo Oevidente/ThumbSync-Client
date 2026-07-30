@@ -1018,14 +1018,14 @@ class ThumbSyncApp {
     }
   }
 
-  async saveHistory() {}
+  async saveHistory() { }
   parseHistoryText() { return []; }
   isHistoryCandidateFile() { return false; }
-  mergeDriveHistory() {}
-  async handleImportHistoryFiles() {}
-  async syncHistoryFromDrive() {}
-  async addItemsToHistory() {}
-  async restoreItemFromHistory() {}
+  mergeDriveHistory() { }
+  async handleImportHistoryFiles() { }
+  async syncHistoryFromDrive() { }
+  async addItemsToHistory() { }
+  async restoreItemFromHistory() { }
 
   addLog(message) {
     console.log(`[ThumbSync] ${message}`);
@@ -3795,11 +3795,13 @@ class ThumbSyncApp {
             #disconnected-card-desktop { display: none !important; }
             #disconnected-toast-mobile { display: flex !important; }
           }
+          @media (max-width: 1023px) {
+            .lg\\:hidden { display: flex !important; }
+          }
         </style>
         `
         : ''
       }
-        
         <!-- SIDEBAR -->
         <aside class="hidden lg:flex w-64 max-w-64 border-r border-white/[0.06] bg-[#0f0f13] flex-col justify-between shrink-0 h-full p-5 relative z-10">
           <div class="space-y-6">
@@ -4727,14 +4729,13 @@ class ThumbSyncApp {
               </button>
               <div class="flex items-center gap-2.5">
                 <h1 class="text-2xl font-black text-white tracking-tight">Histórico de Concluídos</h1>
-                ${
-                  this.state.isLoadingHistory
-                    ? `
+                ${this.state.isLoadingHistory
+        ? `
                   <svg class="w-4 h-4 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>
                   <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Carregando...</span>
                 `
-                    : ''
-                }
+        : ''
+      }
               </div>
             </div>
             <p class="text-zinc-500 text-xs mt-1">Jogos que foram marcados com miniatura (.webp) e removidos do Mural de Demandas, organizados por dia de adição.</p>
