@@ -15,6 +15,7 @@ const firebaseConfig = {
 let app = null;
 let db = null;
 let isFirebaseConnected = false;
+let isQuotaExceeded = false;
 let firebaseErrorMessage = '';
 let lastSyncTime = null;
 
@@ -36,19 +37,23 @@ try {
 
 export const firebaseService = {
   isConfigured() {
-    return !!db;
+    return !!db && !isQuotaExceeded;
   },
 
   getStatus() {
     return {
-      connected: isFirebaseConnected,
+      connected: isFirebaseConnected && !isQuotaExceeded,
+      quotaExceeded: isQuotaExceeded,
       errorMessage: firebaseErrorMessage,
       lastSyncTime: lastSyncTime
     };
   },
 
   async saveData(docId, payload) {
-    if (!db) {
+    if (!db || isQuotaExceeded) {
+      if (isQuotaExceeded) {
+        firebaseErrorMessage = 'Quota do Firebase excedida (Free tier). Usando Google Drive / Cache local.';
+      }
       isFirebaseConnected = false;
       return false;
     }
@@ -65,14 +70,22 @@ export const firebaseService = {
       return true;
     } catch (e) {
       console.warn(`Erro ao salvar '${docId}' no Firebase:`, e);
+      if (
+        e?.code === 'resource-exhausted' ||
+        (e?.message && (e.message.includes('Quota limit exceeded') || e.message.includes('resource-exhausted')))
+      ) {
+        isQuotaExceeded = true;
+        firebaseErrorMessage = 'Quota do Firebase excedida (Free tier). Usando Google Drive / Cache local.';
+      } else {
+        firebaseErrorMessage = e.message;
+      }
       isFirebaseConnected = false;
-      firebaseErrorMessage = e.message;
       return false;
     }
   },
 
   async loadData(docId) {
-    if (!db) {
+    if (!db || isQuotaExceeded) {
       isFirebaseConnected = false;
       return null;
     }
@@ -90,8 +103,16 @@ export const firebaseService = {
       }
     } catch (e) {
       console.warn(`Erro ao ler '${docId}' do Firebase:`, e);
+      if (
+        e?.code === 'resource-exhausted' ||
+        (e?.message && (e.message.includes('Quota limit exceeded') || e.message.includes('resource-exhausted')))
+      ) {
+        isQuotaExceeded = true;
+        firebaseErrorMessage = 'Quota do Firebase excedida (Free tier). Usando Google Drive / Cache local.';
+      } else {
+        firebaseErrorMessage = e.message;
+      }
       isFirebaseConnected = false;
-      firebaseErrorMessage = e.message;
       return null;
     }
   },

@@ -883,99 +883,8 @@ class ThumbSyncApp {
   }
 
   async loadHistoryOnDemand() {
-    if (this.state.historyLoaded || this.state.isLoadingHistory) return;
-    this.state.isLoadingHistory = true;
-    this.state.historyPage = 1;
-    this.state.historyPageSize = 30;
-    this.renderActiveTab();
-
-    // Yield to event loop so loading state renders immediately
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    try {
-      this.addLog('Carregando histórico sob demanda (máx 30 por lote)...');
-      let loadedHistory = false;
-
-      // 1. Tentar carregar do Firebase primeiro (se disponível)
-      if (firebaseService.isConfigured()) {
-        try {
-          const historyData = await firebaseService.loadData('history');
-          if (
-            historyData &&
-            Array.isArray(historyData.items) &&
-            historyData.items.length > 0
-          ) {
-            this.mergeDriveHistory(historyData.items);
-            loadedHistory = true;
-            this.addLog('Histórico lido com sucesso do Firebase.');
-          }
-        } catch (e) {
-          console.warn('Falha ao carregar histórico do Firebase sob demanda:', e);
-        }
-      }
-
-      await new Promise((resolve) => setTimeout(resolve, 20));
-
-      // 2. Se o Drive estiver autenticado e não carregou do Firebase, carregar do Drive
-      if (!loadedHistory && driveClient.isAuthenticated()) {
-        try {
-          let folderId = this.state.thumbsFolderId;
-          if (!folderId) {
-            folderId = await driveClient.findOrCreateFolder(
-              this.config.folderName,
-            );
-            this.state.thumbsFolderId = folderId;
-          }
-          if (folderId) {
-            const files = await driveClient.listFilesInFolder(folderId);
-            const historyCandidateFiles = files.filter((f) =>
-              this.isHistoryCandidateFile(f),
-            );
-            if (historyCandidateFiles.length > 0) {
-              historyCandidateFiles.sort(
-                (a, b) =>
-                  new Date(a.modifiedTime || 0) - new Date(b.modifiedTime || 0),
-              );
-              const results = await Promise.all(
-                historyCandidateFiles.map(async (hFile) => {
-                  try {
-                    const text = await driveClient.downloadTextFile(hFile.id);
-                    return { hFile, items: this.parseHistoryText(text) };
-                  } catch (err) {
-                    return null;
-                  }
-                }),
-              );
-              results.forEach((res) => {
-                if (res && res.items) {
-                  this.mergeDriveHistory(res.items);
-                  if (
-                    res.hFile.name.toLowerCase() ===
-                    this.config.historyFileName.toLowerCase()
-                  ) {
-                    this.state.historyFileId = res.hFile.id;
-                  }
-                }
-              });
-              loadedHistory = true;
-              this.addLog('Histórico lido com sucesso do Google Drive.');
-            }
-          }
-        } catch (e) {
-          console.warn('Falha ao carregar histórico do Drive sob demanda:', e);
-        }
-      }
-
-      this.ensureSeedHistoryAndDates();
-      this.state.historyLoaded = true;
-      this.saveStateToStorage();
-    } catch (err) {
-      console.error('Erro ao carregar histórico sob demanda:', err);
-    } finally {
-      this.state.isLoadingHistory = false;
-      this.syncLocalCatalog();
-      this.renderActiveTab();
-    }
+    this.state.historyLoaded = true;
+    this.state.isLoadingHistory = false;
   }
 
   async pushAllToFirebase() {
@@ -1197,22 +1106,7 @@ class ThumbSyncApp {
       ...seedAddedDates,
       ...this.state.itemAddedDates,
     };
-
-    if (!this.state.historyItems || this.state.historyItems.length === 0) {
-      this.state.historyItems = seedHistoryItems;
-    }
-
-    if (this.state.historyItems) {
-      this.state.historyItems.forEach((item) => {
-        if (!item.addedDate) {
-          if (item.addedAt) {
-            item.addedDate = item.addedAt.split('T')[0];
-          } else {
-            item.addedDate = this.getAddedDateForItem(item.id);
-          }
-        }
-      });
-    }
+    this.state.historyItems = [];
   }
 
   getTodayDateString() {
@@ -1291,333 +1185,14 @@ class ThumbSyncApp {
     }
   }
 
-  async saveHistory() {
-    // Salvar em cache local para persistência instantânea
-    localStorage.setItem(
-      'thumbsync_cached_history',
-      JSON.stringify(this.state.historyItems || []),
-    );
-
-    // Persistência: Firebase Firestore + Google Drive (historico.json)
-    try {
-      const fbOk = await firebaseService.saveData('history', {
-        items: this.state.historyItems || [],
-      });
-      if (fbOk) this.state.activeDatabase = 'Firebase';
-    } catch (e) {
-      console.warn('Erro ao salvar histórico no Firebase:', e);
-    }
-
-    if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
-      try {
-        const fileId = await driveClient.saveTextFile(
-          this.config.historyFileName || 'historico.json',
-          JSON.stringify(this.state.historyItems || [], null, 2),
-          this.state.thumbsFolderId,
-          this.state.historyFileId,
-        );
-        if (fileId) {
-          this.state.historyFileId = fileId;
-        }
-      } catch (e) {
-        console.warn('Erro ao salvar historico.json no Drive:', e);
-      }
-    }
-  }
-
-
-  safeJsonParse(text, fallback = null) {
-    if (!text || typeof text !== 'string' || !text.trim()) {
-      return fallback;
-    }
-    try {
-      return JSON.parse(text.trim());
-    } catch (e) {
-      console.warn('[ThumbSync] Falha ao processar JSON:', e.message);
-      return fallback;
-    }
-  }
-
-  parseHistoryText(text) {
-    if (!text || typeof text !== 'string' || !text.trim()) {
-      return [];
-    }
-    const trimmed = text.trim();
-    // 1. Tentar parsear como JSON
-    try {
-      const json = JSON.parse(trimmed);
-      let list = [];
-      if (Array.isArray(json)) {
-        list = json;
-      } else if (json && typeof json === 'object') {
-        if (Array.isArray(json.history)) list = json.history;
-        else if (Array.isArray(json.items)) list = json.items;
-        else if (Array.isArray(json.data)) list = json.data;
-        else if (json.displayName || json.providerName) list = [json];
-      }
-      return list.map((item) => {
-        if (!item || typeof item !== 'object') return item;
-        const providerName = item.providerName || 'Geral';
-        const displayName = item.displayName || item.name || '';
-        const normProv = this.normalizeName(providerName);
-        const normName = this.normalizeName(displayName || item.normalizedName || '');
-        const id = `${normProv}::${normName}`;
-        return {
-          ...item,
-          id: id || item.id,
-          providerName,
-          displayName: displayName || item.displayName,
-          normalizedName: normName,
-          isHistoryItem: true,
-        };
-      });
-    } catch (jsonErr) {
-      // 2. Se não for JSON válido (ex: lista em texto puro [Provedor] Nome), parsear linha a linha
-      const items = [];
-      const lines = trimmed
-        .split(/\r?\n/)
-        .map((l) => l.trim())
-        .filter(Boolean);
-      lines.forEach((line) => {
-        if (line.startsWith('#') || line.startsWith('//')) return;
-
-        let providerName = 'Geral';
-        let displayName = line;
-
-        const bracketMatch = line.match(/^\[(.*?)\]\s*(.*)$/);
-        if (bracketMatch) {
-          providerName = bracketMatch[1].trim() || 'Geral';
-          displayName = bracketMatch[2].trim();
-        } else if (line.includes(' - ')) {
-          const parts = line.split(' - ');
-          providerName = parts[0].trim();
-          displayName = parts.slice(1).join(' - ').trim();
-        } else if (line.includes(' / ')) {
-          const parts = line.split(' / ');
-          providerName = parts[0].trim();
-          displayName = parts.slice(1).join(' / ').trim();
-        } else if (line.includes(': ')) {
-          const parts = line.split(': ');
-          providerName = parts[0].trim();
-          displayName = parts.slice(1).join(': ').trim();
-        }
-
-        if (displayName) {
-          const normProv = this.normalizeName(providerName);
-          const normName = this.normalizeName(displayName);
-          items.push({
-            id: `${normProv}::${normName}`,
-            providerName: providerName,
-            displayName: displayName,
-            normalizedName: normName,
-            completedAt: new Date().toISOString(),
-            isHistoryItem: true,
-          });
-        }
-      });
-      return items;
-    }
-  }
-
-  isHistoryCandidateFile(f) {
-    if (!f || !f.name) return false;
-    const name = f.name.toLowerCase();
-    const tagsFileName = (
-      this.config.tagsFileName || 'tags.json'
-    ).toLowerCase();
-    const addedDatesFileName = (
-      this.config.addedDatesFileName || 'added_dates.json'
-    ).toLowerCase();
-    const listFileName = (
-      this.config.listFileName || 'lista.txt'
-    ).toLowerCase();
-    if (name === tagsFileName) return false;
-    if (name === addedDatesFileName) return false;
-    if (name === listFileName) return false;
-    if (name === 'emerson_accounts.json') return false;
-    if (name === 'custom_logos.json') return false;
-    if (name === 'keyword_rules.json') return false;
-
-    return (
-      name.includes('historico') ||
-      name.includes('history') ||
-      name.includes('concluido') ||
-      name.includes('concluidos') ||
-      name.includes('untitled')
-    );
-  }
-
-  mergeDriveHistory(driveHistory) {
-    if (!Array.isArray(driveHistory)) return;
-    const map = new Map();
-    // 1. Inserir primeiro o histórico atual local
-    (this.state.historyItems || []).forEach((item) => {
-      if (item && (item.displayName || item.name)) {
-        const normProv = this.normalizeName(item.providerName || 'Geral');
-        const normName = this.normalizeName(item.displayName || item.normalizedName || '');
-        const id = `${normProv}::${normName}`;
-        if (id && id !== 'sem provedor::' && id !== 'geral::') {
-          map.set(id, { ...item, id, normalizedName: normName, isHistoryItem: true });
-        }
-      }
-    });
-    // 2. Mesclar todos os itens do Drive (incluindo historico.json e untitled.json)
-    driveHistory.forEach((item) => {
-      if (item && (item.displayName || item.name)) {
-        const normProv = this.normalizeName(item.providerName || 'Geral');
-        const normName = this.normalizeName(item.displayName || item.normalizedName || '');
-        const id = `${normProv}::${normName}`;
-        if (id && id !== 'sem provedor::' && id !== 'geral::') {
-          const existing = map.get(id);
-          map.set(id, {
-            ...(existing || {}),
-            ...item,
-            id,
-            normalizedName: normName,
-            isHistoryItem: true,
-          });
-        }
-      }
-    });
-    this.state.historyItems = Array.from(map.values());
-  }
-
-  async handleImportHistoryFiles(files) {
-    if (!files || files.length === 0) return;
-    const initialCount = (this.state.historyItems || []).length;
-    let filesProcessed = 0;
-
-    for (let i = 0; i < files.length; i++) {
-      const file = files[i];
-      try {
-        const text = await file.text();
-        const itemsToMerge = this.parseHistoryText(text);
-
-        if (itemsToMerge.length > 0) {
-          this.mergeDriveHistory(itemsToMerge);
-          filesProcessed++;
-        }
-      } catch (err) {
-        console.warn(`Erro ao ler/processar arquivo ${file.name}:`, err);
-      }
-    }
-
-    this.ensureSeedHistoryAndDates();
-    await this.saveHistory();
-    this.syncLocalCatalog();
-
-    const finalCount = (this.state.historyItems || []).length;
-    const addedCount = Math.max(0, finalCount - initialCount);
-
-    alert(
-      `🎉 Importação de Histórico Concluída!\n\n• Arquivo(s) lido(s) com sucesso: ${filesProcessed}\n• Novos jogos adicionados: ${addedCount}\n• Total no histórico agora: ${finalCount}\n\nTodas as informações foram mescladas sem criar duplicatas e já foram salvas e enviadas ao Google Drive!`,
-    );
-    this.render();
-  }
-
-  async syncHistoryFromDrive() {
-    if (!driveClient.isAuthenticated() || !this.state.thumbsFolderId) return;
-
-    this.state.isLoadingHistory = true;
-    this.render();
-
-    try {
-      const files = await driveClient.listFilesInFolder(
-        this.state.thumbsFolderId,
-      );
-      const historyCandidateFiles = files.filter((f) =>
-        this.isHistoryCandidateFile(f),
-      );
-
-      if (historyCandidateFiles.length > 0) {
-        this.addLog(
-          `Sincronizando histórico do Drive em paralelo (${historyCandidateFiles.length} arquivo(s)...)`,
-        );
-
-        await Promise.all(
-          historyCandidateFiles.map(async (hFile) => {
-            try {
-              const historyText = await driveClient.downloadTextFile(hFile.id);
-              const driveHistory = this.parseHistoryText(historyText);
-              this.mergeDriveHistory(driveHistory);
-              if (
-                hFile.name.toLowerCase() ===
-                this.config.historyFileName.toLowerCase()
-              ) {
-                this.state.historyFileId = hFile.id;
-              }
-            } catch (e) {
-              console.warn(`Aviso ao ler arquivo de histórico ${hFile.name}:`, e);
-            }
-          }),
-        );
-
-        this.ensureSeedHistoryAndDates();
-        await this.saveHistory();
-      }
-    } catch (err) {
-      console.warn('Erro ao sincronizar histórico direto do Drive:', err);
-    } finally {
-      this.state.isLoadingHistory = false;
-      this.render();
-    }
-  }
-
-  async addItemsToHistory(items) {
-    if (!items || items.length === 0) return;
-    if (!this.state.historyItems) this.state.historyItems = [];
-    const map = new Map(this.state.historyItems.map((i) => [i.id, i]));
-    let addedCount = 0;
-
-    items.forEach((item) => {
-      const addedDate = this.getAddedDateForItem(item.id);
-      const historyObj = {
-        id: item.id,
-        displayName: item.displayName,
-        normalizedName: item.normalizedName,
-        providerName: item.providerName,
-        hasWebp: true,
-        driveFileId: item.driveFileId || '',
-        fileSize: item.fileSize || 0,
-        modifiedTime: item.modifiedTime || '',
-        addedDate: addedDate,
-        completedDate: new Date().toISOString(),
-        isHistoryItem: true,
-      };
-      map.set(item.id, historyObj);
-      addedCount++;
-    });
-
-    this.state.historyItems = Array.from(map.values());
-    await this.saveHistory();
-    this.addLog(
-      `${addedCount} jogo(s) movido(s) para o Histórico de Concluídos.`,
-    );
-  }
-
-  async restoreItemFromHistory(historyItem) {
-    if (!historyItem) return;
-    this.addLog(
-      `Restaurando '${historyItem.displayName}' do Histórico para o Mural de Jogos...`,
-    );
-
-    this.state.historyItems = (this.state.historyItems || []).filter(
-      (i) => i.id !== historyItem.id,
-    );
-    await this.saveHistory();
-
-    await this.fetchLatestListContent();
-    await this.handleAddGamesToList(historyItem.providerName, [
-      historyItem.displayName,
-    ]);
-
-    this.closePreviewModal();
-    this.syncLocalCatalog();
-    this.render();
-    alert(
-      `"${historyItem.displayName}" foi restaurado do Histórico com sucesso e voltou para o Mural de Jogos!`,
-    );
-  }
+  async saveHistory() {}
+  parseHistoryText() { return []; }
+  isHistoryCandidateFile() { return false; }
+  mergeDriveHistory() {}
+  async handleImportHistoryFiles() {}
+  async syncHistoryFromDrive() {}
+  async addItemsToHistory() {}
+  async restoreItemFromHistory() {}
 
   addLog(message) {
     console.log(`[ThumbSync] ${message}`);
@@ -3310,32 +2885,14 @@ class ThumbSyncApp {
 
     const normProvider = this.normalizeName(providerName);
     const existingItems = [];
-    const historyMap = new Map(
-      (this.state.historyItems || []).map((h) => [
-        h.id ||
-        `${this.normalizeName(h.providerName)}::${this.normalizeName(h.displayName || h.normalizedName)}`,
-        h,
-      ]),
-    );
 
     const existingOnDriveNames = validGames.filter((gameName) => {
       const normGame = this.normalizeName(gameName);
       const key = `${normProvider}::${normGame}`;
       const catalogItem = this.state.catalogItems.find((i) => i.id === key);
-      const historyItem = historyMap.get(key);
 
       if (catalogItem && catalogItem.hasWebp) {
         existingItems.push(catalogItem);
-        return true;
-      }
-      if (historyItem) {
-        existingItems.push({
-          ...historyItem,
-          displayName: historyItem.displayName || gameName,
-          providerName: historyItem.providerName || providerName,
-          hasWebp: historyItem.hasWebp || false,
-          isHistoryItem: true,
-        });
         return true;
       }
       return false;
@@ -3928,7 +3485,7 @@ class ThumbSyncApp {
    */
   async handleClearFinishedGames() {
     const isConfirmed = confirm(
-      `Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) no Drive?\n\nEstes jogos serão movidos para o Histórico de Concluídos (separados por dia de adição) e removidos do Mural de Demandas.`,
+      `Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) no Drive?`,
     );
     if (!isConfirmed) return;
 
@@ -3989,7 +3546,6 @@ class ThumbSyncApp {
     if (currentSection) sections.push(currentSection);
 
     let removedCount = 0;
-    const itemsMovedToHistory = [];
     sections.forEach((sec) => {
       sec.games = sec.games.filter((g) => {
         if (g.isBlankOrComment) return true;
@@ -3999,7 +3555,6 @@ class ThumbSyncApp {
 
         if (item && item.hasWebp) {
           removedCount++;
-          itemsMovedToHistory.push(item);
           return false;
         }
         return true;
@@ -4009,10 +3564,6 @@ class ThumbSyncApp {
     if (removedCount === 0) {
       alert('Nenhum jogo concluído para limpar.');
       return;
-    }
-
-    if (itemsMovedToHistory.length > 0) {
-      await this.addItemsToHistory(itemsMovedToHistory);
     }
 
     const filteredSections = sections.filter(
@@ -4105,25 +3656,16 @@ class ThumbSyncApp {
     }
     if (currentSection) sections.push(currentSection);
 
-    const itemsMovedToHistory = [];
     sections.forEach((sec) => {
       sec.games = sec.games.filter((g) => {
         if (g.isBlankOrComment) return true;
         const key = `${sec.providerNameNormalized}::${g.normalizedGameName}`;
         if (this.state.selectedListKeys.has(key)) {
-          const item = this.state.catalogItems.find((ci) => ci.id === key);
-          if (item && item.hasWebp) {
-            itemsMovedToHistory.push(item);
-          }
           return false;
         }
         return true;
       });
     });
-
-    if (itemsMovedToHistory.length > 0) {
-      await this.addItemsToHistory(itemsMovedToHistory);
-    }
 
     const filteredSections = sections.filter(
       (sec) => sec.games.some((g) => !g.isBlankOrComment) || !sec.providerLine,
@@ -4508,20 +4050,6 @@ class ThumbSyncApp {
                 </svg>
               `,
       )}
-              ${this.renderNavItem(
-        'history',
-        'Histórico',
-        `
-                <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-              `,
-        this.state.isLoadingHistory
-          ? `<svg class="ml-auto w-3.5 h-3.5 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>`
-          : `
-                <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold">${(this.state.historyItems || []).length}</span>
-              `,
-      )}
               ${this.isAdmin()
         ? this.renderNavItem(
           'settings',
@@ -4686,15 +4214,6 @@ class ThumbSyncApp {
         `
             <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
               <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-            </svg>
-          `,
-      )}
-          ${this.renderMobileNavItem(
-        'history',
-        'Histórico',
-        `
-            <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           `,
       )}
@@ -4906,14 +4425,7 @@ class ThumbSyncApp {
       return;
     }
 
-    if (tab === 'history') {
-      this.state.activeTab = 'list_manager';
-      this.state.muralSubTab = 'history';
-      this.state.historyPage = 1;
-      if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
-        this.loadHistoryOnDemand();
-      }
-    } else if (tab === 'list_manager') {
+    if (tab === 'history' || tab === 'list_manager') {
       this.state.activeTab = 'list_manager';
       this.state.muralSubTab = 'mural';
     } else {
@@ -4992,13 +4504,7 @@ class ThumbSyncApp {
     if (this.state.activeTab === 'catalog') {
       this.renderCatalog(contentFrame);
     } else if (this.state.activeTab === 'list_manager') {
-      if (this.state.muralSubTab === 'history') {
-        this.renderHistory(contentFrame);
-      } else {
-        this.renderListManager(contentFrame);
-      }
-    } else if (this.state.activeTab === 'history') {
-      this.renderHistory(contentFrame);
+      this.renderListManager(contentFrame);
     } else if (this.state.activeTab === 'settings') {
       this.renderSettings(contentFrame);
     }
@@ -5397,37 +4903,13 @@ class ThumbSyncApp {
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
   renderHistory(container) {
-    if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
-      this.loadHistoryOnDemand();
+    if (container) {
+      container.innerHTML = '<div class="p-8 text-center text-zinc-500 text-xs font-bold">O histórico foi desativado.</div>';
     }
+    return;
+  }
 
-    const historyList = this.state.historyItems || [];
-
-    // Ordenar itens com datas mais recentes primeiro
-    const sortedItems = [...historyList].sort((a, b) => {
-      const dateA = a.addedDate || a.addedAt || '2000-01-01';
-      const dateB = b.addedDate || b.addedAt || '2000-01-01';
-      return dateB.localeCompare(dateA);
-    });
-
-    const pageSize = this.state.historyPageSize || 30;
-    const maxVisible = (this.state.historyPage || 1) * pageSize;
-    const visibleItems = sortedItems.slice(0, maxVisible);
-    const hasMoreItems = sortedItems.length > maxVisible;
-
-    // Agrupar itens visíveis por data de adição (addedDate)
-    const groupsByDate = new Map();
-    visibleItems.forEach((item) => {
-      const dateKey =
-        item.addedDate ||
-        (item.addedAt ? item.addedAt.split('T')[0] : 'Sem Data');
-      if (!groupsByDate.has(dateKey)) {
-        groupsByDate.set(dateKey, []);
-      }
-      groupsByDate.get(dateKey).push(item);
-    });
-
-    const datesList = Array.from(groupsByDate.entries());
+  _unusedRenderHistory(container) {
 
     container.innerHTML = `
       <div class="space-y-4 sm:space-y-6 text-left select-none relative w-full">
@@ -5887,43 +5369,15 @@ class ThumbSyncApp {
               <h1 class="text-2xl font-black text-white tracking-tight">Mural de Jogos</h1>
               <p class="text-zinc-500 text-xs mt-0.5">Gerencie os jogos, adicione novos provedores e controle seu catálogo visualmente.</p>
             </div>
-
-            <div class="flex items-center gap-2 bg-white/[0.03] border border-white/[0.06] p-1 rounded-xl shrink-0">
-              <button id="subtab-btn-mural" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${this.state.muralSubTab !== 'history' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'}">
-                Demandas
-              </button>
-              <button id="subtab-btn-history" class="px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${this.state.muralSubTab === 'history' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white'}">
-                <span>Histórico</span>
-                ${this.state.isLoadingHistory
-        ? `<svg class="w-3 h-3 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>`
-        : `
-                  <span class="px-1.5 py-0.2 text-[9px] rounded-full bg-white/10 text-white font-extrabold">${(this.state.historyItems || []).length}</span>
-                `
-      }
-              </button>
-            </div>
           </div>
           
           <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
           <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0">
-            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos (Mover para o Histórico)">
+            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
               <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
               <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Limpar Feitos</span>
-            </button>
-            
-            <button id="btn-view-history" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-blue-600/[0.15] hover:bg-blue-600/25 text-blue-400 border border-blue-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Ver Histórico de Concluídos">
-              <svg class="w-3.5 h-3.5 text-blue-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">
-                Histórico 
-                ${this.state.isLoadingHistory
-        ? ' (Sincronizando...)'
-        : `(${(this.state.historyItems || []).length})`
-      }
-              </span>
             </button>
             
             <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
@@ -7169,38 +6623,6 @@ class ThumbSyncApp {
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
-      const btnSubtabMural = document.getElementById('subtab-btn-mural');
-      if (btnSubtabMural) {
-        btnSubtabMural.addEventListener('click', () => {
-          this.state.muralSubTab = 'mural';
-          this.renderActiveTab();
-        });
-      }
-
-      const btnSubtabHistory = document.getElementById('subtab-btn-history');
-      if (btnSubtabHistory) {
-        btnSubtabHistory.addEventListener('click', () => {
-          this.state.muralSubTab = 'history';
-          this.state.historyPage = 1;
-          this.renderActiveTab();
-          if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
-            this.loadHistoryOnDemand();
-          }
-        });
-      }
-
-      const btnViewHistory = document.getElementById('btn-view-history');
-      if (btnViewHistory) {
-        btnViewHistory.addEventListener('click', () => {
-          this.state.muralSubTab = 'history';
-          this.state.historyPage = 1;
-          this.renderActiveTab();
-          if (!this.state.historyLoaded && !this.state.isLoadingHistory) {
-            this.loadHistoryOnDemand();
-          }
-        });
-      }
-
       const btnClearFinished = document.getElementById('btn-clear-finished');
       if (btnClearFinished) {
         btnClearFinished.addEventListener('click', () => {
