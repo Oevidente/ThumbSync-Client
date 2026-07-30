@@ -5,7 +5,6 @@
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
-import { firebaseService } from './firebaseService.js';
 
 // --- GOOGLE DRIVE WEB API CLIENT ---
 export class DriveApiClient {
@@ -447,8 +446,8 @@ class ThumbSyncApp {
       datesFileId: null,
       emersonAccountsFileId: null,
 
-      // Database status (Firebase as primary, Drive as backup/fallback)
-      activeDatabase: 'Firebase',
+      // Database status (Drive as primary database)
+      activeDatabase: 'Google Drive',
     };
 
     this.config = {
@@ -512,7 +511,11 @@ class ThumbSyncApp {
   }
 
   async loadInitialData() {
-    await this.loadDataFromFirebase();
+    this.syncLocalCatalog();
+    this.render();
+    if (driveClient.isAuthenticated()) {
+      await this.syncWithGoogleDrive();
+    }
   }
 
   /**
@@ -580,16 +583,6 @@ class ThumbSyncApp {
   async saveEmersonAccounts() {
     const saved = this.getEmersonAccounts();
     localStorage.setItem('thumbsync_emerson_accounts', JSON.stringify(saved));
-
-    // Sincronização Dupla: Firebase Firestore
-    try {
-      const fbOk = await firebaseService.saveData('emerson_accounts', {
-        items: saved,
-      });
-      if (fbOk) this.state.activeDatabase = 'Firebase';
-    } catch (e) {
-      console.warn('Erro ao salvar emerson_accounts.json no Firebase:', e);
-    }
 
     if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
       try {
@@ -785,186 +778,9 @@ class ThumbSyncApp {
     this.state.filterDate = this.state.filterDate || 'recent';
   }
 
-  async loadDataFromFirebase() { // Carrega dados essenciais, sem o histórico
-    try {
-      if (firebaseService.getStatus().quotaExceeded) {
-        this.state.activeDatabase = 'Google Drive (Fallback)';
-        this.addLog('Aviso: Quota do Firebase excedida (Free tier). Operando via Google Drive / Cache local.');
-        this.render();
-        return false;
-      }
-      const data = await firebaseService.loadAllData();
-      if (data && firebaseService.getStatus().connected && !firebaseService.getStatus().quotaExceeded) {
-        let loadedAny = false;
-        if (
-          data.lista &&
-          typeof data.lista.content === 'string' &&
-          data.lista.content.trim().length > 0
-        ) {
-          this.state.listContent = data.lista.content;
-          loadedAny = true;
-        }
-        if (
-          data.tags &&
-          data.tags.data &&
-          Object.keys(data.tags.data).length > 0
-        ) {
-          this.state.customTags = {
-            ...this.state.customTags,
-            ...data.tags.data,
-          };
-          loadedAny = true;
-        }
-        if (
-          data.dates &&
-          data.dates.data &&
-          Object.keys(data.dates.data).length > 0
-        ) {
-          this.state.itemAddedDates = {
-            ...this.state.itemAddedDates,
-            ...data.dates.data,
-          };
-          loadedAny = true;
-        }
-        if (
-          data.admin_accs &&
-          Array.isArray(data.admin_accs.items) &&
-          data.admin_accs.items.length > 0
-        ) {
-          const local = this.getAdminAccounts();
-          const combined = Array.from(
-            new Set(
-              [...local, ...data.admin_accs.items].map((a) =>
-                a.toLowerCase().trim(),
-              ),
-            ),
-          ).filter(Boolean);
-          localStorage.setItem(
-            'thumbsync_admin_accounts',
-            JSON.stringify(combined),
-          );
-          loadedAny = true;
-        }
-        if (
-          data.emerson &&
-          Array.isArray(data.emerson.items) &&
-          data.emerson.items.length > 0
-        ) {
-          const local = this.getEmersonAccounts();
-          const combined = Array.from(
-            new Set(
-              [...local, ...data.emerson.items].map((a) =>
-                a.toLowerCase().trim(),
-              ),
-            ),
-          ).filter(Boolean);
-          localStorage.setItem(
-            'thumbsync_emerson_accounts',
-            JSON.stringify(combined),
-          );
-          loadedAny = true;
-        }
-        if (data.collapsed_andre && Array.isArray(data.collapsed_andre.items)) {
-          const profile = this.getProfile();
-          if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
-            this.state.collapsedProviderKeys = new Set(
-              data.collapsed_andre.items,
-            );
-            localStorage.setItem(
-              'thumbsync_collapsed_providers',
-              JSON.stringify(data.collapsed_andre.items),
-            );
-            loadedAny = true;
-          }
-        }
-
-        this.state.activeDatabase = 'Firebase';
-        this.addLog('Dados sincronizados com o Firebase Firestore.');
-        this.saveStateToStorage();
-        this.syncLocalCatalog();
-        this.render();
-        return loadedAny;
-      } else {
-        this.state.activeDatabase = 'Google Drive (Fallback)';
-        this.render();
-        return false;
-      }
-    } catch (e) {
-      console.warn('Aviso ao carregar dados do Firebase:', e);
-      this.state.activeDatabase = 'Google Drive (Fallback)';
-      this.render();
-      return false;
-    }
-  }
-
   async loadHistoryOnDemand() {
     this.state.historyLoaded = true;
     this.state.isLoadingHistory = false;
-  }
-
-  async pushAllToFirebase() {
-    try {
-      if (firebaseService.getStatus().quotaExceeded) {
-        this.state.activeDatabase = 'Google Drive (Fallback)';
-        return;
-      }
-      const withTimeout = (promise, ms = 6000) =>
-        Promise.race([
-          promise,
-          new Promise((resolve) => setTimeout(() => resolve(false), ms)),
-        ]);
-
-      const p1 = withTimeout(
-        firebaseService.saveData('lista', {
-          content: this.state.listContent || '',
-        }),
-      );
-      const p2 = withTimeout(
-        firebaseService.saveData('tags', { data: this.state.customTags || {} }),
-      );
-      const p3 = this.state.historyLoaded
-        ? withTimeout(
-            firebaseService.saveData('history', {
-              items: this.state.historyItems || [],
-            }),
-          )
-        : Promise.resolve(true);
-      const p4 = withTimeout(
-        firebaseService.saveData('dates', {
-          data: this.state.itemAddedDates || {},
-        }),
-      );
-      const p5 = withTimeout(
-        firebaseService.saveData('emerson_accounts', {
-          items: this.getEmersonAccounts() || [],
-        }),
-      );
-
-      const profile = this.getProfile();
-      let p6 = Promise.resolve(true);
-      if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
-        const items = Array.from(this.state.collapsedProviderKeys);
-        p6 = withTimeout(
-          firebaseService.saveData('collapsed_providers_andre', { items }),
-        );
-      }
-
-      const results = await Promise.all([p1, p2, p3, p4, p5, p6]);
-      if (results.every((r) => r === true)) {
-        this.state.activeDatabase = 'Firebase';
-        this.addLog(
-          'Todos os arquivos foram sincronizados no Firebase Firestore.',
-        );
-      } else {
-        this.state.activeDatabase = 'Google Drive (Fallback)';
-        this.addLog(
-          'Aviso: Falha parcial no Firebase. O Google Drive está operando como BD de fallback.',
-        );
-      }
-    } catch (e) {
-      console.warn('Erro ao sincronizar dados com o Firebase:', e);
-      this.state.activeDatabase = 'Google Drive (Fallback)';
-    }
   }
 
   async saveCollapsedProviders() {
@@ -977,13 +793,21 @@ class ThumbSyncApp {
       JSON.stringify(items),
     );
 
-    // Persist to database if André Luiz
-    if (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') {
+    // Persist to Drive if André Luiz
+    if (
+      (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') &&
+      driveClient.isAuthenticated() &&
+      this.state.thumbsFolderId
+    ) {
       try {
-        await firebaseService.saveData('collapsed_providers_andre', { items });
-        this.addLog('Estado de recolhimento das listas salvo no Firebase.');
+        await driveClient.saveTextFile(
+          'collapsed_providers_andre.json',
+          JSON.stringify(items, null, 2),
+          this.state.thumbsFolderId,
+        );
+        this.addLog('Estado de recolhimento das listas salvo no Drive.');
       } catch (e) {
-        console.warn('Erro ao salvar estado de recolhimento no Firebase:', e);
+        console.warn('Erro ao salvar estado de recolhimento no Drive:', e);
       }
     }
   }
@@ -1177,16 +1001,6 @@ class ThumbSyncApp {
   }
 
   async saveAddedDates() {
-    // Sincronização Dupla: Firebase Firestore
-    try {
-      const fbOk = await firebaseService.saveData('dates', {
-        data: this.state.itemAddedDates || {},
-      });
-      if (fbOk) this.state.activeDatabase = 'Firebase';
-    } catch (e) {
-      console.warn('Erro ao salvar added_dates.json no Firebase:', e);
-    }
-
     if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
       try {
         const fileId = await driveClient.saveTextFile(
@@ -1412,12 +1226,14 @@ class ThumbSyncApp {
       this.addLog(
         'Sincronizando dados com cache local (Usuário Desconectado).',
       );
+      this.state.activeDatabase = 'Cache Local';
       this.syncLocalCatalog();
       this.render();
       return;
     }
 
     this.state.isLoading = true;
+    this.state.activeDatabase = 'Google Drive';
     this.addLog(`Sincronizando com o seu Google Drive...`);
     this.render();
 
@@ -1458,13 +1274,8 @@ class ThumbSyncApp {
         this.config.folderName,
       );
       this.state.thumbsFolderId = folderId;
-      this.addLog(
-        `Pasta '${this.config.folderName}' ativa (ID: ${folderId.substring(0, 8)}...)`,
-      );
 
-      this.addLog(
-        'Escaneando arquivos raiz e pastas de provedores dentro da pasta...',
-      );
+      this.addLog('Escaneando arquivos da pasta raiz do Drive...');
       const files = await driveClient.listFilesInFolder(folderId);
 
       const directFiles = [];
@@ -1480,54 +1291,52 @@ class ThumbSyncApp {
 
       this.state.driveProviders = subfolders.map((f) => f.name);
 
-      this.addLog(
-        `Encontrados ${directFiles.length} arquivos raiz e ${subfolders.length} pastas de provedores.`,
+      // --- PASSO 1: CARREGAR E EXIBIR A LISTA PRIMEIRO PARA NÃO TRAVAR A TELA ---
+      const listFile = directFiles.find(
+        (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
       );
+      if (listFile) {
+        this.addLog(
+          `Baixando catálogo principal '${this.config.listFileName}'...`,
+        );
+        this.state.listFileId = listFile.id;
+        try {
+          const listText = await driveClient.downloadTextFile(listFile.id);
+          this.state.listContent = listText;
+          this.addLog(
+            `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
+          );
+        } catch (err) {
+          console.warn('Erro ao baixar lista.txt do Drive:', err);
+        }
+      } else {
+        this.addLog(
+          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
+        );
+        try {
+          const newFileId = await driveClient.saveTextFile(
+            this.config.listFileName,
+            DEFAULT_LIST_CONTENT,
+            folderId,
+          );
+          this.state.listFileId = newFileId;
+          this.state.listContent = DEFAULT_LIST_CONTENT;
+        } catch (e) {
+          console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
+        }
+      }
 
-      const allFiles = [...directFiles];
+      // Atualiza o catálogo local e libera a interface para o usuário interagir imediatamente!
+      this.syncLocalCatalog();
+      this.state.isLoading = false;
+      this.render();
 
-      // Busca recursivamente os arquivos (.webp) dentro de cada pasta de provedor
-      await Promise.all(
-        subfolders.map(async (subfolder) => {
-          try {
-            this.addLog(
-              `Escaneando subpasta do provedor '${subfolder.name}'...`,
-            );
-            const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-
-            // Sincronizar os resultados de forma segura para o array principal
-            const processedSubFiles = subFiles
-              .filter((sf) => this.isDriveWebpFile(sf))
-              .map((sf) => ({
-                ...sf,
-                providerName: subfolder.name,
-              }));
-
-            allFiles.push(...processedSubFiles);
-            this.addLog(
-              `Provedor '${subfolder.name}': ${processedSubFiles.length} miniaturas carregadas.`,
-            );
-          } catch (subErr) {
-            this.addLog(
-              `Erro ao ler pasta do provedor '${subfolder.name}': ${subErr.message}`,
-            );
-          }
-        }),
-      );
-
-      this.state.driveFiles = allFiles;
-      this.addLog(
-        `Total: ${allFiles.length} arquivos indexados do Google Drive.`,
-      );
-
-      // Sincronizar Tags Personalizadas (tags.json)
-      const tagsFile = allFiles.find(
+      // --- PASSO 2: CARREGAR METADADOS EM SEGUNDO PLANO (Tags, Datas, Emerson Accounts) ---
+      // Tags Personalizadas (tags.json)
+      const tagsFile = directFiles.find(
         (f) => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase(),
       );
       if (tagsFile) {
-        this.addLog(
-          `Baixando metadados de tags (${this.config.tagsFileName})...`,
-        );
         this.state.tagsFileId = tagsFile.id;
         try {
           const tagsText = await driveClient.downloadTextFile(tagsFile.id);
@@ -1536,9 +1345,7 @@ class ThumbSyncApp {
             this.state.customTags = parsedTags;
           }
         } catch (e) {
-          this.addLog(
-            'Aviso: Falha ao processar arquivo de tags. Usando cache local.',
-          );
+          this.addLog('Aviso: Falha ao processar arquivo de tags do Drive.');
         }
       }
 
@@ -1550,8 +1357,8 @@ class ThumbSyncApp {
         this.loadHistoryOnDemand();
       }
 
-      // Sincronizar Datas de Adição (added_dates.json)
-      const datesFiles = allFiles.filter(
+      // Datas de Adição (added_dates.json)
+      const datesFiles = directFiles.filter(
         (f) =>
           f.name.toLowerCase() === this.config.addedDatesFileName.toLowerCase(),
       );
@@ -1578,7 +1385,6 @@ class ThumbSyncApp {
         }
       }
 
-      // Garantir mesclagem do histórico base fornecido pelo usuário e salvar no Drive apenas se o histórico estiver carregado/ativo
       this.ensureSeedHistoryAndDates();
       if (
         this.state.historyLoaded &&
@@ -1588,35 +1394,8 @@ class ThumbSyncApp {
       }
       await this.saveAddedDates();
 
-      const listFile = allFiles.find(
-        (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
-      );
-      if (listFile) {
-        this.addLog(
-          `Baixando catálogo contido no arquivo '${this.config.listFileName}'...`,
-        );
-        this.state.listFileId = listFile.id;
-        const listText = await driveClient.downloadTextFile(listFile.id);
-        this.state.listContent = listText;
-        this.addLog(
-          `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
-        );
-      } else {
-        this.addLog(
-          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Gerando modelo básico...`,
-        );
-        const newFileId = await driveClient.saveTextFile(
-          this.config.listFileName,
-          DEFAULT_LIST_CONTENT,
-          folderId,
-        );
-        this.state.listFileId = newFileId;
-        this.state.listContent = DEFAULT_LIST_CONTENT;
-        this.addLog(`Arquivo padrão '${this.config.listFileName}' criado.`);
-      }
-
-      // Sincronizar Mapeamento de Contas do Perfil Emerson (emerson_accounts.json)
-      const emersonAccountsFiles = allFiles.filter(
+      // Contas Emerson (emerson_accounts.json)
+      const emersonAccountsFiles = directFiles.filter(
         (f) => f.name.toLowerCase() === 'emerson_accounts.json',
       );
       let driveEmersonAccounts = [];
@@ -1664,14 +1443,47 @@ class ThumbSyncApp {
       );
       await this.saveEmersonAccounts();
 
-      // Sincronizar todos os dados atualizados para o Firebase Firestore
-      await this.pushAllToFirebase();
-
       this.saveStateToStorage();
       this.syncLocalCatalog();
-      this.addLog('Sincronização com o Google Drive concluída.');
+      this.render();
+
+      // --- PASSO 3: ESCANEAR SUBPASTAS DE MINIATURAS (.webp) EM SEGUNDO PLANO ---
+      this.addLog(
+        `Indexando miniaturas de ${subfolders.length} pastas de provedores...`,
+      );
+
+      const allFiles = [...directFiles];
+
+      await Promise.all(
+        subfolders.map(async (subfolder) => {
+          try {
+            const subFiles = await driveClient.listFilesInFolder(subfolder.id);
+            const processedSubFiles = subFiles
+              .filter((sf) => this.isDriveWebpFile(sf))
+              .map((sf) => ({
+                ...sf,
+                providerName: subfolder.name,
+              }));
+
+            allFiles.push(...processedSubFiles);
+          } catch (subErr) {
+            console.warn(
+              `Erro ao ler pasta do provedor '${subfolder.name}':`,
+              subErr,
+            );
+          }
+        }),
+      );
+
+      this.state.driveFiles = allFiles;
+      this.addLog(
+        `Total: ${allFiles.length} arquivos indexados. Sincronização concluída!`,
+      );
+
+      this.syncLocalCatalog();
+      this.render();
     } catch (e) {
-      this.addLog(`Erro ao sincronizar: ${e.message}`);
+      this.addLog(`Erro ao sincronizar com o Drive: ${e.message}`);
       this.syncLocalCatalog();
     } finally {
       this.state.isLoading = false;
@@ -2410,16 +2222,6 @@ class ThumbSyncApp {
     this.state.customTags[itemId] = newTag;
     this.saveStateToStorage();
 
-    // Sincronização Dupla: Firebase Firestore
-    try {
-      const fbOk = await firebaseService.saveData('tags', {
-        data: this.state.customTags,
-      });
-      if (fbOk) this.state.activeDatabase = 'Firebase';
-    } catch (e) {
-      console.warn('Erro ao salvar tag no Firebase:', e);
-    }
-
     this.state.isSavingTag = true;
     this.renderActiveTab();
 
@@ -2692,24 +2494,6 @@ class ThumbSyncApp {
     try {
       this.state.listContent = newContent;
       this.saveStateToStorage();
-
-      // Sincronização Dupla: Firebase Firestore
-      try {
-        const fbOk = await firebaseService.saveData('lista', {
-          content: newContent,
-        });
-        if (fbOk) {
-          this.state.activeDatabase = 'Firebase';
-          this.addLog(
-            `lista.txt atualizada e sincronizada no Firebase Firestore.`,
-          );
-        } else {
-          this.state.activeDatabase = 'Google Drive (Fallback)';
-        }
-      } catch (e) {
-        console.warn('Erro ao salvar lista no Firebase:', e);
-        this.state.activeDatabase = 'Google Drive (Fallback)';
-      }
 
       if (driveClient.isAuthenticated() && this.state.listFileId) {
         this.addLog(
@@ -5730,24 +5514,24 @@ class ThumbSyncApp {
         </div>
 
         <div class="space-y-6">
-          <!-- Card de Indicador do Banco de Dados Principal vs Fallback -->
+          <!-- Card de Indicador do Banco de Dados Principal -->
           <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
             <div class="flex items-center justify-between">
               <div class="flex items-center gap-3">
-                <div class="w-9 h-9 rounded-xl ${this.state.activeDatabase === 'Firebase' ? 'bg-amber-500/10 border border-amber-500/20 text-amber-400' : 'bg-blue-500/10 border border-blue-500/20 text-blue-400'} flex items-center justify-center shadow-sm">
+                <div class="w-9 h-9 rounded-xl ${driveClient.isAuthenticated() ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-amber-500/10 border border-amber-500/20 text-amber-400'} flex items-center justify-center shadow-sm">
                   <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M4 7v10c0 2.21 3.582 4 8 4s8-1.79 8-4V7M4 7c0 2.21 3.582 4 8 4s8-1.79 8-4M4 7c0-2.21 3.582-4 8-4s8 1.79 8 4m0 5c0 2.21-3.582 4-8 4s-8-1.79-8-4" />
                   </svg>
                 </div>
                 <div>
-                  <h3 class="text-xs font-black text-white">Banco de Dados em Uso (BD)</h3>
-                  <p class="text-[10px] text-zinc-500 font-semibold">Mecanismo de leitura e sincronização de dados</p>
+                  <h3 class="text-xs font-black text-white">Banco de Dados em Uso</h3>
+                  <p class="text-[10px] text-zinc-500 font-semibold">Mecanismo de armazenamento e sincronização de dados</p>
                 </div>
               </div>
               <div class="flex items-center gap-1.5">
-                <span class="w-2.5 h-2.5 rounded-full ${this.state.activeDatabase === 'Firebase' ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'}"></span>
+                <span class="w-2.5 h-2.5 rounded-full ${driveClient.isAuthenticated() ? 'bg-emerald-400 shadow-[0_0_8px_#34d399]' : 'bg-amber-400 shadow-[0_0_8px_#fbbf24]'}"></span>
                 <span class="text-xs font-bold text-white">
-                  ${this.state.activeDatabase === 'Firebase' ? 'Firebase Firestore' : 'Google Drive (Fallback)'}
+                  ${driveClient.isAuthenticated() ? 'Google Drive (Conectado)' : 'Cache Local (Offline)'}
                 </span>
               </div>
             </div>
@@ -5755,15 +5539,15 @@ class ThumbSyncApp {
             <div class="bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed space-y-3">
               <div class="flex items-center justify-between border-b border-white/5 pb-2">
                 <span class="text-xs font-bold text-zinc-300">Modo de Operação:</span>
-                <span class="text-[10px] font-mono font-bold ${this.state.activeDatabase === 'Firebase' ? 'text-emerald-400' : 'text-amber-400'}">
-                  ${this.state.activeDatabase === 'Firebase' ? '🟢 PRIMÁRIO: Firebase Firestore' : '🟠 CONTINGÊNCIA: Drive (Fallback)'}
+                <span class="text-[10px] font-mono font-bold ${driveClient.isAuthenticated() ? 'text-emerald-400' : 'text-amber-400'}">
+                  ${driveClient.isAuthenticated() ? '🟢 NUVEM: Google Drive Backend' : '🟡 LOCAL: Cache Local (Offline)'}
                 </span>
               </div>
 
               <p class="text-[11px] text-zinc-400 leading-relaxed">
-                ${this.state.activeDatabase === 'Firebase'
-        ? 'O sistema está lendo os dados do <strong class="text-amber-300">Firebase Firestore</strong> (banco principal) e realizando a <strong class="text-blue-300">Sincronização Dupla</strong> no seu Google Drive como backup contínuo.'
-        : 'O Firebase Firestore está inativo ou inacessível no momento. O sistema alternou automaticamente para o <strong class="text-amber-300">Google Drive como Banco de Dados de Contingência</strong>.'
+                ${driveClient.isAuthenticated()
+        ? 'O sistema está conectado diretamente ao seu <strong class="text-blue-300">Google Drive</strong> para armazenar e sincronizar todas as informações de catálogo e miniaturas.'
+        : 'O Google Drive não está autenticado. Os dados estão sendo lidos do <strong class="text-amber-300">Cache Local do Navegador</strong>.'
       }
               </p>
 
