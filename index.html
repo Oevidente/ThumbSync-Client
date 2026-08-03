@@ -16,6 +16,25 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="ThumbSync" />
 
+  <!-- Registro do Service Worker & PWA Install Helper -->
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(reg => console.log('[PWA] Service Worker registrado com sucesso:', reg.scope))
+          .catch(err => console.warn('[PWA] Erro ao registrar Service Worker:', err));
+      });
+    }
+
+    window.deferredPwaPrompt = null;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      window.deferredPwaPrompt = e;
+      window.dispatchEvent(new Event('pwa_installable'));
+      console.log('[PWA] Evento beforeinstallprompt capturado!');
+    });
+  </script>
+
   <!-- Dynamic Viewport Height Helper for Mobile Browsers with Bottom Address Bars -->
   <script>
     function setAppViewportHeight() {
