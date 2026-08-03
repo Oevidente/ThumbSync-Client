@@ -4014,7 +4014,7 @@ class ThumbSyncApp {
         </main>
 
         <!-- MOBILE TAB BAR -->
-        <nav class="lg:hidden fixed bottom-0 left-0 right-0 h-16 bg-[#0c0c0f]/90 backdrop-blur-md border-t border-white/[0.06] items-center justify-around z-30">
+        <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-[9999] bg-[#0a0a0d]/95 backdrop-blur-2xl border-t border-white/[0.08] flex items-center justify-around px-2 py-1.5 shadow-[0_-8px_32px_rgba(0,0,0,0.6)]">
           ${this.renderMobileNavItem(
         'catalog',
         'Miniaturas',
@@ -4279,11 +4279,11 @@ class ThumbSyncApp {
   renderMobileNavItem(tab, label, iconHtml) {
     const isActive = this.state.activeTab === tab;
     return `
-      <button data-mobile-tab-btn data-tab="${tab}" class="flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center ${isActive ? 'text-blue-500' : 'text-zinc-500'}">
-        <div class="px-3 py-1 rounded-full ${isActive ? 'bg-blue-500/10 text-blue-500' : 'text-zinc-400'}">
+      <button data-mobile-tab-btn data-tab="${tab}" class="flex-1 min-h-[44px] flex flex-col items-center justify-center gap-0.5 cursor-pointer transition-all text-center py-1.5 px-2 rounded-2xl active:scale-95 ${isActive ? 'text-blue-400 font-bold' : 'text-zinc-400 hover:text-zinc-200'}">
+        <div class="px-3 py-1 rounded-full transition-all ${isActive ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30 shadow-[0_2px_10px_rgba(59,130,246,0.25)]' : 'text-zinc-400'}">
           ${iconHtml}
         </div>
-        <span class="text-[9px] font-bold tracking-tight mt-0.5">${label}</span>
+        <span class="text-[10px] font-extrabold tracking-tight mt-0.5">${label}</span>
       </button>
     `;
   }
