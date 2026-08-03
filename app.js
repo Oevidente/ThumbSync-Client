@@ -445,6 +445,7 @@ class ThumbSyncApp {
       historyFileId: null,
       datesFileId: null,
       emersonAccountsFileId: null,
+      adminAccountsFileId: null,
 
       // Database status (Drive as primary database)
       activeDatabase: 'Google Drive',
@@ -562,12 +563,14 @@ class ThumbSyncApp {
   async registerEmersonAccount(email) {
     if (!email) return;
     try {
-      const saved = this.getEmersonAccounts();
       const lower = email.toLowerCase().trim();
       const isAdminEmail = this.getAdminAccounts()
         .map((e) => e.toLowerCase())
         .includes(lower);
-      if (!isAdminEmail && !saved.includes(lower)) {
+      if (isAdminEmail) return;
+
+      const saved = this.getEmersonAccounts();
+      if (!saved.includes(lower)) {
         saved.push(lower);
         localStorage.setItem(
           'thumbsync_emerson_accounts',
@@ -577,6 +580,42 @@ class ThumbSyncApp {
       }
     } catch (e) {
       console.error('Erro ao registrar conta de Emerson:', e);
+    }
+  }
+
+  async registerAdminAccount(email) {
+    if (!email) return;
+    try {
+      const lower = email.toLowerCase().trim();
+      const saved = this.getAdminAccounts();
+      if (!saved.includes(lower)) {
+        saved.push(lower);
+        localStorage.setItem(
+          'thumbsync_admin_accounts',
+          JSON.stringify(saved),
+        );
+        await this.saveAdminAccounts();
+      }
+      this.removeEmersonAccount(lower);
+    } catch (e) {
+      console.error('Erro ao registrar conta de Administrador:', e);
+    }
+  }
+
+  async removeEmersonAccount(email) {
+    if (!email) return;
+    try {
+      const lower = email.toLowerCase().trim();
+      const saved = this.getEmersonAccounts().filter(
+        (e) => e.toLowerCase().trim() !== lower,
+      );
+      localStorage.setItem(
+        'thumbsync_emerson_accounts',
+        JSON.stringify(saved),
+      );
+      await this.saveEmersonAccounts();
+    } catch (e) {
+      console.warn('Erro ao remover conta da lista de Emerson:', e);
     }
   }
 
@@ -601,21 +640,52 @@ class ThumbSyncApp {
     }
   }
 
+  async saveAdminAccounts() {
+    const saved = this.getAdminAccounts();
+    localStorage.setItem('thumbsync_admin_accounts', JSON.stringify(saved));
+
+    if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
+      try {
+        const fileId = await driveClient.saveTextFile(
+          'admin_accounts.json',
+          JSON.stringify(saved, null, 2),
+          this.state.thumbsFolderId,
+          this.state.adminAccountsFileId,
+        );
+        if (fileId) {
+          this.state.adminAccountsFileId = fileId;
+        }
+      } catch (e) {
+        console.warn('Erro ao salvar admin_accounts.json no Drive:', e);
+      }
+    }
+  }
+
   getAdminAccounts() {
     try {
-      return JSON.parse(
+      const saved = JSON.parse(
         localStorage.getItem('thumbsync_admin_accounts') || '[]',
       );
+      const defaults = ['andreluiz1902@gmail.com'];
+      const combined = [
+        ...defaults,
+        ...saved.map((e) => (e || '').toLowerCase().trim()),
+      ];
+      return Array.from(new Set(combined)).filter(Boolean);
     } catch (e) {
-      return [];
+      return ['andreluiz1902@gmail.com'];
     }
   }
 
   getEmersonAccounts() {
     try {
-      return JSON.parse(
+      const saved = JSON.parse(
         localStorage.getItem('thumbsync_emerson_accounts') || '[]',
       );
+      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase());
+      return Array.from(
+        new Set(saved.map((e) => (e || '').toLowerCase().trim())),
+      ).filter((e) => e && !adminList.includes(e));
     } catch (e) {
       return [];
     }
@@ -623,13 +693,11 @@ class ThumbSyncApp {
 
   getProfile() {
     const email = this.getUserEmail().toLowerCase().trim();
-    const isAdminEmail =
-      email &&
-      this.getAdminAccounts()
-        .map((e) => e.toLowerCase())
-        .includes(email);
+    const adminAccounts = this.getAdminAccounts().map((e) => e.toLowerCase());
+    const isAdminEmail = email && adminAccounts.includes(email);
 
     if (isAdminEmail) {
+      this.registerAdminAccount(email);
       return {
         name: 'André Luiz',
         role: 'administrador',
@@ -1394,6 +1462,45 @@ class ThumbSyncApp {
       }
       await this.saveAddedDates();
 
+      // Contas Administrador (admin_accounts.json)
+      const adminAccountsFiles = directFiles.filter(
+        (f) => f.name.toLowerCase() === 'admin_accounts.json',
+      );
+      let driveAdminAccounts = [];
+      if (adminAccountsFiles.length > 0) {
+        adminAccountsFiles.sort(
+          (a, b) =>
+            new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0),
+        );
+        this.state.adminAccountsFileId = adminAccountsFiles[0].id;
+
+        for (const aFile of adminAccountsFiles) {
+          try {
+            const content = await driveClient.downloadTextFile(aFile.id);
+            const parsed = this.safeJsonParse(content, []);
+            if (Array.isArray(parsed)) {
+              driveAdminAccounts.push(...parsed);
+            }
+          } catch (e) {
+            console.warn('Aviso ao ler admin_accounts.json do Drive:', e);
+          }
+        }
+      }
+
+      const localAdminAccounts = this.getAdminAccounts();
+      const combinedAdminAccounts = Array.from(
+        new Set(
+          [...localAdminAccounts, ...driveAdminAccounts].map((a) =>
+            a.toLowerCase().trim(),
+          ),
+        ),
+      ).filter(Boolean);
+      localStorage.setItem(
+        'thumbsync_admin_accounts',
+        JSON.stringify(combinedAdminAccounts),
+      );
+      await this.saveAdminAccounts();
+
       // Contas Emerson (emerson_accounts.json)
       const emersonAccountsFiles = directFiles.filter(
         (f) => f.name.toLowerCase() === 'emerson_accounts.json',
@@ -1420,26 +1527,29 @@ class ThumbSyncApp {
       }
 
       const currentEmail = this.getUserEmail().toLowerCase().trim();
-      if (
-        currentEmail &&
-        !this.getAdminAccounts()
+      if (currentEmail) {
+        const isAdmin = this.getAdminAccounts()
           .map((e) => e.toLowerCase())
-          .includes(currentEmail)
-      ) {
-        await this.registerEmersonAccount(currentEmail);
+          .includes(currentEmail);
+        if (isAdmin) {
+          await this.registerAdminAccount(currentEmail);
+        } else {
+          await this.registerEmersonAccount(currentEmail);
+        }
       }
 
+      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase());
       const localEmersonAccounts = this.getEmersonAccounts();
-      const combinedAccounts = Array.from(
+      const combinedEmersonAccounts = Array.from(
         new Set(
-          [...localEmersonAccounts, ...driveEmersonAccounts].map((a) =>
-            a.toLowerCase().trim(),
-          ),
+          [...localEmersonAccounts, ...driveEmersonAccounts]
+            .map((a) => a.toLowerCase().trim())
+            .filter((a) => a && !adminList.includes(a)),
         ),
-      ).filter(Boolean);
+      );
       localStorage.setItem(
         'thumbsync_emerson_accounts',
-        JSON.stringify(combinedAccounts),
+        JSON.stringify(combinedEmersonAccounts),
       );
       await this.saveEmersonAccounts();
 
@@ -5690,16 +5800,22 @@ class ThumbSyncApp {
                 <p class="text-[11px] text-zinc-400 font-medium leading-relaxed">
                   Possui acesso total ao sistema e ao <strong class="text-amber-200 font-bold">Botão exclusivo de Link Direto para Busca de Imagens no Google</strong> na lista de jogos.
                 </p>
-                <div class="pt-2 border-t border-white/5 space-y-1">
+                <div class="pt-2 border-t border-white/5 space-y-2">
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Atreladas ao Administrador:</span>
-                  <div class="flex flex-wrap gap-1.5">
+                  <div class="flex flex-wrap gap-1.5 items-center">
                     ${this.getAdminAccounts()
           .map(
             (email) => `
-                      <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">${email}</span>
+                      <span class="inline-flex items-center gap-1 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">${email}</span>
                     `,
           )
           .join('')}
+                  </div>
+                  <div class="flex items-center gap-2 pt-1">
+                    <input type="email" id="input-add-admin-email" placeholder="Novo email de adm (ex: adm@empresa.com)..." class="text-[11px] bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white w-64 focus:border-amber-500/50 focus:outline-none placeholder:text-zinc-600" />
+                    <button id="btn-add-admin-email" class="text-[11px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-xl hover:bg-amber-500/30 transition-colors cursor-pointer shrink-0">
+                      + Adicionar Adm
+                    </button>
                   </div>
                 </div>
               </div>
@@ -6806,6 +6922,19 @@ class ThumbSyncApp {
           this.handleGoogleLogout();
         });
       });
+
+      const btnAddAdmin = document.getElementById('btn-add-admin-email');
+      if (btnAddAdmin) {
+        btnAddAdmin.addEventListener('click', async () => {
+          const input = document.getElementById('input-add-admin-email');
+          if (input && input.value.trim()) {
+            const emailToAdd = input.value.trim().toLowerCase();
+            await this.registerAdminAccount(emailToAdd);
+            alert(`Conta ${emailToAdd} adicionada como Administrador com sucesso!`);
+            this.render();
+          }
+        });
+      }
 
       const btnSaveConfig = document.getElementById('btn-save-config');
       if (btnSaveConfig) {
