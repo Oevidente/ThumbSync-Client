@@ -433,16 +433,8 @@ class ThumbSyncApp {
       catalogPage: 1,
       notifiedNotFoundGames: false,
 
-      // History state
-      historyItems: [],
-      historyLoaded: false,
-      isLoadingHistory: false,
-      historyPage: 1,
-      historyPageSize: 30,
       itemAddedDates: {},
       muralSubTab: 'active',
-      historySearchQuery: '',
-      historyFileId: null,
       datesFileId: null,
       emersonAccountsFileId: null,
       adminAccountsFileId: null,
@@ -457,7 +449,6 @@ class ThumbSyncApp {
       folderName: 'Thumbs',
       listFileName: 'lista.txt',
       tagsFileName: 'tags.json',
-      historyFileName: 'historico.json',
       addedDatesFileName: 'added_dates.json',
     };
 
@@ -738,8 +729,6 @@ class ThumbSyncApp {
       localStorage.getItem('thumbsync_list_file_name') || 'lista.txt';
     const savedTagsFileName =
       localStorage.getItem('thumbsync_tags_file_name') || 'tags.json';
-    const savedHistoryFileName =
-      localStorage.getItem('thumbsync_history_file_name') || 'historico.json';
     const savedAddedDatesFileName =
       localStorage.getItem('thumbsync_added_dates_file_name') ||
       'added_dates.json';
@@ -752,7 +741,6 @@ class ThumbSyncApp {
       folderName: savedFolderName,
       listFileName: savedListFileName,
       tagsFileName: savedTagsFileName,
-      historyFileName: savedHistoryFileName,
       addedDatesFileName: savedAddedDatesFileName,
     };
 
@@ -778,6 +766,18 @@ class ThumbSyncApp {
       this.state.customTags = {};
     }
     try {
+      this.state.driveFiles =
+        JSON.parse(localStorage.getItem('thumbsync_cached_drive_files')) || [];
+    } catch (e) {
+      this.state.driveFiles = [];
+    }
+    try {
+      this.state.driveProviders =
+        JSON.parse(localStorage.getItem('thumbsync_cached_drive_providers')) || [];
+    } catch (e) {
+      this.state.driveProviders = [];
+    }
+    try {
       const savedCollapsed = localStorage.getItem(
         'thumbsync_collapsed_providers',
       );
@@ -789,16 +789,7 @@ class ThumbSyncApp {
     }
     this.state.itemAddedDates = {};
 
-    // Carregar histórico do cache local para exibição imediata
-    try {
-      this.state.historyItems =
-        JSON.parse(localStorage.getItem('thumbsync_cached_history')) || [];
-    } catch (e) {
-      this.state.historyItems = [];
-    }
-
-    // Unificar e garantir que os dados do histórico fornecidos estejam sempre presentes
-    this.ensureSeedHistoryAndDates();
+    this.ensureSeedDates();
     try {
       const savedUser = localStorage.getItem('thumbsync_google_user');
       if (savedUser) {
@@ -823,10 +814,6 @@ class ThumbSyncApp {
     localStorage.setItem('thumbsync_list_file_name', this.config.listFileName);
     localStorage.setItem('thumbsync_tags_file_name', this.config.tagsFileName);
     localStorage.setItem(
-      'thumbsync_history_file_name',
-      this.config.historyFileName || 'historico.json',
-    );
-    localStorage.setItem(
       'thumbsync_added_dates_file_name',
       this.config.addedDatesFileName || 'added_dates.json',
     );
@@ -835,52 +822,22 @@ class ThumbSyncApp {
       this.state.listContent,
     );
     localStorage.setItem(
-      'thumbsync_custom_tags',
-      JSON.stringify(this.state.customTags || {}),
+      'thumbsync_cached_drive_files',
+      JSON.stringify(this.state.driveFiles || []),
     );
     localStorage.setItem(
-      'thumbsync_cached_history',
-      JSON.stringify(this.state.historyItems || []),
+      'thumbsync_cached_drive_providers',
+      JSON.stringify(this.state.driveProviders || []),
+    );
+    localStorage.setItem(
+      'thumbsync_custom_tags',
+      JSON.stringify(this.state.customTags || {}),
     );
     this.state.filterTag = this.state.filterTag || 'todos';
     this.state.filterDate = this.state.filterDate || 'recent';
   }
 
-  async loadHistoryOnDemand() {
-    this.state.historyLoaded = true;
-    this.state.isLoadingHistory = false;
-  }
-
-  async saveCollapsedProviders() {
-    const profile = this.getProfile();
-    const items = Array.from(this.state.collapsedProviderKeys);
-
-    // Save locally for instant persistency
-    localStorage.setItem(
-      'thumbsync_collapsed_providers',
-      JSON.stringify(items),
-    );
-
-    // Persist to Drive if André Luiz
-    if (
-      (profile.isAdmin || profile.email === 'andreluiz1902@gmail.com') &&
-      driveClient.isAuthenticated() &&
-      this.state.thumbsFolderId
-    ) {
-      try {
-        await driveClient.saveTextFile(
-          'collapsed_providers_andre.json',
-          JSON.stringify(items, null, 2),
-          this.state.thumbsFolderId,
-        );
-        this.addLog('Estado de recolhimento das listas salvo no Drive.');
-      } catch (e) {
-        console.warn('Erro ao salvar estado de recolhimento no Drive:', e);
-      }
-    }
-  }
-
-  ensureSeedHistoryAndDates() {
+  ensureSeedDates() {
     const seedAddedDates = {
       'playtech::premium american roulette': '2026-07-22',
       'playtech::mini roulette': '2026-07-22',
@@ -894,130 +851,11 @@ class ThumbSyncApp {
       'pragmatic play::sleeping dragon ultra dark': '2026-07-22',
     };
 
-    const seedHistoryItems = [
-      {
-        id: 'amusnet::ancient dynasty',
-        displayName: 'Ancient Dynasty',
-        normalizedName: 'ancient dynasty',
-        providerName: 'Amusnet',
-        hasWebp: true,
-        driveFileId: '1OO6ipYo4HT8yH2mjYK2VisRxLzdzyTud',
-        fileSize: '1070222',
-        modifiedTime: '2026-07-22T17:09:03.101Z',
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::fluffy favourites cash collect',
-        displayName: 'Fluffy Favourites: Cash Collect',
-        normalizedName: 'fluffy favourites cash collect',
-        providerName: 'Playtech',
-        hasWebp: true,
-        driveFileId: '1eTes30IuCoz5Q1lo6DATrIPKEmT5metJ',
-        fileSize: '845942',
-        modifiedTime: '2026-07-22T17:12:53.774Z',
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::the racaroon 2',
-        displayName: 'The Racaroon 2',
-        normalizedName: 'the racaroon 2',
-        providerName: 'Playtech',
-        hasWebp: true,
-        driveFileId: '1uz_ROhYmKGHWK7IBUMgH6f-5BLW5q750',
-        fileSize: '1150786',
-        modifiedTime: '2026-07-22T17:11:38.104Z',
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::the racaroon 2 jackpot',
-        displayName: 'The Racaroon 2 Jackpot',
-        normalizedName: 'the racaroon 2 jackpot',
-        providerName: 'Playtech',
-        hasWebp: true,
-        driveFileId: '16FslxgzU2WbRG7VBQJGOxQXNC_9lxbH4',
-        fileSize: '787318',
-        modifiedTime: '2026-07-22T17:10:21.093Z',
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'pragmatic play::sleeping dragon ultra dark',
-        displayName: 'Sleeping Dragon Ultra Dark',
-        normalizedName: 'sleeping dragon ultra dark',
-        providerName: 'Pragmatic Play',
-        hasWebp: true,
-        driveFileId: '1Rm--o7p-f7Uv1ilkuWXqeDsOAQJtmrND',
-        fileSize: '1132728',
-        modifiedTime: '2026-07-22T17:20:03.156Z',
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: "playtech::casino hold 'em (ao vivo)",
-        displayName: "Casino Hold 'Em (Ao Vivo)",
-        normalizedName: "casino hold 'em (ao vivo)",
-        providerName: 'Playtech',
-        hasWebp: true,
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: "playtech::casino hold 'em live (ao vivo)",
-        displayName: "Casino Hold 'Em Live (Ao Vivo)",
-        normalizedName: "casino hold 'em live (ao vivo)",
-        providerName: 'Playtech',
-        hasWebp: true,
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::fire blaze adventure trail',
-        displayName: 'Fire Blaze: Adventure Trail',
-        normalizedName: 'fire blaze adventure trail',
-        providerName: 'Playtech',
-        hasWebp: true,
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::mini roulette',
-        displayName: 'Mini Roulette',
-        normalizedName: 'mini roulette',
-        providerName: 'Playtech',
-        hasWebp: true,
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-      {
-        id: 'playtech::premium american roulette',
-        displayName: 'Premium American Roulette',
-        normalizedName: 'premium american roulette',
-        providerName: 'Playtech',
-        hasWebp: true,
-        addedDate: '2026-07-22',
-        completedDate: '2026-07-22T20:28:52.588Z',
-        isHistoryItem: true,
-      },
-    ];
-
     if (!this.state.itemAddedDates) this.state.itemAddedDates = {};
     this.state.itemAddedDates = {
       ...seedAddedDates,
       ...this.state.itemAddedDates,
     };
-    this.state.historyItems = [];
   }
 
   getTodayDateString() {
@@ -1086,14 +924,7 @@ class ThumbSyncApp {
     }
   }
 
-  async saveHistory() { }
-  parseHistoryText() { return []; }
-  isHistoryCandidateFile() { return false; }
-  mergeDriveHistory() { }
-  async handleImportHistoryFiles() { }
-  async syncHistoryFromDrive() { }
-  async addItemsToHistory() { }
-  async restoreItemFromHistory() { }
+
 
   addLog(message) {
     console.log(`[ThumbSync] ${message}`);
@@ -1359,42 +1190,77 @@ class ThumbSyncApp {
 
       this.state.driveProviders = subfolders.map((f) => f.name);
 
-      // --- PASSO 1: CARREGAR E EXIBIR A LISTA PRIMEIRO PARA NÃO TRAVAR A TELA ---
+      // --- PASSO 1: CARREGAR LISTA E ESCANEAR SUBPASTAS DE MINIATURAS EM PARALELO ---
+      // Desta forma, assim que a lista for exibida, o status de miniaturas ("thumb feita" vs "em produção") já estará 100% atualizado!
       const listFile = directFiles.find(
         (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
       );
-      if (listFile) {
-        this.addLog(
-          `Baixando catálogo principal '${this.config.listFileName}'...`,
-        );
-        this.state.listFileId = listFile.id;
-        try {
-          const listText = await driveClient.downloadTextFile(listFile.id);
-          this.state.listContent = listText;
-          this.addLog(
-            `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
-          );
-        } catch (err) {
-          console.warn('Erro ao baixar lista.txt do Drive:', err);
-        }
-      } else {
-        this.addLog(
-          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
-        );
-        try {
-          const newFileId = await driveClient.saveTextFile(
-            this.config.listFileName,
-            DEFAULT_LIST_CONTENT,
-            folderId,
-          );
-          this.state.listFileId = newFileId;
-          this.state.listContent = DEFAULT_LIST_CONTENT;
-        } catch (e) {
-          console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
-        }
-      }
 
-      // Atualiza o catálogo local e libera a interface para o usuário interagir imediatamente!
+      const downloadListPromise = (async () => {
+        if (listFile) {
+          this.addLog(
+            `Baixando catálogo principal '${this.config.listFileName}'...`,
+          );
+          this.state.listFileId = listFile.id;
+          try {
+            const listText = await driveClient.downloadTextFile(listFile.id);
+            this.state.listContent = listText;
+            this.addLog(
+              `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
+            );
+          } catch (err) {
+            console.warn('Erro ao baixar lista.txt do Drive:', err);
+          }
+        } else {
+          this.addLog(
+            `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
+          );
+          try {
+            const newFileId = await driveClient.saveTextFile(
+              this.config.listFileName,
+              DEFAULT_LIST_CONTENT,
+              folderId,
+            );
+            this.state.listFileId = newFileId;
+            this.state.listContent = DEFAULT_LIST_CONTENT;
+          } catch (e) {
+            console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
+          }
+        }
+      })();
+
+      this.addLog(
+        `Indexando miniaturas de ${subfolders.length} pastas de provedores...`,
+      );
+
+      const scanSubfoldersPromise = (async () => {
+        const allFiles = [...directFiles];
+        await Promise.all(
+          subfolders.map(async (subfolder) => {
+            try {
+              const subFiles = await driveClient.listFilesInFolder(subfolder.id);
+              const processedSubFiles = subFiles
+                .filter((sf) => this.isDriveWebpFile(sf))
+                .map((sf) => ({
+                  ...sf,
+                  providerName: subfolder.name,
+                }));
+              allFiles.push(...processedSubFiles);
+            } catch (subErr) {
+              console.warn(
+                `Erro ao ler pasta do provedor '${subfolder.name}':`,
+                subErr,
+              );
+            }
+          }),
+        );
+        this.state.driveFiles = allFiles;
+      })();
+
+      await Promise.all([downloadListPromise, scanSubfoldersPromise]);
+
+      // Atualiza o catálogo local e libera a interface com os status ("thumb feita" e "em produção") 100% prontos!
+      this.saveStateToStorage();
       this.syncLocalCatalog();
       this.state.isLoading = false;
       this.render();
@@ -1415,14 +1281,6 @@ class ThumbSyncApp {
         } catch (e) {
           this.addLog('Aviso: Falha ao processar arquivo de tags do Drive.');
         }
-      }
-
-      // Sincroniza o histórico sob demanda apenas se a aba do histórico estiver aberta
-      if (
-        this.state.muralSubTab === 'history' ||
-        this.state.activeTab === 'history'
-      ) {
-        this.loadHistoryOnDemand();
       }
 
       // Datas de Adição (added_dates.json)
@@ -1453,13 +1311,7 @@ class ThumbSyncApp {
         }
       }
 
-      this.ensureSeedHistoryAndDates();
-      if (
-        this.state.historyLoaded &&
-        (this.state.muralSubTab === 'history' || this.state.activeTab === 'history')
-      ) {
-        await this.saveHistory();
-      }
+      this.ensureSeedDates();
       await this.saveAddedDates();
 
       // Contas Administrador (admin_accounts.json)
@@ -1554,42 +1406,6 @@ class ThumbSyncApp {
       await this.saveEmersonAccounts();
 
       this.saveStateToStorage();
-      this.syncLocalCatalog();
-      this.render();
-
-      // --- PASSO 3: ESCANEAR SUBPASTAS DE MINIATURAS (.webp) EM SEGUNDO PLANO ---
-      this.addLog(
-        `Indexando miniaturas de ${subfolders.length} pastas de provedores...`,
-      );
-
-      const allFiles = [...directFiles];
-
-      await Promise.all(
-        subfolders.map(async (subfolder) => {
-          try {
-            const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-            const processedSubFiles = subFiles
-              .filter((sf) => this.isDriveWebpFile(sf))
-              .map((sf) => ({
-                ...sf,
-                providerName: subfolder.name,
-              }));
-
-            allFiles.push(...processedSubFiles);
-          } catch (subErr) {
-            console.warn(
-              `Erro ao ler pasta do provedor '${subfolder.name}':`,
-              subErr,
-            );
-          }
-        }),
-      );
-
-      this.state.driveFiles = allFiles;
-      this.addLog(
-        `Total: ${allFiles.length} arquivos indexados. Sincronização concluída!`,
-      );
-
       this.syncLocalCatalog();
       this.render();
     } catch (e) {
@@ -2268,18 +2084,6 @@ class ThumbSyncApp {
           .map((item) => item.normalizedName),
       );
 
-      // Cache de jogos que já constam no Histórico de Concluídos
-      const historySet = new Set(
-        (this.state.historyItems || [])
-          .filter(
-            (item) =>
-              this.normalizeName(item.providerName) === targetProviderNorm,
-          )
-          .map((item) =>
-            this.normalizeName(item.displayName || item.normalizedName),
-          ),
-      );
-
       const startIndex = hasHeader ? 1 : 0;
 
       for (let i = startIndex; i < rows.length; i++) {
@@ -2290,11 +2094,10 @@ class ThumbSyncApp {
 
         if (gameName) {
           const norm = this.normalizeName(gameName);
-          // Evita duplicatas dentro do CSV, conflitos com o que já está na lista.txt ou no Histórico
+          // Evita duplicatas dentro do CSV e conflitos com o que já está na lista.txt
           if (
             !seenInCSV.has(norm) &&
-            !currentlyListedNorms.has(norm) &&
-            !historySet.has(norm)
+            !currentlyListedNorms.has(norm)
           ) {
             gamesToImport.push(gameName);
             seenInCSV.add(norm);
@@ -3357,10 +3160,6 @@ class ThumbSyncApp {
       }
     }
 
-    if (deleted && item && item.hasWebp) {
-      await this.addItemsToHistory([item]);
-    }
-
     const filteredSections = sections.filter((sec) => {
       const genuineGames = sec.games.filter((g) => !g.isBlankOrComment);
       if (genuineGames.length === 0 && sec.providerLine) {
@@ -4351,7 +4150,7 @@ class ThumbSyncApp {
       return;
     }
 
-    if (tab === 'history' || tab === 'list_manager') {
+    if (tab === 'list_manager') {
       this.state.activeTab = 'list_manager';
       this.state.muralSubTab = 'mural';
     } else {
@@ -4828,305 +4627,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory(container) {
-    if (container) {
-      container.innerHTML = '<div class="p-8 text-center text-zinc-500 text-xs font-bold">O histórico foi desativado.</div>';
-    }
-    return;
-  }
-
-  _unusedRenderHistory(container) {
-
-    container.innerHTML = `
-      <div class="space-y-4 sm:space-y-6 text-left select-none relative w-full">
-        <!-- Subtabs e Voltar -->
-        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 pb-2 border-b border-white/[0.05]">
-          <div>
-            <div class="flex items-center gap-2">
-              <button id="btn-back-to-mural" class="p-1.5 rounded-xl bg-white/5 hover:bg-white/10 text-zinc-300 transition-colors cursor-pointer mr-1" title="Voltar ao Mural">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
-                </svg>
-              </button>
-              <div class="flex items-center gap-2.5">
-                <h1 class="text-2xl font-black text-white tracking-tight">Histórico de Concluídos</h1>
-                ${this.state.isLoadingHistory
-        ? `
-                  <svg class="w-4 h-4 animate-spin text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m8.66-15.66l-.7.7M4.04 19.96l-.7-.7M21 12h-1M4 12H3m15.66 8.66l-.7-.7M4.04 4.04l-.7.7"/></svg>
-                  <span class="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">Carregando...</span>
-                `
-        : ''
-      }
-              </div>
-            </div>
-            <p class="text-zinc-500 text-xs mt-1">Jogos que foram marcados com miniatura (.webp) e removidos do Mural de Demandas, organizados por dia de adição.</p>
-          </div>
-          <div class="flex items-center gap-2 shrink-0">
-            ${this.isAdmin()
-        ? `
-              <input type="file" id="input-import-history-json" accept=".json,.txt,application/json,text/plain" multiple class="hidden" />
-              <button id="btn-import-history-json" class="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-amber-400 hover:bg-amber-500/20 transition-all text-xs font-bold cursor-pointer" title="Importar arquivo(s) JSON ou TXT de histórico">
-                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-                <span>Importar JSON/TXT</span>
-              </button>
-            `
-        : ''
-      }
-            <span class="px-3 py-1.5 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold shrink-0" title="Exibição em blocos de até 30 itens por vez">
-              Exibindo ${visibleItems.length} de ${historyList.length} ${historyList.length === 1 ? 'concluído' : 'concluídos'}
-            </span>
-          </div>
-        </div>
-
-        ${this.isAdmin()
-        ? `
-          <div class="bg-amber-500/10 border border-amber-500/20 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-amber-300 text-xs shadow-lg shadow-amber-500/5">
-            <div class="flex items-start gap-3">
-              <div class="w-8 h-8 rounded-xl bg-amber-500/20 flex items-center justify-center text-amber-400 shrink-0 mt-0.5">
-                <svg class="w-4.5 h-4.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                </svg>
-              </div>
-              <div>
-                <h4 class="font-extrabold text-white text-xs">Painel de Administrador: Fazer Upload de Histórico (.json, .txt)</h4>
-                <p class="text-amber-200/80 text-[11px] mt-0.5 leading-relaxed">
-                  Se você possui arquivos de histórico salvos no computador (como <code class="bg-black/30 px-1 py-0.5 rounded text-amber-300 font-mono">untitled.json</code>, <code class="bg-black/30 px-1 py-0.5 rounded text-amber-300 font-mono">historico.json</code> ou <code class="bg-black/30 px-1 py-0.5 rounded text-amber-300 font-mono">lista.txt</code>), clique no botão ao lado para enviá-los. Os jogos serão adicionados ao histórico automaticamente <strong>sem duplicatas</strong>.
-                </p>
-              </div>
-            </div>
-            <button id="btn-import-history-banner" class="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-xs transition-colors shrink-0 cursor-pointer flex items-center gap-1.5">
-              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
-              </svg>
-              <span>Selecionar Arquivos (.JSON / .TXT)</span>
-            </button>
-          </div>
-        `
-        : ''
-      }
-
-        ${this.state.isLoadingHistory && historyList.length === 0
-        ? `
-          <div class="space-y-4 pt-4">
-            ${Array.from({ length: 3 })
-          .map(
-            () => `
-              <div class="bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4 sm:p-5 space-y-3 animate-pulse">
-                <div class="flex items-center justify-between border-b border-white/[0.04] pb-2.5">
-                  <div class="w-48 h-4 bg-white/10 rounded-md"></div>
-                  <div class="w-16 h-4 bg-white/5 rounded-md"></div>
-                </div>
-                <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl"></div>
-                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl"></div>
-                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl hidden sm:block"></div>
-                  <div class="h-20 bg-white/[0.02] border border-white/5 rounded-xl hidden md:block"></div>
-                </div>
-              </div>
-            `,
-          )
-          .join('')}
-          </div>
-        `
-        : historyList.length === 0
-          ? `
-          <div class="py-16 text-center space-y-3 bg-white/[0.01] border border-white/[0.04] rounded-3xl p-8">
-            <div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 flex items-center justify-center mx-auto text-blue-400">
-              <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            </div>
-            <h3 class="text-sm font-bold text-white">Nenhum jogo no histórico ainda</h3>
-            <p class="text-xs text-zinc-500 max-w-sm mx-auto leading-relaxed">
-              Quando um jogo no Mural tiver sua miniatura (.webp) pronta e for removido (ou ao clicar em "Limpar Feitos"), ele aparecerá aqui automaticamente.
-            </p>
-          </div>
-        `
-          : `
-          <div class="space-y-4 sm:space-y-6">
-            ${datesList
-            .map(([dateStr, items]) => {
-              let formattedDateHeader = dateStr;
-              if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
-                const parts = dateStr.split('-');
-                formattedDateHeader = `${parts[2]}/${parts[1]}/${parts[0]}`;
-              }
-
-              return `
-                <div class="bg-white/[0.015] border border-white/[0.05] rounded-2xl p-4 sm:p-5 space-y-3">
-                  <div class="flex items-center justify-between border-b border-white/[0.04] pb-2.5">
-                    <div class="flex items-center gap-2">
-                      <span class="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_8px_rgba(59,130,246,0.5)]"></span>
-                      <h2 class="text-sm font-black text-white tracking-wide">
-                        Adicionados em: <span class="text-blue-400">${formattedDateHeader}</span>
-                      </h2>
-                    </div>
-                    <span class="text-[10px] font-bold text-zinc-400 bg-white/5 px-2 py-0.5 rounded-md">
-                      ${items.length} ${items.length === 1 ? 'item' : 'itens'}
-                    </span>
-                  </div>
-
-                  <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-3">
-                    ${items
-                  .map((item) => {
-                    const key =
-                      item.id ||
-                      `${this.normalizeName(item.providerName)}::${this.normalizeName(item.displayName || item.normalizedName)}`;
-                    const catalogItem = this.state.catalogItems.find(
-                      (ci) => ci.id === key,
-                    );
-                    const hasWebp = catalogItem
-                      ? catalogItem.hasWebp
-                      : item.hasWebp;
-
-                    return `
-                        <div data-catalog-key="${key}" class="group relative bg-[#131317] border border-white/[0.06] hover:border-blue-500/40 rounded-xl p-3.5 flex flex-col justify-between transition-all hover:bg-white/[0.03] cursor-pointer">
-                          <div class="flex items-start justify-between gap-2">
-                            <div class="min-w-0 flex-1">
-                              <span class="text-[9px] font-extrabold uppercase tracking-wider text-blue-400/80 block truncate">
-                                ${item.providerName || 'Sem provedor'}
-                              </span>
-                              <h4 class="text-xs font-bold text-white truncate mt-0.5" title="${item.displayName}">
-                                ${item.displayName}
-                              </h4>
-                            </div>
-                            <span class="text-[8px] font-extrabold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
-                              CONCLUÍDO
-                            </span>
-                          </div>
-
-                          <div class="flex items-center justify-between pt-2.5 mt-2 border-t border-white/[0.04]">
-                            <button data-copy-history-name="${(item.displayName || '').replace(/"/g, '&quot;')}" class="flex items-center gap-1 text-[10px] font-semibold text-zinc-400 hover:text-white px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 transition-colors cursor-pointer" title="Copiar Nome">
-                              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              </svg>
-                              <span>Copiar Nome</span>
-                            </button>
-
-                            ${hasWebp
-                        ? `
-                              <button data-preview-history-key="${key}" class="flex items-center gap-1 text-[10px] font-semibold text-blue-400 hover:text-blue-300 px-2.5 py-1 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 transition-colors cursor-pointer" title="Ver / Baixar Arte">
-                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                                  <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                                </svg>
-                                <span>Ver Arte</span>
-                              </button>
-                            `
-                        : ''
-                      }
-                          </div>
-                        </div>
-                      `;
-                  })
-                  .join('')}
-                  </div>
-                </div>
-              `;
-            })
-            .join('')}
-
-            ${hasMoreItems
-            ? `
-              <div class="pt-4 text-center">
-                <button id="btn-load-more-history" class="px-6 py-3 rounded-xl bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 text-xs font-bold transition-all cursor-pointer shadow-lg active:scale-95 flex items-center justify-center gap-2 mx-auto">
-                  <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                  </svg>
-                  <span>Carregar mais +30 concluídos (${sortedItems.length - maxVisible} restantes)</span>
-                </button>
-              </div>
-            `
-            : ''
-          }
-          </div>
-        `
-      }
-      </div>
-    `;
-
-    // Bind event listeners para o histórico
-    const btnBack = container.querySelector('#btn-back-to-mural');
-    if (btnBack) {
-      btnBack.addEventListener('click', () => {
-        this.setActiveTab('list_manager');
-      });
-    }
-
-    const btnLoadMore = container.querySelector('#btn-load-more-history');
-    if (btnLoadMore) {
-      btnLoadMore.addEventListener('click', () => {
-        this.state.historyPage = (this.state.historyPage || 1) + 1;
-        this.render();
-      });
-    }
-
-    // Event listeners para upload de JSON de Histórico (Administrador)
-    const btnImportHeader = container.querySelector('#btn-import-history-json');
-    const btnImportBanner = container.querySelector(
-      '#btn-import-history-banner',
-    );
-    const inputImport = container.querySelector('#input-import-history-json');
-
-    if (inputImport) {
-      if (btnImportHeader) {
-        btnImportHeader.addEventListener('click', () => inputImport.click());
-      }
-      if (btnImportBanner) {
-        btnImportBanner.addEventListener('click', () => inputImport.click());
-      }
-      inputImport.addEventListener('change', async (e) => {
-        if (e.target.files && e.target.files.length > 0) {
-          await this.handleImportHistoryFiles(e.target.files);
-          e.target.value = '';
-        }
-      });
-    }
-
-    container.querySelectorAll('[data-catalog-key]').forEach((card) => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('button') || e.target.closest('a')) return;
-        const key = card.getAttribute('data-catalog-key');
-        const catalogItem = this.state.catalogItems.find((i) => i.id === key);
-        if (catalogItem) {
-          this.renderPreviewModal(catalogItem);
-        }
-      });
-    });
-
-    container.querySelectorAll('[data-preview-history-key]').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const key = btn.getAttribute('data-preview-history-key');
-        const catalogItem = this.state.catalogItems.find((i) => i.id === key);
-        if (catalogItem) {
-          this.renderPreviewModal(catalogItem);
-        }
-      });
-    });
-
-    container.querySelectorAll('[data-copy-history-name]').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation();
-        const textToCopy = btn.getAttribute('data-copy-history-name');
-        if (textToCopy) {
-          try {
-            await navigator.clipboard.writeText(textToCopy);
-            const originalHTML = btn.innerHTML;
-            btn.innerHTML =
-              '<svg class="w-3 h-3 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg><span class="text-emerald-400">Copiado!</span>';
-            setTimeout(() => {
-              btn.innerHTML = originalHTML;
-            }, 1500);
-          } catch (err) {
-            console.error('Erro ao copiar:', err);
-          }
-        }
-      });
-    });
-  }
+  renderHistory() { }
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
@@ -5689,13 +5190,7 @@ class ThumbSyncApp {
                     <p class="text-[9px] text-zinc-500 truncate">tags.json</p>
                   </div>
                 </div>
-                <div class="flex items-center gap-2 bg-white/[0.02] border border-white/5 px-2.5 py-1.5 rounded-lg">
-                  <span class="text-xs">📜</span>
-                  <div class="min-w-0">
-                    <p class="text-[10px] font-bold text-zinc-200">Histórico de Concluídos</p>
-                    <p class="text-[9px] text-zinc-500 truncate">historico.json</p>
-                  </div>
-                </div>
+
                 <div class="flex items-center gap-2 bg-white/[0.02] border border-white/5 px-2.5 py-1.5 rounded-lg">
                   <span class="text-xs">📅</span>
                   <div class="min-w-0">
