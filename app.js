@@ -2,6 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
+ * Versão: Beta v1.0.2
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -171,6 +172,100 @@ export class DriveApiClient {
   }
 
   /**
+   * Lista arquivos de até N subpastas de provedores usando buscas otimizadas em lote.
+   * Reduz radicalmente a quantidade de requisições HTTP e evita o estouro de cotas.
+   */
+  async listFilesInSubfolders(subfolders) {
+    if (!subfolders || subfolders.length === 0) return [];
+
+    const subfolderMap = new Map();
+    subfolders.forEach((sf) => subfolderMap.set(sf.id, sf.name));
+
+    const CHUNK_SIZE = 15;
+    const chunks = [];
+    for (let i = 0; i < subfolders.length; i += CHUNK_SIZE) {
+      chunks.push(subfolders.slice(i, i + CHUNK_SIZE));
+    }
+
+    const allFiles = [];
+
+    for (const chunk of chunks) {
+      try {
+        const parentConditions = chunk
+          .map((sf) => `'${sf.id}' in parents`)
+          .join(' or ');
+        const q = `(${parentConditions}) and trashed = false`;
+        const files = await this.queryFiles(
+          q,
+          'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
+          1000,
+        );
+
+        files.forEach((f) => {
+          if (
+            f.mimeType === 'image/webp' ||
+            (f.name || '').toLowerCase().endsWith('.webp')
+          ) {
+            const parentId = f.parents?.[0];
+            const providerName = subfolderMap.get(parentId) || 'Sem provedor';
+            allFiles.push({
+              ...f,
+              providerName,
+            });
+          }
+        });
+      } catch (err) {
+        console.warn(
+          'Consulta em lote de subpastas falhou, executando modo seguro individual:',
+          err.message,
+        );
+        const fallbackFiles = await this.listSubfoldersThrottled(chunk, 4);
+        allFiles.push(...fallbackFiles);
+      }
+    }
+
+    return allFiles;
+  }
+
+  /**
+   * Fallback com controle de concorrência (máx 4 conexões simultâneas)
+   */
+  async listSubfoldersThrottled(subfolders, maxConcurrency = 4) {
+    const results = [];
+    const queue = [...subfolders];
+
+    const worker = async () => {
+      while (queue.length > 0) {
+        const subfolder = queue.shift();
+        if (!subfolder) break;
+        try {
+          const subFiles = await this.listFilesInFolder(subfolder.id);
+          subFiles.forEach((sf) => {
+            if (
+              sf.mimeType === 'image/webp' ||
+              (sf.name || '').toLowerCase().endsWith('.webp')
+            ) {
+              results.push({
+                ...sf,
+                providerName: subfolder.name,
+              });
+            }
+          });
+        } catch (e) {
+          console.warn(`Erro isolado na pasta '${subfolder.name}':`, e.message);
+        }
+      }
+    };
+
+    const workers = Array.from(
+      { length: Math.min(maxConcurrency, subfolders.length) },
+      () => worker(),
+    );
+    await Promise.all(workers);
+    return results;
+  }
+
+  /**
    * Baixa arquivo do drive como texto
    */
   async downloadTextFile(fileId) {
@@ -251,23 +346,47 @@ export class DriveApiClient {
       throw new Error('fileName é obrigatório para salvar no Drive.');
     }
 
+    if (fileId) {
+      const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
+      try {
+        const res = await this.fetchWithAuth(updateUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: content,
+        });
+        if (res.ok) {
+          return fileId;
+        }
+      } catch (err) {
+        console.warn(
+          `Tentativa de atualizar ${safeName} (${fileId}) falhou:`,
+          err.message,
+        );
+      }
+      fileId = null;
+    }
+
     if (!fileId) {
       fileId = await this.findExistingTextFileId(safeName, parentFolderId);
     }
 
     if (fileId) {
       const updateUrl = `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`;
-      const res = await this.fetchWithAuth(updateUrl, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-        body: content,
-      });
-      if (!res.ok) {
-        throw new Error(
-          `Erro ao atualizar arquivo no Drive: ${res.statusText}`,
+      try {
+        const res = await this.fetchWithAuth(updateUrl, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: content,
+        });
+        if (res.ok) {
+          return fileId;
+        }
+      } catch (err) {
+        console.warn(
+          `Tentativa de atualizar ${safeName} (${fileId}) falhou:`,
+          err.message,
         );
       }
-      return fileId;
     }
 
     if (!parentFolderId) {
@@ -522,7 +641,7 @@ class ThumbSyncApp {
     const runSyncLoop = () => {
       if (syncInterval) clearInterval(syncInterval);
       const isVisible = document.visibilityState === 'visible';
-      const frequency = isVisible ? 3500 : 15000;
+      const frequency = isVisible ? 12000 : 45000;
 
       syncInterval = setInterval(() => {
         this.syncSilent();
@@ -587,7 +706,7 @@ class ThumbSyncApp {
         );
         await this.saveAdminAccounts();
       }
-      this.removeEmersonAccount(lower);
+      await this.removeEmersonAccount(lower);
     } catch (e) {
       console.error('Erro ao registrar conta de Administrador:', e);
     }
@@ -597,14 +716,15 @@ class ThumbSyncApp {
     if (!email) return;
     try {
       const lower = email.toLowerCase().trim();
-      const saved = this.getEmersonAccounts().filter(
-        (e) => e.toLowerCase().trim() !== lower,
-      );
-      localStorage.setItem(
-        'thumbsync_emerson_accounts',
-        JSON.stringify(saved),
-      );
-      await this.saveEmersonAccounts();
+      const current = this.getEmersonAccounts();
+      if (current.includes(lower)) {
+        const saved = current.filter((e) => e !== lower);
+        localStorage.setItem(
+          'thumbsync_emerson_accounts',
+          JSON.stringify(saved),
+        );
+        await this.saveEmersonAccounts();
+      }
     } catch (e) {
       console.warn('Erro ao remover conta da lista de Emerson:', e);
     }
@@ -626,7 +746,8 @@ class ThumbSyncApp {
           this.state.emersonAccountsFileId = fileId;
         }
       } catch (e) {
-        console.warn('Erro ao salvar emerson_accounts.json no Drive:', e);
+        this.state.emersonAccountsFileId = null;
+        console.warn('Erro ao salvar emerson_accounts.json no Drive:', e.message);
       }
     }
   }
@@ -647,7 +768,27 @@ class ThumbSyncApp {
           this.state.adminAccountsFileId = fileId;
         }
       } catch (e) {
-        console.warn('Erro ao salvar admin_accounts.json no Drive:', e);
+        this.state.adminAccountsFileId = null;
+        console.warn('Erro ao salvar admin_accounts.json no Drive:', e.message);
+      }
+    }
+  }
+
+  async saveAddedDates() {
+    if (driveClient.isAuthenticated() && this.state.thumbsFolderId) {
+      try {
+        const fileId = await driveClient.saveTextFile(
+          this.config.addedDatesFileName,
+          JSON.stringify(this.state.itemAddedDates, null, 2),
+          this.state.thumbsFolderId,
+          this.state.datesFileId,
+        );
+        if (fileId) {
+          this.state.datesFileId = fileId;
+        }
+      } catch (e) {
+        this.state.datesFileId = null;
+        console.warn('Erro ao salvar added_dates.json no Drive:', e.message);
       }
     }
   }
@@ -688,7 +829,6 @@ class ThumbSyncApp {
     const isAdminEmail = email && adminAccounts.includes(email);
 
     if (isAdminEmail) {
-      this.registerAdminAccount(email);
       return {
         name: 'André Luiz',
         role: 'administrador',
@@ -698,10 +838,6 @@ class ThumbSyncApp {
         badgeColor:
           'bg-amber-500/20 text-amber-300 border-amber-500/30 shadow-sm',
       };
-    }
-
-    if (email) {
-      this.registerEmersonAccount(email);
     }
 
     return {
@@ -835,6 +971,13 @@ class ThumbSyncApp {
     );
     this.state.filterTag = this.state.filterTag || 'todos';
     this.state.filterDate = this.state.filterDate || 'recent';
+  }
+
+  saveCollapsedProviders() {
+    localStorage.setItem(
+      'thumbsync_collapsed_providers',
+      JSON.stringify(Array.from(this.state.collapsedProviderKeys || [])),
+    );
   }
 
   ensureSeedDates() {
@@ -1234,27 +1377,13 @@ class ThumbSyncApp {
       );
 
       const scanSubfoldersPromise = (async () => {
-        const allFiles = [...directFiles];
-        await Promise.all(
-          subfolders.map(async (subfolder) => {
-            try {
-              const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-              const processedSubFiles = subFiles
-                .filter((sf) => this.isDriveWebpFile(sf))
-                .map((sf) => ({
-                  ...sf,
-                  providerName: subfolder.name,
-                }));
-              allFiles.push(...processedSubFiles);
-            } catch (subErr) {
-              console.warn(
-                `Erro ao ler pasta do provedor '${subfolder.name}':`,
-                subErr,
-              );
-            }
-          }),
-        );
-        this.state.driveFiles = allFiles;
+        try {
+          const subFiles = await driveClient.listFilesInSubfolders(subfolders);
+          this.state.driveFiles = [...directFiles, ...subFiles];
+        } catch (scanErr) {
+          console.warn('Erro ao escanear subpastas do Drive:', scanErr);
+          this.state.driveFiles = [...directFiles];
+        }
       })();
 
       await Promise.all([downloadListPromise, scanSubfoldersPromise]);
@@ -1616,25 +1745,10 @@ class ThumbSyncApp {
       });
 
       this.state.driveProviders = subfolders.map((f) => f.name);
-      const allFiles = [...directFiles];
 
-      // Busca em subpastas de provedores
-      await Promise.all(
-        subfolders.map(async (subfolder) => {
-          try {
-            const subFiles = await driveClient.listFilesInFolder(subfolder.id);
-            const processed = subFiles
-              .filter((sf) => this.isDriveWebpFile(sf))
-              .map((sf) => ({
-                ...sf,
-                providerName: subfolder.name,
-              }));
-            allFiles.push(...processed);
-          } catch (e) {
-            // ignora erro em subpasta isolada
-          }
-        }),
-      );
+      // Busca otimizada em lote nas subpastas dos provedores
+      const subFiles = await driveClient.listFilesInSubfolders(subfolders);
+      const allFiles = [...directFiles, ...subFiles];
 
       // 4. Comparar os arquivos .webp e lista.txt encontrados com o estado atual
       const newFingerprint = this.getDriveFilesFingerprint(allFiles);
@@ -4627,7 +4741,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory() { }
+  renderHistory() {}
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
