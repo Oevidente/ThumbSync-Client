@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.0.2
+ * Versão: Beta v1.0.3
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -172,65 +172,12 @@ export class DriveApiClient {
   }
 
   /**
-   * Lista arquivos de até N subpastas de provedores usando buscas otimizadas em lote.
-   * Reduz radicalmente a quantidade de requisições HTTP e evita o estouro de cotas.
+   * Lista arquivos de subpastas de provedores usando concorrência controlada (máx 6 requisições por vez).
+   * Garante 100% de compatibilidade com a API v3 do Google Drive e evita falhas de rede ("Failed to fetch").
    */
-  async listFilesInSubfolders(subfolders) {
+  async listFilesInSubfolders(subfolders, maxConcurrency = 6) {
     if (!subfolders || subfolders.length === 0) return [];
 
-    const subfolderMap = new Map();
-    subfolders.forEach((sf) => subfolderMap.set(sf.id, sf.name));
-
-    const CHUNK_SIZE = 15;
-    const chunks = [];
-    for (let i = 0; i < subfolders.length; i += CHUNK_SIZE) {
-      chunks.push(subfolders.slice(i, i + CHUNK_SIZE));
-    }
-
-    const allFiles = [];
-
-    for (const chunk of chunks) {
-      try {
-        const parentConditions = chunk
-          .map((sf) => `'${sf.id}' in parents`)
-          .join(' or ');
-        const q = `(${parentConditions}) and trashed = false`;
-        const files = await this.queryFiles(
-          q,
-          'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
-          1000,
-        );
-
-        files.forEach((f) => {
-          if (
-            f.mimeType === 'image/webp' ||
-            (f.name || '').toLowerCase().endsWith('.webp')
-          ) {
-            const parentId = f.parents?.[0];
-            const providerName = subfolderMap.get(parentId) || 'Sem provedor';
-            allFiles.push({
-              ...f,
-              providerName,
-            });
-          }
-        });
-      } catch (err) {
-        console.warn(
-          'Consulta em lote de subpastas falhou, executando modo seguro individual:',
-          err.message,
-        );
-        const fallbackFiles = await this.listSubfoldersThrottled(chunk, 4);
-        allFiles.push(...fallbackFiles);
-      }
-    }
-
-    return allFiles;
-  }
-
-  /**
-   * Fallback com controle de concorrência (máx 4 conexões simultâneas)
-   */
-  async listSubfoldersThrottled(subfolders, maxConcurrency = 4) {
     const results = [];
     const queue = [...subfolders];
 
@@ -252,7 +199,10 @@ export class DriveApiClient {
             }
           });
         } catch (e) {
-          console.warn(`Erro isolado na pasta '${subfolder.name}':`, e.message);
+          console.warn(
+            `Erro ao ler pasta do provedor '${subfolder.name}':`,
+            e.message,
+          );
         }
       }
     };
@@ -262,6 +212,7 @@ export class DriveApiClient {
       () => worker(),
     );
     await Promise.all(workers);
+
     return results;
   }
 
@@ -4741,7 +4692,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory() {}
+  renderHistory() { }
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
