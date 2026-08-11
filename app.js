@@ -1904,11 +1904,125 @@ class ThumbSyncApp {
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
       .replace(/\.webp$/i, '')
-      .replace(/:/g, '')
-      .replace(/[_-]+/g, ' ')
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  handleNewGameInputSimilarity(textarea) {
+    const container = document.getElementById('similarity-suggestions-container');
+    const list = document.getElementById('similarity-suggestions-list');
+    if (!container || !list) return;
+
+    const providerSelect = document.getElementById('modal-add-game-provider-select');
+    const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
+    const normProvider = this.normalizeName(selectedProvider);
+
+    const lines = textarea.value.split('\n')
+      .map(l => l.trim())
+      .filter(l => l.length >= 3);
+
+    if (lines.length === 0) {
+      container.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    const suggestions = [];
+    const seenKeys = new Set();
+
+    lines.forEach(line => {
+      const normInput = this.normalizeName(line);
+      this.state.catalogItems.forEach(item => {
+        const normItemName = item.normalizedName;
+        const normItemProv = this.normalizeName(item.providerName);
+
+        let similarity = 0;
+        if (normItemName === normInput) {
+          similarity = 1.0;
+        } else if (normItemName.includes(normInput) || normInput.includes(normItemName)) {
+          similarity = 0.9;
+        } else {
+          const maxLen = Math.max(normItemName.length, normInput.length);
+          const dist = this.levenshteinDistance(normItemName, normInput);
+          similarity = 1 - dist / maxLen;
+        }
+
+        if (similarity >= 0.7) {
+          const key = `${item.providerName}::${item.displayName}`;
+          if (!seenKeys.has(key)) {
+            seenKeys.add(key);
+            suggestions.push({
+              item,
+              similarity,
+              matchingLine: line
+            });
+          }
+        }
+      });
+    });
+
+    if (suggestions.length === 0) {
+      container.classList.add('hidden');
+      list.innerHTML = '';
+      return;
+    }
+
+    suggestions.sort((a, b) => {
+      if (a.item.hasWebp !== b.item.hasWebp) {
+        return a.item.hasWebp ? -1 : 1;
+      }
+      return b.similarity - a.similarity;
+    });
+
+    container.classList.remove('hidden');
+    list.innerHTML = suggestions.slice(0, 5).map(s => {
+      const item = s.item;
+      const isSameProvider = this.normalizeName(item.providerName) === normProvider;
+      const providerColorClass = isSameProvider ? 'text-indigo-300' : 'text-zinc-400';
+
+      let badgeHtml = '';
+      if (item.hasWebp) {
+        badgeHtml = `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Pronto no Drive</span>`;
+      } else if (item.isListed) {
+        badgeHtml = `<span class="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Na Fila</span>`;
+      }
+
+      return `
+        <div data-suggestion-key="${item.id}" class="flex items-center justify-between p-2 rounded-lg bg-zinc-900/80 border border-white/5 hover:border-indigo-500/40 hover:bg-zinc-800/80 cursor-pointer transition-all text-left">
+          <div class="flex flex-col min-w-0">
+            <span class="text-xs font-bold text-white truncate">${item.displayName}</span>
+            <span class="text-[9px] ${providerColorClass} truncate">Provedor: ${item.providerName}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            ${badgeHtml}
+            <svg class="w-3.5 h-3.5 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14 5l7 7m0 0l-7 7m7-7H3" />
+            </svg>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    list.querySelectorAll('[data-suggestion-key]').forEach(el => {
+      el.addEventListener('click', () => {
+        const key = el.getAttribute('data-suggestion-key');
+        const item = this.state.catalogItems.find(i => i.id === key);
+        if (item) {
+          this.state.isAddingGame = false;
+          this.renderActiveTab();
+          if (item.hasWebp) {
+            this.state.selectedCatalogItem = item;
+            this.renderPreviewModal(item);
+          } else {
+            this.state.activeTab = 'list_manager';
+            this.renderActiveTab();
+            this.addLog(`O jogo ${item.displayName} já está na fila de demandas!`);
+          }
+        }
+      });
+    });
   }
 
   fuzzyMatch(text, query) {
@@ -2572,6 +2686,78 @@ class ThumbSyncApp {
     setTimeout(removeToast, 7000);
   }
 
+  showPendingGameToast(games) {
+    let existingToast = document.getElementById('pending-game-toast');
+    if (existingToast) {
+      existingToast.remove();
+    }
+
+    const toast = document.createElement('div');
+    toast.id = 'pending-game-toast';
+    Object.assign(toast.style, {
+      position: 'fixed',
+      top: '50%',
+      left: '50%',
+      transform: 'translate(-50%, -50%) scale(0.9)',
+      zIndex: '10000',
+      width: 'max-content',
+      maxWidth: 'min(600px, calc(100vw - 40px))',
+      background: 'linear-gradient(135deg, #1c1917 0%, #292524 100%)',
+      border: '2px solid rgba(245, 158, 11, 0.6)',
+      borderRadius: '24px',
+      padding: '24px 32px',
+      boxShadow:
+        '0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 40px rgba(245, 158, 11, 0.3)',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '20px',
+      opacity: '0',
+      transition: 'all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1)',
+      pointerEvents: 'auto',
+    });
+
+    let gamesText = '';
+    if (games.length <= 3) {
+      gamesText = games.join(', ');
+    } else {
+      gamesText = `${games.slice(0, 3).join(', ')} e mais ${games.length - 3}`;
+    }
+
+    toast.innerHTML = `
+      <div style="width:64px; height:64px; border-radius:16px; background:rgba(245, 158, 11, 0.2); border:2px solid rgba(245, 158, 11, 0.4); display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="10"></circle>
+          <line x1="12" y1="8" x2="12" y2="12"></line>
+          <line x1="12" y1="16" x2="12.01" y2="16"></line>
+        </svg>
+      </div>
+      <div style="flex:1; min-width:0;">
+        <p style="margin:0 0 6px 0; font-size:22px; font-weight:800; color:#fef3c7; letter-spacing:-0.01em; line-height:1.2;">Aviso: Item já na fila!</p>
+        <p style="margin:0; font-size:16px; color:#fde68a; font-weight:500; line-height:1.4;">${games.length === 1 ? 'O jogo' : 'Os jogos'} <strong style="color:#ffffff;">${gamesText}</strong> já constam na fila de demandas pendentes.</p>
+      </div>
+      <button id="pending-game-toast-close" style="background:transparent; border:none; cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; opacity:0.7;">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#fde68a" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+      </button>
+    `;
+
+    document.body.appendChild(toast);
+
+    toast.getBoundingClientRect();
+    toast.style.opacity = '1';
+    toast.style.transform = 'translate(-50%, -50%) scale(1)';
+
+    const removeToast = () => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translate(-50%, -50%) scale(0.9)';
+      setTimeout(() => toast.remove(), 300);
+    };
+
+    toast
+      .querySelector('#pending-game-toast-close')
+      .addEventListener('click', removeToast);
+    setTimeout(removeToast, 7000);
+  }
+
   showNotFoundGamesToast(notFoundGames) {
     if (this.isAdmin()) return;
     if (!notFoundGames || notFoundGames.length === 0) return;
@@ -2690,17 +2876,36 @@ class ThumbSyncApp {
       (g) => !existingOnDriveNames.includes(g),
     );
 
-    if (gamesToAdd.length === 0) {
+    const pendingOnQueueNames = [];
+    const gamesToReallyAdd = [];
+
+    gamesToAdd.forEach((gameName) => {
+      const normGame = this.normalizeName(gameName);
+      const key = `${normProvider}::${normGame}`;
+      const catalogItem = this.state.catalogItems.find((i) => i.id === key);
+
+      if (catalogItem && catalogItem.isListed) {
+        pendingOnQueueNames.push(gameName);
+      } else {
+        gamesToReallyAdd.push(gameName);
+      }
+    });
+
+    if (pendingOnQueueNames.length > 0) {
+      this.showPendingGameToast(pendingOnQueueNames);
+    }
+
+    if (gamesToReallyAdd.length === 0) {
       this.addLog(
-        'Nenhum jogo novo adicionado. Todos já possuíam miniatura ou constavam no Histórico de Concluídos.',
+        'Nenhum jogo novo adicionado. Todos já possuíam miniatura ou já constavam na fila de demandas.',
       );
       return;
     }
 
-    this.recordAddedDatesForGames(providerName, gamesToAdd);
+    this.recordAddedDatesForGames(providerName, gamesToReallyAdd);
 
     this.addLog(
-      `Adicionando ${gamesToAdd.length} jogos ao provedor '${providerName}'...`,
+      `Adicionando ${gamesToReallyAdd.length} jogos ao provedor '${providerName}'...`,
     );
 
     const lines = this.state.listContent.split(/\r?\n/);
@@ -2717,7 +2922,7 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-        gamesToAdd.forEach((gameName) => {
+        gamesToReallyAdd.forEach((gameName) => {
           updatedLines.push(gameName);
         });
         injected = true;
@@ -2732,7 +2937,7 @@ class ThumbSyncApp {
         updatedLines.push('');
       }
       updatedLines.push(`Provedor: ${providerName}`);
-      gamesToAdd.forEach((gameName) => {
+      gamesToReallyAdd.forEach((gameName) => {
         updatedLines.push(gameName);
       });
     }
@@ -5100,6 +5305,12 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Nomes dos Jogos (Um por linha)</label>
               <textarea id="new-game-displayNames" placeholder="Fortune Rabbit&#10;Gates of Olympus&#10;Sweet Bonanza" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white min-h-[100px] leading-relaxed outline-none focus:border-blue-500"></textarea>
             </div>
+
+            <div id="similarity-suggestions-container" class="mb-5 text-left hidden">
+              <label class="text-[10px] text-indigo-400 font-bold uppercase tracking-wider mb-1 block">Itens Semelhantes Prontos ou na Fila:</label>
+              <div id="similarity-suggestions-list" class="max-h-[120px] overflow-y-auto bg-black/40 border border-white/5 rounded-xl p-2 flex flex-col gap-1.5 custom-scrollbar">
+              </div>
+            </div>
             
             <div class="flex items-center gap-3">
               <button id="modal-add-game-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
@@ -6308,6 +6519,22 @@ class ThumbSyncApp {
             this.renderActiveTab();
           }
         });
+      }
+
+      const modalAddGameTextarea = document.getElementById('new-game-displayNames');
+      if (modalAddGameTextarea && !modalAddGameTextarea.dataset.bound) {
+        modalAddGameTextarea.dataset.bound = 'true';
+        modalAddGameTextarea.addEventListener('input', () => {
+          this.handleNewGameInputSimilarity(modalAddGameTextarea);
+        });
+
+        const modalAddGameProviderSelect = document.getElementById('modal-add-game-provider-select');
+        if (modalAddGameProviderSelect && !modalAddGameProviderSelect.dataset.bound) {
+          modalAddGameProviderSelect.dataset.bound = 'true';
+          modalAddGameProviderSelect.addEventListener('change', () => {
+            this.handleNewGameInputSimilarity(modalAddGameTextarea);
+          });
+        }
       }
 
       const btnImportCSVCancel = document.getElementById(

@@ -4,7 +4,7 @@ export let keywordRulesCache = null;
 export async function loadMappings() {
   if (exactMappingsCache && keywordRulesCache) return;
   exactMappingsCache = {};
-  
+
   // Carrega mapeamento exato
   try {
     const res = await fetch('./data.csv');
@@ -40,14 +40,13 @@ export async function loadMappings() {
 }
 
 function normalize(val) {
-    return String(val)
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .replace(/:/g, '')
-      .replace(/[_-]+/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim()
-      .toLowerCase();
+  return String(val)
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
 }
 
 /**
@@ -77,7 +76,7 @@ export function classifyGame(game) {
   if (keywordRulesCache.specialRules) {
     for (const rule of keywordRulesCache.specialRules) {
       const matchesProvider = !rule.ifProvider || providerLower.includes(rule.ifProvider);
-      
+
       let matchesName = false;
       if (rule.ifNameIncludes) {
         matchesName = rule.ifNameIncludes.some(kw => nameLower.includes(kw));
@@ -125,13 +124,13 @@ function fallbackClassifier(nameLower, providerLower) {
   if (liveKeywords.some(key => nameLower.includes(key)) && !nameLower.includes('virtual')) return 'Ao Vivo';
 
   if (nameLower.includes('scratch') || nameLower.includes('raspadinha') || nameLower.includes('bilhete')) return 'Scratchcard';
-  
+
   const instantKeywords = ['mines', 'plinko', 'penalty', 'goal', 'dare2win', 'coins', 'boxes', 'hi-lo'];
   if (instantKeywords.some(key => nameLower.includes(key))) return 'Instant Win';
 
   const tableKeywords = ['roulette', 'blackjack', 'baccarat', 'poker', 'keno', 'dice', 'sic bo'];
   const isVirtual = nameLower.includes('virtual') || nameLower.includes('first person') || nameLower.includes('deluxe');
-  
+
   if (tableKeywords.some(key => nameLower.includes(key))) {
     if (providerLower.includes('pg soft') && nameLower.includes('baccarat')) return 'Mesa RNG';
     if (isVirtual) return 'Mesa RNG';
@@ -141,8 +140,8 @@ function fallbackClassifier(nameLower, providerLower) {
   const slotKeywords = ['ways', 'megaways', '1000', 'fortune', 'wild', 'hot', 'fruit', 'shining', 'bonanza', 'book of', 'reels'];
   if (slotKeywords.some(key => nameLower.includes(key))) return 'Slot';
 
-  if (providerLower.includes('pg soft')) return 'Slot'; 
+  if (providerLower.includes('pg soft')) return 'Slot';
   if (providerLower.includes('amusnet') && !nameLower.includes('roulette')) return 'Slot';
 
-  return 'Slot'; 
+  return 'Slot';
 }
