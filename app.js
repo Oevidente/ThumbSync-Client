@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.0.3
+ * Versão: Beta v1.0.8
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -505,6 +505,9 @@ class ThumbSyncApp {
 
       itemAddedDates: {},
       muralSubTab: 'active',
+      muralViewMode: 'board', // 'board' | 'compact' | 'grid' | 'overview'
+      muralSearchQuery: '',
+      muralFilterStatus: 'todos', // 'todos' | 'sem_arte' | 'com_arte' | 'prioridades' | 'nao_encontrados'
       datesFileId: null,
       emersonAccountsFileId: null,
       adminAccountsFileId: null,
@@ -889,6 +892,8 @@ class ThumbSyncApp {
       localStorage.getItem('thumbsync_filter_tag') || 'todos';
     this.state.filterDate =
       localStorage.getItem('thumbsync_filter_date') || 'recent';
+    this.state.muralViewMode =
+      localStorage.getItem('thumbsync_mural_view_mode') || 'board';
     this.state.hasSeenOnboarding =
       localStorage.getItem('thumbsync_has_seen_onboarding') === 'true';
 
@@ -919,6 +924,10 @@ class ThumbSyncApp {
     localStorage.setItem(
       'thumbsync_custom_tags',
       JSON.stringify(this.state.customTags || {}),
+    );
+    localStorage.setItem(
+      'thumbsync_mural_view_mode',
+      this.state.muralViewMode || 'board',
     );
     this.state.filterTag = this.state.filterTag || 'todos';
     this.state.filterDate = this.state.filterDate || 'recent';
@@ -1981,7 +1990,7 @@ class ThumbSyncApp {
       const item = s.item;
       const isSameProvider = this.normalizeName(item.providerName) === normProvider;
       const providerColorClass = isSameProvider ? 'text-indigo-300' : 'text-zinc-400';
-
+      
       let badgeHtml = '';
       if (item.hasWebp) {
         badgeHtml = `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Pronto no Drive</span>`;
@@ -4897,7 +4906,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory() { }
+  renderHistory() {}
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
@@ -5053,30 +5062,105 @@ class ThumbSyncApp {
       modalProvidersSet.add('Pragmatic Play');
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) =>
-      a.localeCompare(b),
-    );
+    // Calcular KPIs globais para a barra de métricas e filtros rápidos
+    let totalGamesCount = 0;
+    let totalDoneCount = 0;
+    let totalPendingCount = 0;
+    let totalPriorityCount = 0;
+    let totalNotFoundCount = 0;
+
+    listGames.forEach((g) => {
+      totalGamesCount++;
+      const isDone = isListGameOk(g);
+      if (g.isNotFound) {
+        totalNotFoundCount++;
+      } else if (isDone) {
+        totalDoneCount++;
+      } else {
+        totalPendingCount++;
+      }
+      if (g.isPriority) totalPriorityCount++;
+    });
+
+    const completionRate = totalGamesCount > 0 ? Math.round((totalDoneCount / totalGamesCount) * 100) : 0;
+
+    // Aplicar Filtro de Busca e Filtro de Status no Mural
+    const muralSearch = (this.state.muralSearchQuery || '').toLowerCase().trim();
+    const muralFilter = this.state.muralFilterStatus || 'todos';
+
+    const filterGame = (g) => {
+      // 1. Filtro de Texto (Nome ou Provedor)
+      if (muralSearch) {
+        const nameMatch = g.displayName.toLowerCase().includes(muralSearch);
+        const provMatch = g.providerName.toLowerCase().includes(muralSearch);
+        if (!nameMatch && !provMatch) return false;
+      }
+      // 2. Filtro de Status
+      const isDone = isListGameOk(g);
+      if (muralFilter === 'sem_arte' || muralFilter === 'pendentes') {
+        return !isDone && !g.isNotFound;
+      }
+      if (muralFilter === 'com_arte' || muralFilter === 'prontos') {
+        return isDone && !g.isNotFound;
+      }
+      if (muralFilter === 'prioridades') {
+        return g.isPriority;
+      }
+      if (muralFilter === 'nao_encontrados') {
+        return g.isNotFound;
+      }
+      return true;
+    };
+
+    // Grupos filtrados
+    const filteredGroupsList = groupsList
+      .map(([providerName, games]) => {
+        const filteredGames = games.filter(filterGame);
+        return [providerName, filteredGames];
+      })
+      .filter(([_, games]) => games.length > 0);
+
+    const currentViewMode = this.state.muralViewMode || 'board';
+    const isFiltered = !!muralSearch || muralFilter !== 'todos';
 
     container.innerHTML = `
-      <div class="space-y-6 text-left select-none relative w-full">
+      <div class="space-y-5 text-left select-none relative w-full">
+        <!-- Cabeçalho Principal e Ações Globais -->
         <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <h1 class="text-2xl font-black text-white tracking-tight">Mural de Jogos</h1>
-              <p class="text-zinc-500 text-xs mt-0.5">Gerencie os jogos, adicione novos provedores e controle seu catálogo visualmente.</p>
+              <div class="flex items-center gap-2.5">
+                <h1 class="text-2xl font-black text-white tracking-tight">Mural & Lista de Jogos</h1>
+                <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                  ${totalGamesCount} jogos
+                </span>
+                ${totalPriorityCount > 0 ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>${totalPriorityCount} urgentes</span>` : ''}
+              </div>
+              <p class="text-zinc-500 text-xs mt-0.5">Gerencie demandas de miniaturas, organize por provedores e alterne entre modos de visualização.</p>
+            </div>
+
+            <!-- Mini Progresso de Produção no Topo -->
+            <div class="flex items-center gap-3 bg-white/[0.02] border border-white/[0.05] py-1.5 px-3 rounded-2xl shrink-0">
+              <div class="flex flex-col items-end">
+                <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider">Conclusão Geral</span>
+                <span class="text-xs font-black text-emerald-400">${totalDoneCount} / ${totalGamesCount} (${completionRate}%)</span>
+              </div>
+              <div class="w-16 h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 transition-all duration-500 rounded-full" style="width: ${completionRate}%"></div>
+              </div>
             </div>
           </div>
           
           <!-- Botões de Ação Dinâmicos e Responsivos para Desktop/Tablet/Mobile -->
-          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2.5 sm:overflow-visible sm:py-0">
-            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
+          <div class="flex flex-row items-center justify-start gap-2 w-full select-none overflow-x-auto py-1 no-scrollbar sm:flex-row sm:items-stretch sm:justify-between sm:gap-2 sm:overflow-visible sm:py-0">
+            <button id="btn-clear-finished" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3 rounded-xl bg-orange-600/[0.15] hover:bg-orange-600/25 text-[#f59e0b] border border-orange-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Limpar Jogos Feitos">
               <svg class="w-3.5 h-3.5 text-[#f59e0b] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
               <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Limpar Feitos</span>
             </button>
             
-            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
+            <button id="btn-delete-selected" class="${this.state.selectedListKeys.size > 0 ? 'flex' : 'hidden'} items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3 rounded-xl bg-red-600/[0.15] hover:bg-red-600/25 text-red-500 border border-red-500/20 shadow-sm transition-all cursor-pointer active:scale-95 shrink-0" title="Excluir Selecionados">
               <svg class="w-3.5 h-3.5 text-red-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142a2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
               </svg>
@@ -5086,21 +5170,21 @@ class ThumbSyncApp {
               </span>
             </button>
             
-            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
+            <button id="btn-add-provider" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Novo Provedor">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
               </svg>
               <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Novo Provedor</span>
             </button>
             
-            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3.5 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar Planilha">
+            <button id="btn-import-csv" class="flex items-center justify-center w-9 h-9 sm:flex-1 sm:h-auto sm:py-2.5 sm:px-3 rounded-xl bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.06] transition-all cursor-pointer active:scale-95 shrink-0" title="Importar Planilha">
               <svg class="w-3.5 h-3.5 text-zinc-400 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
               </svg>
               <span class="hidden sm:inline ml-1.5 text-xs font-bold whitespace-nowrap">Importar Planilha</span>
             </button>
             
-            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3 rounded-xl sm:flex-1 sm:py-2.5 sm:px-3.5 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 shadow-md transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
+            <button id="btn-add-games-main" class="flex items-center justify-center py-2 px-3 rounded-xl sm:flex-1 sm:py-2.5 sm:px-3 bg-blue-600 hover:bg-blue-700 text-white border border-blue-500/20 shadow-md transition-all cursor-pointer active:scale-95 shrink-0" title="Adicionar Jogos">
               <svg class="w-3.5 h-3.5 text-white shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" />
               </svg>
@@ -5109,175 +5193,128 @@ class ThumbSyncApp {
           </div>
         </div>
 
-        <div class="flex flex-col lg:flex-row gap-6 w-full items-start">
-          <!-- Lista Principal de Provedores e Jogos -->
-          <div class="space-y-4 w-full lg:flex-1 lg:min-w-0">
-            ${this.state.isLoading && groupsList.length === 0
-        ? `
+        <!-- Barra de Controle: Seletor de Modos de Visualização & Filtros Inteligentes -->
+        <div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-2 sm:gap-3 p-1.5 sm:p-2 rounded-2xl bg-white/[0.02] border border-white/[0.05]">
+          <!-- Seletor de Modo de Visualização (Segmented Control: Ícones no Mobile, Ícones + Labels no Desktop) -->
+          <div class="flex items-center p-0.5 sm:p-1 bg-black/40 border border-white/5 rounded-xl gap-0.5 sm:gap-1 shrink-0">
+            <button data-mural-view-mode="board" aria-label="Visualização em Colunas Kanban" class="flex items-center justify-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${currentViewMode === 'board' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-white/5'}" title="Visualização em Colunas Kanban">
+              <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5v15m6-15v15m-10.5-15h15a2.25 2.25 0 012.25 2.25v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75A2.25 2.25 0 014.5 4.5z" />
+              </svg>
+              <span class="hidden sm:inline">Mural</span>
+            </button>
+            
+            <button data-mural-view-mode="compact" aria-label="Visualização em Lista Compacta" class="flex items-center justify-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${currentViewMode === 'compact' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-white/5'}" title="Visualização em Lista Compacta / Tabela Densa">
+              <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" />
+              </svg>
+              <span class="hidden sm:inline">Lista Compacta</span>
+            </button>
+            
+            <button data-mural-view-mode="grid" aria-label="Visualização em Grade de Cards" class="flex items-center justify-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${currentViewMode === 'grid' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-white/5'}" title="Visualização em Grade de Cards / Bento">
+              <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
+              </svg>
+              <span class="hidden sm:inline">Grade</span>
+            </button>
+
+            <button data-mural-view-mode="overview" aria-label="Visão Geral e Métricas por Provedor" class="flex items-center justify-center gap-1.5 p-1.5 sm:px-3 sm:py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${currentViewMode === 'overview' ? 'bg-blue-600 text-white shadow-sm' : 'text-zinc-400 hover:text-white hover:bg-white/5'}" title="Visão Geral & Métricas por Provedor">
+              <svg class="w-4 h-4 sm:w-3.5 sm:h-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+              </svg>
+              <span class="hidden sm:inline">Resumo</span>
+            </button>
+          </div>
+
+          <!-- Filtros de Busca e Status -->
+          <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-1.5 sm:gap-2 flex-1 w-full lg:max-w-xl">
+            <!-- Campo de Busca em Tempo Real -->
+            <div class="relative flex-1 min-w-0">
+              <svg class="w-3.5 h-3.5 text-zinc-500 absolute left-2.5 sm:left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+              </svg>
+              <input 
+                type="text" 
+                id="mural-search-input" 
+                value="${this.state.muralSearchQuery || ''}" 
+                placeholder="Buscar jogo ou provedor..." 
+                class="w-full bg-black/40 border border-white/10 rounded-xl pl-8 sm:pl-9 pr-7 sm:pr-8 py-1 sm:py-1.5 text-[11px] sm:text-xs text-white placeholder-zinc-500 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
+              />
+              ${this.state.muralSearchQuery ? `
+                <button id="mural-search-clear" class="absolute right-2 sm:right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white cursor-pointer p-0.5" title="Limpar busca">
+                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              ` : ''}
+            </div>
+
+            <!-- Filtro de Status Pills -->
+            <div class="flex items-center gap-1 overflow-x-auto no-scrollbar shrink-0 py-0.5">
+              <button data-mural-filter="todos" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'todos' ? 'bg-white/15 text-white' : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'}">
+                Todos
+              </button>
+              <button data-mural-filter="sem_arte" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'sem_arte' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-zinc-400 hover:text-amber-300 hover:bg-amber-500/10'}" title="Filtrar apenas jogos pendentes">
+                Pendentes (${totalPendingCount})
+              </button>
+              <button data-mural-filter="com_arte" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'com_arte' ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'text-zinc-400 hover:text-emerald-300 hover:bg-emerald-500/10'}" title="Filtrar apenas jogos com thumb feita">
+                Feitos (${totalDoneCount})
+              </button>
+              <button data-mural-filter="prioridades" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'prioridades' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' : 'text-zinc-400 hover:text-yellow-300 hover:bg-yellow-500/10'}" title="Filtrar prioridades">
+                ★ ${totalPriorityCount}
+              </button>
+              ${totalNotFoundCount > 0 ? `
+                <button data-mural-filter="nao_encontrados" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'nao_encontrados' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'text-zinc-400 hover:text-red-300 hover:bg-red-500/10'}" title="Filtrar não encontrados">
+                  ? ${totalNotFoundCount}
+                </button>
+              ` : ''}
+            </div>
+          </div>
+        </div>
+
+        <!-- Renderização do Modo de Visualização Escolhido -->
+        <div id="mural-view-container" class="w-full">
+          ${this.state.isLoading && groupsList.length === 0
+            ? `
               <div class="space-y-4">
                 ${Array.from({ length: 4 })
-          .map(
-            () => `
-                  <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
-                    <div class="flex items-center gap-3">
-                      <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
-                      <div class="w-32 h-3 bg-white/10 rounded"></div>
-                    </div>
-                    <div class="flex items-center gap-2">
-                       <div class="w-12 h-3.5 bg-white/5 rounded-full"></div>
-                       <div class="w-6 h-6 bg-blue-500/10 rounded-lg"></div>
-                    </div>
-                  </div>
-                `,
-          )
-          .join('')}
-              </div>
-            `
-        : groupsList.length === 0
-          ? `
-              <div class="py-24 text-center italic text-zinc-600 text-xs">Nenhum provedor cadastrado ainda. Crie um novo provedor acima.</div>
-            `
-          : `
-              <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x">
-              ${groupsList
-            .map(([providerName, games]) => {
-              const providerKey = this.normalizeName(providerName);
-              const providerAttr = encodeURIComponent(providerKey);
-              const isCollapsed =
-                this.state.collapsedProviderKeys.has(providerKey);
-              const isNotFoundSection =
-                providerName === 'Não Foi Possível Criar';
-              const isPrioritySection = providerName === 'Prioridades';
-
-              return `
-                <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
-                  <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                    <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
-                      <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
-                      <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
-                      </svg>
-                      <span class="truncate pr-2 flex items-center gap-1 ${this.state.priorityProvidersSet?.has(providerKey) ? 'text-yellow-400' : ''}">
-                        ${providerName}
-                        ${this.state.priorityProvidersSet?.has(providerKey) ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
-                      </span>
-                    </span>
-                    <div class="flex items-center gap-2 shrink-0">
-                      <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
-                        ${games.length} jogos
-                      </span>
-                      ${isNotFoundSection || isPrioritySection
-                  ? ''
-                  : `
-                      <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${this.state.priorityProvidersSet?.has(providerKey) ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/15' : 'bg-white/5 hover:bg-white/10 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer shrink-0" title="Marcar/Desmarcar como Prioridade">
-                        <svg class="w-3.5 h-3.5" fill="${this.state.priorityProvidersSet?.has(providerKey) ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                      </button>
-                      <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
-                        <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
-                      </button>
-                      `
-                }
-                    </div>
-                  </div>
-
-                  ${isCollapsed
-                  ? ''
-                  : `
-                  <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
-                    ${games
-                    .map((game) => {
-                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                      const catalogItem = this.state.catalogItems.find(
-                        (i) => i.id === key,
-                      );
-                      const hasWebp = catalogItem?.hasWebp || false;
-                      const formattedDate = catalogItem?.modifiedTime
-                        ? new Date(
-                          catalogItem.modifiedTime,
-                        ).toLocaleDateString('pt-BR', {
-                          day: '2-digit',
-                          month: '2-digit',
-                          year: '2-digit',
-                        })
-                        : '';
-
-                      return `
-                        <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
-                          <div class="flex items-start gap-2.5 min-w-0 w-full">
-                            <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                            <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]'} shrink-0 mt-1.5"></span>
-                            <div class="flex-1 min-w-0">
-                              <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
-                                ${game.displayName}
-                                ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1 font-normal select-none">(${game.providerName})</span>` : ''}
-                              </span>
-                            </div>
-                          </div>
-
-                          <!-- Sub-row: Badges and date -->
-                          <div class="flex flex-wrap items-center gap-1.5 pl-6">
-                            ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
-                            ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
-                            ${!game.isNotFound && hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
-                            ${!game.isNotFound && !hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
-                            ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
-                          </div>
-
-                          <!-- Action buttons row, aligned below the information -->
-                          <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
-                            ${this.isAdmin()
-                          ? `
-                            <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" 
-                               target="_blank" 
-                               rel="noopener noreferrer" 
-                               class="w-7 h-7 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center cursor-pointer text-purple-400 transition-colors shrink-0" 
-                               title="Pesquisar Imagem no Google (Administrador)"
-                               onclick="event.stopPropagation()">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" />
-                              </svg>
-                            </a>
-                            `
-                          : ''
-                        }
-                            <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                              </svg>
-                            </button>
-                            <button data-priority-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-yellow-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-yellow-500/5 text-yellow-500/60 border-yellow-500/10'}" title="${game.isPriority ? 'Desmarcar Prioridade' : 'Marcar Prioridade'}">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-                              </svg>
-                            </button>
-                            <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Não Encontrado' : 'Marcar Não Encontrado'}">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                              </svg>
-                            </button>
-                            <button data-edit-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400 transition-colors" title="Editar Nome">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
-                            </button>
-                            <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors" title="Excluir Jogo">
-                              <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
-                            </button>
-                          </div>
+                  .map(
+                    () => `
+                      <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
+                        <div class="flex items-center gap-3">
+                          <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
+                          <div class="w-32 h-3 bg-white/10 rounded"></div>
                         </div>
-                      `;
-                    })
-                    .join('')}
-                  </div>
-                  `
-                }
-                </div>
-              `;
-            })
-            .join('')}
+                        <div class="flex items-center gap-2">
+                           <div class="w-12 h-3.5 bg-white/5 rounded-full"></div>
+                           <div class="w-6 h-6 bg-blue-500/10 rounded-lg"></div>
+                        </div>
+                      </div>
+                    `,
+                  )
+                  .join('')}
               </div>
             `
-      }
-          </div>
+            : filteredGroupsList.length === 0
+              ? `
+                <div class="py-20 text-center flex flex-col items-center justify-center gap-2">
+                  <div class="w-10 h-10 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center text-zinc-500">
+                    <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                  </div>
+                  <p class="text-xs text-zinc-400 font-bold">${isFiltered ? 'Nenhum jogo encontrado com os filtros aplicados.' : 'Nenhum provedor ou jogo cadastrado ainda.'}</p>
+                  ${isFiltered ? `
+                    <button id="btn-reset-mural-filters" class="text-[11px] text-blue-400 hover:text-blue-300 font-bold underline cursor-pointer mt-1">Limpar Filtros e Busca</button>
+                  ` : `
+                    <p class="text-[11px] text-zinc-600">Use os botões no topo para adicionar novos provedores ou jogos.</p>
+                  `}
+                </div>
+              `
+              : currentViewMode === 'board'
+                ? this.renderListBoardView(filteredGroupsList)
+                : currentViewMode === 'compact'
+                  ? this.renderListCompactView(filteredGroupsList, listGames)
+                  : currentViewMode === 'grid'
+                    ? this.renderListGridView(filteredGroupsList)
+                    : this.renderListOverviewView(groupsList, totalDoneCount, totalGamesCount, totalPendingCount, totalPriorityCount, totalNotFoundCount)
+          }
         </div>
       </div>
 
@@ -5391,6 +5428,581 @@ class ThumbSyncApp {
           <div class="flex items-center gap-3">
             <button id="dialog-add-provider-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
             <button id="dialog-add-provider-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Criar Seção</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * MODO 1: MURAL KANBAN (Colunas Horizontais com Snap Scroll)
+   */
+  renderListBoardView(groupsList) {
+    return `
+      <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x w-full">
+        ${groupsList
+          .map(([providerName, games]) => {
+            const providerKey = this.normalizeName(providerName);
+            const providerAttr = encodeURIComponent(providerKey);
+            const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+            const isPrioritySection = providerName === 'Prioridades';
+            const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+
+            return `
+              <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
+                <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
+                  <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
+                    <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
+                    <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                    <span class="truncate pr-2 flex items-center gap-1 ${isCustomPriorityProv ? 'text-yellow-400' : ''}">
+                      ${providerName}
+                      ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
+                    </span>
+                  </span>
+                  <div class="flex items-center gap-2 shrink-0">
+                    <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
+                      ${games.length} jogos
+                    </span>
+                    ${isNotFoundSection || isPrioritySection
+                      ? ''
+                      : `
+                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/15' : 'bg-white/5 hover:bg-white/10 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer shrink-0" title="Marcar/Desmarcar como Prioridade">
+                          <svg class="w-3.5 h-3.5" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                        </button>
+                        <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
+                          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                        </button>
+                      `
+                    }
+                  </div>
+                </div>
+
+                ${isCollapsed
+                  ? ''
+                  : `
+                  <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
+                    ${games
+                      .map((game) => {
+                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                        const catalogItem = this.state.catalogItems.find(
+                          (i) => i.id === key,
+                        );
+                        const hasWebp = catalogItem?.hasWebp || false;
+                        const formattedDate = catalogItem?.modifiedTime
+                          ? new Date(
+                            catalogItem.modifiedTime,
+                          ).toLocaleDateString('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: '2-digit',
+                          })
+                          : '';
+
+                        return `
+                          <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
+                            <div class="flex items-start gap-2.5 min-w-0 w-full">
+                              <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                              <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]'} shrink-0 mt-1.5"></span>
+                              <div class="flex-1 min-w-0">
+                                <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
+                                  ${game.displayName}
+                                  ${isNotFoundSection || isPrioritySection ? `<span class="text-[9px] text-zinc-500 ml-1 font-normal select-none">(${game.providerName})</span>` : ''}
+                                </span>
+                              </div>
+                            </div>
+
+                            <!-- Badges and date -->
+                            <div class="flex flex-wrap items-center gap-1.5 pl-6">
+                              ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
+                              ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
+                              ${!game.isNotFound && hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
+                              ${!game.isNotFound && !hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
+                              ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
+                            </div>
+
+                            <!-- Action buttons row -->
+                            <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
+                              ${this.isAdmin()
+                                ? `
+                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" 
+                                   target="_blank" 
+                                   rel="noopener noreferrer" 
+                                   class="w-7 h-7 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center cursor-pointer text-purple-400 transition-colors shrink-0" 
+                                   title="Pesquisar Imagem no Google (Administrador)"
+                                   onclick="event.stopPropagation()">
+                                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
+                                    <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" />
+                                  </svg>
+                                </a>
+                                `
+                                : ''
+                              }
+                              <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                                </svg>
+                              </button>
+                              <button data-priority-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-yellow-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-yellow-500/5 text-yellow-500/60 border-yellow-500/10'}" title="${game.isPriority ? 'Desmarcar Prioridade' : 'Marcar Prioridade'}">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                                </svg>
+                              </button>
+                              <button data-notfound-catalog-key="${key}" class="w-7 h-7 rounded-lg hover:bg-orange-500/15 border flex items-center justify-center cursor-pointer transition-colors ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-orange-500/5 text-orange-400 border-orange-500/10'}" title="${game.isNotFound ? 'Desmarcar Não Encontrado' : 'Marcar Não Encontrado'}">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                </svg>
+                              </button>
+                              <button data-edit-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400 transition-colors" title="Editar Nome">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                              </button>
+                              <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400 transition-colors" title="Excluir Jogo">
+                                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        `;
+                      })
+                      .join('')}
+                  </div>
+                  `
+                }
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * MODO 2: LISTA COMPACTA (Tabela Densa Otimizada de Alta Produtividade)
+   */
+  renderListCompactView(groupsList, allGames) {
+    const catalogItemsByKey = new Map(
+      this.state.catalogItems.map((item) => [item.id, item]),
+    );
+
+    return `
+      <div class="space-y-4 w-full">
+        <!-- Barra de Ações Rápidas da Lista Compacta -->
+        <div class="flex items-center justify-between px-3 py-2 rounded-xl bg-white/[0.02] border border-white/[0.05] text-xs text-zinc-400">
+          <div class="flex items-center gap-2">
+            <input type="checkbox" id="btn-select-all-mural" class="w-4 h-4 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer" title="Selecionar Todos os Visíveis" />
+            <label for="btn-select-all-mural" class="font-bold text-zinc-300 cursor-pointer select-none">Selecionar Todos os Visíveis</label>
+          </div>
+          <span class="text-[11px] text-zinc-500 font-medium">Exibindo ${groupsList.reduce((acc, [_, g]) => acc + g.length, 0)} jogos em ${groupsList.length} seções</span>
+        </div>
+
+        <!-- Seções por Provedor em Formato Lista Densa -->
+        <div class="space-y-3">
+          ${groupsList
+            .map(([providerName, games]) => {
+              const providerKey = this.normalizeName(providerName);
+              const providerAttr = encodeURIComponent(providerKey);
+              const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+              const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+              const isPrioritySection = providerName === 'Prioridades';
+              const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+
+              const provDoneCount = games.filter(g => {
+                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                return catalogItemsByKey.get(k)?.hasWebp;
+              }).length;
+              const provPct = games.length > 0 ? Math.round((provDoneCount / games.length) * 100) : 0;
+
+              return `
+                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.015]'} overflow-hidden transition-all">
+                  <!-- Header da Seção do Provedor -->
+                  <div class="flex items-center justify-between px-4 py-2.5 bg-white/[0.02] border-b border-white/[0.04]">
+                    <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" class="flex items-center gap-2.5 cursor-pointer outline-none flex-1 min-w-0">
+                      <svg class="w-3.5 h-3.5 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                      </svg>
+                      <span class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} truncate flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
+                        ${providerName}
+                        ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
+                      </span>
+                    </div>
+
+                    <div class="flex items-center gap-3 shrink-0">
+                      <!-- Mini Barra de Progresso do Provedor -->
+                      <div class="hidden sm:flex items-center gap-2">
+                        <div class="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                          <div class="h-full bg-emerald-500 rounded-full" style="width: ${provPct}%"></div>
+                        </div>
+                        <span class="text-[10px] text-zinc-400 font-bold">${provDoneCount}/${games.length} (${provPct}%)</span>
+                      </div>
+
+                      ${!isNotFoundSection && !isPrioritySection ? `
+                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
+                          <svg class="w-3 h-3" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                        </button>
+                        <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
+                          <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                        </button>
+                      ` : ''}
+                    </div>
+                  </div>
+
+                  <!-- Linhas de Jogos Compactas -->
+                  ${isCollapsed ? '' : `
+                    <div id="provider-games-${providerAttr}" class="p-2 space-y-1 divide-y divide-white/[0.02]">
+                      ${games.map(game => {
+                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                        const catalogItem = catalogItemsByKey.get(key);
+                        const hasWebp = catalogItem?.hasWebp || false;
+                        const formattedDate = catalogItem?.modifiedTime
+                          ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                          : '';
+
+                        return `
+                          <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-white/[0.04] transition-colors border ${hasWebp && !game.isNotFound ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-transparent'} cursor-pointer">
+                            <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                              <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                              
+                              <!-- Status Tag -->
+                              <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                                game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
+                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                              }">
+                                ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
+                              </span>
+
+                              <!-- Nome do Jogo -->
+                              <span class="text-xs font-bold text-zinc-100 select-text truncate ${game.isNotFound ? 'opacity-50 line-through' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
+                                ${game.displayName}
+                              </span>
+
+                              ${isNotFoundSection || isPrioritySection ? `
+                                <span class="text-[10px] text-zinc-500 shrink-0 font-medium">(${game.providerName})</span>
+                              ` : ''}
+                            </div>
+
+                            <!-- Ações e Data à Direita -->
+                            <div class="flex items-center gap-1.5 shrink-0 pl-6 sm:pl-0">
+                              ${formattedDate ? `<span class="text-[10px] text-zinc-500 mr-1.5 font-medium">${formattedDate}</span>` : ''}
+                              
+                              ${this.isAdmin() ? `
+                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" target="_blank" rel="noopener noreferrer" class="w-6.5 h-6.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer shrink-0" title="Pesquisar Imagem" onclick="event.stopPropagation()">
+                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
+                                </a>
+                              ` : ''}
+                              
+                              <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-6.5 h-6.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 flex items-center justify-center cursor-pointer" title="Copiar Nome">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                              </button>
+                              
+                              <button data-priority-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg hover:bg-yellow-500/20 border flex items-center justify-center cursor-pointer ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/5'}" title="Prioridade">
+                                <svg class="w-3 h-3" fill="${game.isPriority ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                              </button>
+
+                              <button data-notfound-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg hover:bg-orange-500/20 border flex items-center justify-center cursor-pointer ${game.isNotFound ? 'bg-orange-500/20 text-orange-300 border-orange-500/20' : 'bg-white/5 text-zinc-400 border-white/5'}" title="Não Encontrado">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                              </button>
+
+                              <button data-edit-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400" title="Editar Nome">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                              </button>
+
+                              <button data-delete-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400" title="Excluir">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        `;
+                      }).join('')}
+                    </div>
+                  `}
+                </div>
+              `;
+            })
+            .join('')}
+        </div>
+      </div>
+    `;
+  }
+
+  /**
+   * MODO 3: GRADE DE CARDS (Mosaico Moderno com Cards Responsivos)
+   */
+  renderListGridView(groupsList) {
+    const catalogItemsByKey = new Map(
+      this.state.catalogItems.map((item) => [item.id, item]),
+    );
+
+    return `
+      <div class="space-y-6 w-full">
+        ${groupsList
+          .map(([providerName, games]) => {
+            const providerKey = this.normalizeName(providerName);
+            const providerAttr = encodeURIComponent(providerKey);
+            const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+            const isPrioritySection = providerName === 'Prioridades';
+            const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+
+            return `
+              <div class="space-y-3">
+                <!-- Header de Seção da Grade -->
+                <div class="flex items-center justify-between pb-2 border-b border-white/[0.05]">
+                  <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" class="flex items-center gap-2 cursor-pointer outline-none">
+                    <svg class="w-3.5 h-3.5 text-zinc-500 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                      <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+                    </svg>
+                    <h3 class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
+                      ${providerName}
+                      ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
+                    </h3>
+                    <span class="text-[10px] text-zinc-500 font-bold ml-1">(${games.length} jogos)</span>
+                  </div>
+
+                  ${!isNotFoundSection && !isPrioritySection ? `
+                    <div class="flex items-center gap-2">
+                      <button data-trigger-toggle-provider-priority="${providerName}" class="w-6 h-6 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
+                        <svg class="w-3 h-3" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                      </button>
+                      <button data-trigger-add-game="${providerName}" class="w-6 h-6 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
+                        <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                      </button>
+                    </div>
+                  ` : ''}
+                </div>
+
+                <!-- Grid de Cards do Provedor -->
+                ${isCollapsed ? '' : `
+                  <div id="provider-games-${providerAttr}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
+                    ${games.map(game => {
+                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                      const catalogItem = catalogItemsByKey.get(key);
+                      const hasWebp = catalogItem?.hasWebp || false;
+                      const formattedDate = catalogItem?.modifiedTime
+                        ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+                        : '';
+
+                      return `
+                        <div data-list-preview-key="${key}" class="group relative rounded-2xl border ${hasWebp && !game.isNotFound ? 'border-emerald-500/40 bg-emerald-500/[0.03] shadow-[0_0_15px_rgba(16,185,129,0.08)]' : 'border-white/[0.06] bg-[#111116]'} p-3.5 flex flex-col justify-between hover:border-white/20 transition-all cursor-pointer">
+                          <!-- Topo do Card: Checkbox + Status Pill -->
+                          <div>
+                            <div class="flex items-center justify-between gap-2 mb-2.5">
+                              <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
+                              
+                              <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                                game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
+                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                              }">
+                                ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
+                              </span>
+                            </div>
+
+                            <!-- Nome do Jogo -->
+                            <h4 class="text-xs font-bold text-zinc-100 select-text leading-snug line-clamp-2 mb-1 ${game.isNotFound ? 'opacity-50 line-through' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
+                              ${game.displayName}
+                            </h4>
+
+                            ${isNotFoundSection || isPrioritySection ? `
+                              <p class="text-[10px] text-zinc-500 truncate mb-2">${game.providerName}</p>
+                            ` : ''}
+                          </div>
+
+                          <!-- Rodapé do Card: Data e Ações Rápidas -->
+                          <div class="pt-3 border-t border-white/[0.04] mt-2 flex items-center justify-between">
+                            <span class="text-[9px] text-zinc-500 font-medium">${formattedDate || 'Pendente'}</span>
+                            
+                            <div class="flex items-center gap-1">
+                              ${this.isAdmin() ? `
+                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" target="_blank" rel="noopener noreferrer" class="w-6 h-6 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer" title="Pesquisar Imagem" onclick="event.stopPropagation()">
+                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                                </a>
+                              ` : ''}
+
+                              <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 flex items-center justify-center cursor-pointer" title="Copiar Nome">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                              </button>
+
+                              <button data-priority-catalog-key="${key}" class="w-6 h-6 rounded-lg hover:bg-yellow-500/20 border flex items-center justify-center cursor-pointer ${game.isPriority ? 'bg-yellow-500/20 text-yellow-300 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/5'}" title="Prioridade">
+                                <svg class="w-3 h-3" fill="${game.isPriority ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                              </button>
+
+                              <button data-edit-catalog-key="${key}" class="w-6 h-6 rounded-lg bg-blue-500/5 hover:bg-blue-500/15 border border-blue-500/10 flex items-center justify-center cursor-pointer text-blue-400" title="Editar">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" /></svg>
+                              </button>
+
+                              <button data-delete-catalog-key="${key}" class="w-6 h-6 rounded-lg bg-red-500/5 hover:bg-red-500/15 border border-red-500/10 flex items-center justify-center cursor-pointer text-red-400" title="Excluir">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      `;
+                    }).join('')}
+                  </div>
+                `}
+              </div>
+            `;
+          })
+          .join('')}
+      </div>
+    `;
+  }
+
+  /**
+   * MODO 4: PAINEL RESUMO (Métricas Executivas e Produção por Provedor)
+   */
+  renderListOverviewView(groupsList, totalDone, totalGames, totalPending, totalPriority, totalNotFound) {
+    const catalogItemsByKey = new Map(
+      this.state.catalogItems.map((item) => [item.id, item]),
+    );
+
+    // Provedores reais (excluindo seções virtuais)
+    const realProviders = groupsList.filter(([p]) => p !== 'Não Foi Possível Criar' && p !== 'Prioridades');
+
+    return `
+      <div class="space-y-6 w-full">
+        <!-- KPI Cards Grid -->
+        <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          <div class="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05] space-y-1">
+            <span class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Total de Provedores</span>
+            <div class="text-xl font-black text-white">${realProviders.length}</div>
+            <span class="text-[10px] text-zinc-500">Seções ativas</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.05] space-y-1">
+            <span class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">Total de Jogos</span>
+            <div class="text-xl font-black text-white">${totalGames}</div>
+            <span class="text-[10px] text-zinc-500">No arquivo lista.txt</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-1">
+            <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Miniaturas Feitas</span>
+            <div class="text-xl font-black text-emerald-400">${totalDone}</div>
+            <span class="text-[10px] text-emerald-500/80 font-bold">${totalGames > 0 ? Math.round((totalDone/totalGames)*100) : 0}% concluído</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/15 space-y-1">
+            <span class="text-[10px] text-amber-400 font-bold uppercase tracking-wider block">Em Produção</span>
+            <div class="text-xl font-black text-amber-400">${totalPending}</div>
+            <span class="text-[10px] text-amber-500/80 font-bold">Aguardando arte</span>
+          </div>
+
+          <div class="p-4 rounded-2xl bg-yellow-500/5 border border-yellow-500/15 space-y-1">
+            <span class="text-[10px] text-yellow-400 font-bold uppercase tracking-wider block">Prioridades Urgentes</span>
+            <div class="text-xl font-black text-yellow-400">${totalPriority}</div>
+            <span class="text-[10px] text-yellow-500/80 font-bold">Destaque na fila</span>
+          </div>
+        </div>
+
+        <!-- Grade de Cards de Provedores com Progresso e Prévia -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <h3 class="text-sm font-black text-white uppercase tracking-wider">Status por Provedor</h3>
+            <span class="text-xs text-zinc-500">${realProviders.length} provedores mapeados</span>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            ${realProviders.map(([providerName, games]) => {
+              const providerKey = this.normalizeName(providerName);
+              const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+
+              const provDone = games.filter(g => {
+                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                return catalogItemsByKey.get(k)?.hasWebp;
+              });
+              const provPending = games.filter(g => {
+                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                return !catalogItemsByKey.get(k)?.hasWebp && !g.isNotFound;
+              });
+              const provPriorities = games.filter(g => g.isPriority);
+
+              const pct = games.length > 0 ? Math.round((provDone.length / games.length) * 100) : 0;
+
+              return `
+                <div class="rounded-2xl border ${isCustomPriorityProv ? 'border-yellow-500/30 bg-yellow-500/[0.02]' : 'border-white/[0.06] bg-white/[0.015]'} p-4 flex flex-col justify-between space-y-4 hover:border-white/15 transition-all">
+                  <div>
+                    <!-- Topo do Card de Provedor -->
+                    <div class="flex items-start justify-between gap-2 mb-3">
+                      <div>
+                        <h4 class="text-sm font-black text-white flex items-center gap-1.5">
+                          ${providerName}
+                          ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
+                        </h4>
+                        <span class="text-[10px] text-zinc-500 font-medium">${games.length} jogos totais</span>
+                      </div>
+
+                      <div class="flex items-center gap-1">
+                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-7 h-7 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/5'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
+                          <svg class="w-3.5 h-3.5" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                        </button>
+                        <button data-trigger-add-game="${providerName}" class="w-7 h-7 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
+                          <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Barra de Progresso do Provedor -->
+                    <div class="space-y-1.5 mb-3">
+                      <div class="flex items-center justify-between text-[10px] font-bold">
+                        <span class="text-zinc-400">Progresso</span>
+                        <span class="${pct === 100 ? 'text-emerald-400' : 'text-zinc-300'}">${provDone.length}/${games.length} (${pct}%)</span>
+                      </div>
+                      <div class="w-full h-2 bg-white/5 rounded-full overflow-hidden border border-white/5">
+                        <div class="h-full bg-gradient-to-r from-emerald-500 to-teal-400 rounded-full transition-all" style="width: ${pct}%"></div>
+                      </div>
+                    </div>
+
+                    <!-- Badges de Contagem Rápida -->
+                    <div class="flex items-center gap-1.5 flex-wrap mb-3">
+                      <span class="text-[9px] font-bold px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                        ${provDone.length} feitos
+                      </span>
+                      <span class="text-[9px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                        ${provPending.length} pendentes
+                      </span>
+                      ${provPriorities.length > 0 ? `
+                        <span class="text-[9px] font-bold px-2 py-0.5 rounded-md bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
+                          ★ ${provPriorities.length} urgentes
+                        </span>
+                      ` : ''}
+                    </div>
+
+                    <!-- Prévia dos Jogos Pendentes -->
+                    ${provPending.length > 0 ? `
+                      <div class="space-y-1 bg-black/30 p-2.5 rounded-xl border border-white/[0.04]">
+                        <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block mb-1">Fila de Produção:</span>
+                        ${provPending.slice(0, 3).map(pGame => `
+                          <div class="flex items-center justify-between text-xs text-zinc-300 py-0.5">
+                            <span class="truncate pr-2">• ${pGame.displayName}</span>
+                            <button data-copy-catalog-name="${pGame.displayName.replace(/"/g, '&quot;')}" class="text-zinc-500 hover:text-white p-0.5" title="Copiar">
+                              <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+                            </button>
+                          </div>
+                        `).join('')}
+                        ${provPending.length > 3 ? `<span class="text-[9px] text-zinc-500 italic block mt-1">+ ${provPending.length - 3} outros jogos na fila</span>` : ''}
+                      </div>
+                    ` : `
+                      <div class="p-2.5 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/15 text-center text-xs text-emerald-400 font-medium">
+                        ✓ Todas as miniaturas prontas!
+                      </div>
+                    `}
+                  </div>
+
+                  <!-- Ação de Abrir no Mural/Lista -->
+                  <button data-focus-provider="${providerName}" class="w-full py-2 px-3 rounded-xl bg-white/[0.03] hover:bg-white/[0.08] text-zinc-300 text-xs font-bold border border-white/5 transition-all flex items-center justify-center gap-1.5 cursor-pointer">
+                    <span>Ver no Mural</span>
+                    <svg class="w-3 h-3 text-zinc-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" /></svg>
+                  </button>
+                </div>
+              `;
+            }).join('')}
           </div>
         </div>
       </div>
@@ -6325,6 +6937,114 @@ class ThumbSyncApp {
 
     // EVENTS DE LISTA.TXT
     if (this.state.activeTab === 'list_manager') {
+      // Alternador de Modo de Visualização do Mural
+      const viewModeBtns = document.querySelectorAll('[data-mural-view-mode]');
+      viewModeBtns.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const mode = e.currentTarget.getAttribute('data-mural-view-mode');
+          if (mode && this.state.muralViewMode !== mode) {
+            this.state.muralViewMode = mode;
+            this.saveStateToStorage();
+            this.renderActiveTab();
+          }
+        });
+      });
+
+      // Filtros de Status do Mural
+      const filterBtns = document.querySelectorAll('[data-mural-filter]');
+      filterBtns.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const filter = e.currentTarget.getAttribute('data-mural-filter');
+          if (filter && this.state.muralFilterStatus !== filter) {
+            this.state.muralFilterStatus = filter;
+            this.renderActiveTab();
+          }
+        });
+      });
+
+      // Busca no Mural com Debounce
+      const muralSearchInput = document.getElementById('mural-search-input');
+      if (muralSearchInput && !muralSearchInput.dataset.bound) {
+        muralSearchInput.dataset.bound = 'true';
+        muralSearchInput.addEventListener('input', (e) => {
+          clearTimeout(this.muralDebounceTimer);
+          this.state.muralSearchQuery = e.currentTarget.value;
+          this.muralDebounceTimer = setTimeout(() => {
+            this.renderActiveTab();
+          }, 200);
+        });
+      }
+
+      // Limpar Busca no Mural
+      const muralSearchClear = document.getElementById('mural-search-clear');
+      if (muralSearchClear) {
+        muralSearchClear.addEventListener('click', () => {
+          this.state.muralSearchQuery = '';
+          this.renderActiveTab();
+        });
+      }
+
+      // Resetar Filtros do Mural
+      const btnResetMuralFilters = document.getElementById('btn-reset-mural-filters');
+      if (btnResetMuralFilters) {
+        btnResetMuralFilters.addEventListener('click', () => {
+          this.state.muralSearchQuery = '';
+          this.state.muralFilterStatus = 'all';
+          this.renderActiveTab();
+        });
+      }
+
+      // Focar Provedor a partir do Painel Resumo
+      const focusProviderBtns = document.querySelectorAll('[data-focus-provider]');
+      focusProviderBtns.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          const prov = e.currentTarget.getAttribute('data-focus-provider');
+          if (prov) {
+            this.state.muralViewMode = 'board';
+            this.state.muralSearchQuery = '';
+            this.state.muralFilterStatus = 'all';
+            const provKey = this.normalizeName(prov);
+            this.state.collapsedProviderKeys.delete(provKey);
+            this.saveStateToStorage();
+            this.renderActiveTab();
+          }
+        });
+      });
+
+      // Selecionar Todos no Mural (Modo Compacto)
+      const btnSelectAllMural = document.getElementById('btn-select-all-mural');
+      if (btnSelectAllMural) {
+        btnSelectAllMural.addEventListener('change', (e) => {
+          const checked = e.target.checked;
+          const allCheckboxes = document.querySelectorAll('.game-selector');
+          allCheckboxes.forEach((cb) => {
+            cb.checked = checked;
+            const key = cb.getAttribute('data-select-key');
+            if (key) {
+              if (checked) {
+                this.state.selectedListKeys.add(key);
+              } else {
+                this.state.selectedListKeys.delete(key);
+              }
+            }
+          });
+
+          const countEl = document.getElementById('selected-count');
+          if (countEl) countEl.innerText = this.state.selectedListKeys.size;
+
+          const bulkDeleteBtn = document.getElementById('btn-delete-selected');
+          if (bulkDeleteBtn) {
+            if (this.state.selectedListKeys.size > 0) {
+              bulkDeleteBtn.classList.remove('hidden');
+              bulkDeleteBtn.classList.add('flex');
+            } else {
+              bulkDeleteBtn.classList.add('hidden');
+              bulkDeleteBtn.classList.remove('flex');
+            }
+          }
+        });
+      }
+
       const btnClearFinished = document.getElementById('btn-clear-finished');
       if (btnClearFinished) {
         btnClearFinished.addEventListener('click', () => {
