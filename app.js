@@ -1990,7 +1990,7 @@ class ThumbSyncApp {
       const item = s.item;
       const isSameProvider = this.normalizeName(item.providerName) === normProvider;
       const providerColorClass = isSameProvider ? 'text-indigo-300' : 'text-zinc-400';
-      
+
       let badgeHtml = '';
       if (item.hasWebp) {
         badgeHtml = `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Pronto no Drive</span>`;
@@ -2859,7 +2859,8 @@ class ThumbSyncApp {
 
     await this.fetchLatestListContent();
 
-    const normProvider = this.normalizeName(providerName);
+    const cleanProviderName = providerName.replace(/!/g, '').trim();
+    const normProvider = this.normalizeName(cleanProviderName);
     const existingItems = [];
 
     const existingOnDriveNames = validGames.filter((gameName) => {
@@ -2911,15 +2912,15 @@ class ThumbSyncApp {
       return;
     }
 
-    this.recordAddedDatesForGames(providerName, gamesToReallyAdd);
+    this.recordAddedDatesForGames(cleanProviderName, gamesToReallyAdd);
 
     this.addLog(
-      `Adicionando ${gamesToReallyAdd.length} jogos ao provedor '${providerName}'...`,
+      `Adicionando ${gamesToReallyAdd.length} jogos ao provedor '${cleanProviderName}'...`,
     );
 
     const lines = this.state.listContent.split(/\r?\n/);
     const targetHeaderRegex = new RegExp(
-      `^provedor\\s*:\\s*${providerName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*(!)?\\s*$`,
+      `^provedor\\s*:\\s*${cleanProviderName.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')}\\s*(!)?\\s*$`,
       'i',
     );
 
@@ -2945,7 +2946,7 @@ class ThumbSyncApp {
       ) {
         updatedLines.push('');
       }
-      updatedLines.push(`Provedor: ${providerName}`);
+      updatedLines.push(`Provedor: ${cleanProviderName}`);
       gamesToReallyAdd.forEach((gameName) => {
         updatedLines.push(gameName);
       });
@@ -5002,7 +5003,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory() {}
+  renderHistory() { }
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
@@ -5371,11 +5372,11 @@ class ThumbSyncApp {
         <!-- Renderização do Modo de Visualização Escolhido -->
         <div id="mural-view-container" class="w-full">
           ${this.state.isLoading && groupsList.length === 0
-            ? `
+        ? `
               <div class="space-y-4">
                 ${Array.from({ length: 4 })
-                  .map(
-                    () => `
+          .map(
+            () => `
                       <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
                         <div class="flex items-center gap-3">
                           <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
@@ -5387,12 +5388,12 @@ class ThumbSyncApp {
                         </div>
                       </div>
                     `,
-                  )
-                  .join('')}
+          )
+          .join('')}
               </div>
             `
-            : filteredGroupsList.length === 0
-              ? `
+        : filteredGroupsList.length === 0
+          ? `
                 <div class="py-20 text-center flex flex-col items-center justify-center gap-2">
                   <div class="w-10 h-10 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center text-zinc-500">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
@@ -5405,14 +5406,14 @@ class ThumbSyncApp {
                   `}
                 </div>
               `
-              : currentViewMode === 'board'
-                ? this.renderListBoardView(filteredGroupsList)
-                : currentViewMode === 'compact'
-                  ? this.renderListCompactView(filteredGroupsList, listGames)
-                  : currentViewMode === 'grid'
-                    ? this.renderListGridView(filteredGroupsList)
-                    : this.renderListOverviewView(groupsList, totalDoneCount, totalGamesCount, totalPendingCount, totalPriorityCount, totalNotFoundCount)
-          }
+          : currentViewMode === 'board'
+            ? this.renderListBoardView(filteredGroupsList)
+            : currentViewMode === 'compact'
+              ? this.renderListCompactView(filteredGroupsList, listGames)
+              : currentViewMode === 'grid'
+                ? this.renderListGridView(filteredGroupsList)
+                : this.renderListOverviewView(groupsList, totalDoneCount, totalGamesCount, totalPendingCount, totalPriorityCount, totalNotFoundCount)
+      }
         </div>
       </div>
 
@@ -5539,15 +5540,15 @@ class ThumbSyncApp {
     return `
       <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x w-full">
         ${groupsList
-          .map(([providerName, games]) => {
-            const providerKey = this.normalizeName(providerName);
-            const providerAttr = encodeURIComponent(providerKey);
-            const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-            const isPrioritySection = providerName === 'Prioridades';
-            const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+        .map(([providerName, games]) => {
+          const providerKey = this.normalizeName(providerName);
+          const providerAttr = encodeURIComponent(providerKey);
+          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+          const isPrioritySection = providerName === 'Prioridades';
+          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
-            return `
+          return `
               <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
                 <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
                   <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
@@ -5555,9 +5556,8 @@ class ThumbSyncApp {
                     <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
-                    <span class="truncate pr-2 flex items-center gap-1 ${isCustomPriorityProv ? 'text-yellow-400' : ''}">
+                    <span class="truncate pr-2 flex items-center gap-1">
                       ${providerName}
-                      ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
                     </span>
                   </span>
                   <div class="flex items-center gap-2 shrink-0">
@@ -5565,41 +5565,38 @@ class ThumbSyncApp {
                       ${games.length} jogos
                     </span>
                     ${isNotFoundSection || isPrioritySection
-                      ? ''
-                      : `
-                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 border-yellow-500/15' : 'bg-white/5 hover:bg-white/10 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer shrink-0" title="Marcar/Desmarcar como Prioridade">
-                          <svg class="w-3.5 h-3.5" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                        </button>
+              ? ''
+              : `
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
                           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
                       `
-                    }
+            }
                   </div>
                 </div>
 
                 ${isCollapsed
-                  ? ''
-                  : `
+              ? ''
+              : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games
-                      .map((game) => {
-                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                        const catalogItem = this.state.catalogItems.find(
-                          (i) => i.id === key,
-                        );
-                        const hasWebp = catalogItem?.hasWebp || false;
-                        const formattedDate = catalogItem?.modifiedTime
-                          ? new Date(
-                            catalogItem.modifiedTime,
-                          ).toLocaleDateString('pt-BR', {
-                            day: '2-digit',
-                            month: '2-digit',
-                            year: '2-digit',
-                          })
-                          : '';
+                .map((game) => {
+                  const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                  const catalogItem = this.state.catalogItems.find(
+                    (i) => i.id === key,
+                  );
+                  const hasWebp = catalogItem?.hasWebp || false;
+                  const formattedDate = catalogItem?.modifiedTime
+                    ? new Date(
+                      catalogItem.modifiedTime,
+                    ).toLocaleDateString('pt-BR', {
+                      day: '2-digit',
+                      month: '2-digit',
+                      year: '2-digit',
+                    })
+                    : '';
 
-                        return `
+                  return `
                           <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
                             <div class="flex items-start gap-2.5 min-w-0 w-full">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
@@ -5624,7 +5621,7 @@ class ThumbSyncApp {
                             <!-- Action buttons row -->
                             <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
                               ${this.isAdmin()
-                                ? `
+                      ? `
                                 <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" 
                                    target="_blank" 
                                    rel="noopener noreferrer" 
@@ -5637,8 +5634,8 @@ class ThumbSyncApp {
                                   </svg>
                                 </a>
                                 `
-                                : ''
-                              }
+                      : ''
+                    }
                               <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                   <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -5663,15 +5660,15 @@ class ThumbSyncApp {
                             </div>
                           </div>
                         `;
-                      })
-                      .join('')}
+                })
+                .join('')}
                   </div>
                   `
-                }
+            }
               </div>
             `;
-          })
-          .join('')}
+        })
+        .join('')}
       </div>
     `;
   }
@@ -5698,21 +5695,21 @@ class ThumbSyncApp {
         <!-- Seções por Provedor em Formato Lista Densa -->
         <div class="space-y-3">
           ${groupsList
-            .map(([providerName, games]) => {
-              const providerKey = this.normalizeName(providerName);
-              const providerAttr = encodeURIComponent(providerKey);
-              const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-              const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-              const isPrioritySection = providerName === 'Prioridades';
-              const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+        .map(([providerName, games]) => {
+          const providerKey = this.normalizeName(providerName);
+          const providerAttr = encodeURIComponent(providerKey);
+          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+          const isPrioritySection = providerName === 'Prioridades';
+          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
-              const provDoneCount = games.filter(g => {
-                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-                return catalogItemsByKey.get(k)?.hasWebp;
-              }).length;
-              const provPct = games.length > 0 ? Math.round((provDoneCount / games.length) * 100) : 0;
+          const provDoneCount = games.filter(g => {
+            const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+            return catalogItemsByKey.get(k)?.hasWebp;
+          }).length;
+          const provPct = games.length > 0 ? Math.round((provDoneCount / games.length) * 100) : 0;
 
-              return `
+          return `
                 <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.015]'} overflow-hidden transition-all">
                   <!-- Header da Seção do Provedor -->
                   <div class="flex items-center justify-between px-4 py-2.5 bg-white/[0.02] border-b border-white/[0.04]">
@@ -5723,7 +5720,6 @@ class ThumbSyncApp {
                       <span class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} truncate flex items-center gap-1.5">
                         <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
                         ${providerName}
-                        ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400 shrink-0" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
                       </span>
                     </div>
 
@@ -5737,9 +5733,6 @@ class ThumbSyncApp {
                       </div>
 
                       ${!isNotFoundSection && !isPrioritySection ? `
-                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-6.5 h-6.5 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
-                          <svg class="w-3 h-3" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                        </button>
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                           <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
@@ -5751,25 +5744,24 @@ class ThumbSyncApp {
                   ${isCollapsed ? '' : `
                     <div id="provider-games-${providerAttr}" class="p-2 space-y-1 divide-y divide-white/[0.02]">
                       ${games.map(game => {
-                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                        const catalogItem = catalogItemsByKey.get(key);
-                        const hasWebp = catalogItem?.hasWebp || false;
-                        const formattedDate = catalogItem?.modifiedTime
-                          ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-                          : '';
+            const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+            const catalogItem = catalogItemsByKey.get(key);
+            const hasWebp = catalogItem?.hasWebp || false;
+            const formattedDate = catalogItem?.modifiedTime
+              ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+              : '';
 
-                        return `
+            return `
                           <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-white/[0.04] transition-colors border ${hasWebp && !game.isNotFound ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-transparent'} cursor-pointer">
                             <div class="flex items-center gap-2.5 flex-1 min-w-0">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                               
                               <!-- Status Tag -->
-                              <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
-                                game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
-                                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                                game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
-                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                              }">
+                              <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                  game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
+                    'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+              }">
                                 ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
                               </span>
 
@@ -5815,13 +5807,13 @@ class ThumbSyncApp {
                             </div>
                           </div>
                         `;
-                      }).join('')}
+          }).join('')}
                     </div>
                   `}
                 </div>
               `;
-            })
-            .join('')}
+        })
+        .join('')}
         </div>
       </div>
     `;
@@ -5838,15 +5830,15 @@ class ThumbSyncApp {
     return `
       <div class="space-y-6 w-full">
         ${groupsList
-          .map(([providerName, games]) => {
-            const providerKey = this.normalizeName(providerName);
-            const providerAttr = encodeURIComponent(providerKey);
-            const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-            const isPrioritySection = providerName === 'Prioridades';
-            const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+        .map(([providerName, games]) => {
+          const providerKey = this.normalizeName(providerName);
+          const providerAttr = encodeURIComponent(providerKey);
+          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
+          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+          const isPrioritySection = providerName === 'Prioridades';
+          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
-            return `
+          return `
               <div class="space-y-3">
                 <!-- Header de Seção da Grade -->
                 <div class="flex items-center justify-between pb-2 border-b border-white/[0.05]">
@@ -5857,16 +5849,12 @@ class ThumbSyncApp {
                     <h3 class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} flex items-center gap-1.5">
                       <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
                       ${providerName}
-                      ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
                     </h3>
                     <span class="text-[10px] text-zinc-500 font-bold ml-1">(${games.length} jogos)</span>
                   </div>
 
                   ${!isNotFoundSection && !isPrioritySection ? `
                     <div class="flex items-center gap-2">
-                      <button data-trigger-toggle-provider-priority="${providerName}" class="w-6 h-6 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/10 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/10'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
-                        <svg class="w-3 h-3" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                      </button>
                       <button data-trigger-add-game="${providerName}" class="w-6 h-6 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
@@ -5878,26 +5866,25 @@ class ThumbSyncApp {
                 ${isCollapsed ? '' : `
                   <div id="provider-games-${providerAttr}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
                     ${games.map(game => {
-                      const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                      const catalogItem = catalogItemsByKey.get(key);
-                      const hasWebp = catalogItem?.hasWebp || false;
-                      const formattedDate = catalogItem?.modifiedTime
-                        ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-                        : '';
+            const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+            const catalogItem = catalogItemsByKey.get(key);
+            const hasWebp = catalogItem?.hasWebp || false;
+            const formattedDate = catalogItem?.modifiedTime
+              ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+              : '';
 
-                      return `
+            return `
                         <div data-list-preview-key="${key}" class="group relative rounded-2xl border ${hasWebp && !game.isNotFound ? 'border-emerald-500/40 bg-emerald-500/[0.03] shadow-[0_0_15px_rgba(16,185,129,0.08)]' : 'border-white/[0.06] bg-[#111116]'} p-3.5 flex flex-col justify-between hover:border-white/20 transition-all cursor-pointer">
                           <!-- Topo do Card: Checkbox + Status Pill -->
                           <div>
                             <div class="flex items-center justify-between gap-2 mb-2.5">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                               
-                              <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
-                                game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
-                                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                                game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
-                                'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-                              }">
+                              <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
+                  game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
+                    'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+              }">
                                 ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
                               </span>
                             </div>
@@ -5942,13 +5929,13 @@ class ThumbSyncApp {
                           </div>
                         </div>
                       `;
-                    }).join('')}
+          }).join('')}
                   </div>
                 `}
               </div>
             `;
-          })
-          .join('')}
+        })
+        .join('')}
       </div>
     `;
   }
@@ -5983,7 +5970,7 @@ class ThumbSyncApp {
           <div class="p-4 rounded-2xl bg-emerald-500/5 border border-emerald-500/15 space-y-1">
             <span class="text-[10px] text-emerald-400 font-bold uppercase tracking-wider block">Miniaturas Feitas</span>
             <div class="text-xl font-black text-emerald-400">${totalDone}</div>
-            <span class="text-[10px] text-emerald-500/80 font-bold">${totalGames > 0 ? Math.round((totalDone/totalGames)*100) : 0}% concluído</span>
+            <span class="text-[10px] text-emerald-500/80 font-bold">${totalGames > 0 ? Math.round((totalDone / totalGames) * 100) : 0}% concluído</span>
           </div>
 
           <div class="p-4 rounded-2xl bg-amber-500/5 border border-amber-500/15 space-y-1">
@@ -6008,22 +5995,22 @@ class ThumbSyncApp {
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             ${realProviders.map(([providerName, games]) => {
-              const providerKey = this.normalizeName(providerName);
-              const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+      const providerKey = this.normalizeName(providerName);
+      const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
-              const provDone = games.filter(g => {
-                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-                return catalogItemsByKey.get(k)?.hasWebp;
-              });
-              const provPending = games.filter(g => {
-                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-                return !catalogItemsByKey.get(k)?.hasWebp && !g.isNotFound;
-              });
-              const provPriorities = games.filter(g => g.isPriority);
+      const provDone = games.filter(g => {
+        const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+        return catalogItemsByKey.get(k)?.hasWebp;
+      });
+      const provPending = games.filter(g => {
+        const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+        return !catalogItemsByKey.get(k)?.hasWebp && !g.isNotFound;
+      });
+      const provPriorities = games.filter(g => g.isPriority);
 
-              const pct = games.length > 0 ? Math.round((provDone.length / games.length) * 100) : 0;
+      const pct = games.length > 0 ? Math.round((provDone.length / games.length) * 100) : 0;
 
-              return `
+      return `
                 <div class="rounded-2xl border ${isCustomPriorityProv ? 'border-yellow-500/30 bg-yellow-500/[0.02]' : 'border-white/[0.06] bg-white/[0.015]'} p-4 flex flex-col justify-between space-y-4 hover:border-white/15 transition-all">
                   <div>
                     <!-- Topo do Card de Provedor -->
@@ -6031,15 +6018,11 @@ class ThumbSyncApp {
                       <div>
                         <h4 class="text-sm font-black text-white flex items-center gap-1.5">
                           ${providerName}
-                          ${isCustomPriorityProv ? `<svg class="w-3.5 h-3.5 text-yellow-400" fill="currentColor" viewBox="0 0 20 20"><path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"></path></svg>` : ''}
                         </h4>
                         <span class="text-[10px] text-zinc-500 font-medium">${games.length} jogos totais</span>
                       </div>
 
                       <div class="flex items-center gap-1">
-                        <button data-trigger-toggle-provider-priority="${providerName}" class="w-7 h-7 rounded-lg ${isCustomPriorityProv ? 'bg-yellow-500/15 text-yellow-400 border-yellow-500/20' : 'bg-white/5 text-zinc-400 border-white/5'} border flex items-center justify-center cursor-pointer" title="Alternar Prioridade">
-                          <svg class="w-3.5 h-3.5" fill="${isCustomPriorityProv ? 'currentColor' : 'none'}" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
-                        </button>
                         <button data-trigger-add-game="${providerName}" class="w-7 h-7 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
@@ -6100,7 +6083,7 @@ class ThumbSyncApp {
                   </button>
                 </div>
               `;
-            }).join('')}
+    }).join('')}
           </div>
         </div>
       </div>
