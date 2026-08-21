@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.0
+ * Versão: Beta v1.1.1
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -1917,6 +1917,64 @@ class ThumbSyncApp {
       .replace(/\s+/g, ' ')
       .trim()
       .toLowerCase();
+  }
+
+  getGameSearchUrl(gameOrItem) {
+    if (!gameOrItem) return 'https://www.google.com/imghp';
+    const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
+    const rawName = (gameOrItem.displayName || gameOrItem.name || '').trim();
+    const normProv = this.normalizeName(provider);
+
+    // 1. Spinomenal (canto.com library search)
+    if (
+      normProv === 'spinomenal' ||
+      normProv === 'spinonemal' ||
+      normProv.includes('spinomenal') ||
+      normProv.includes('spinonemal')
+    ) {
+      const keyword = encodeURIComponent(rawName);
+      return `https://spinonemal.canto.com/v/Spinomenal/library?keyword=${keyword}&aiSearchEnabled&gSortingForward=false&gOrderProp=nomad&viewIndex=0&display=fitView&referenceTo=&from=fitView`;
+    }
+
+    // 2. PG Soft (pgsoft.com download search - sem espaços)
+    if (
+      normProv === 'pg soft' ||
+      normProv === 'pgsoft' ||
+      normProv.includes('pg soft') ||
+      normProv.includes('pgsoft')
+    ) {
+      const searchParam = encodeURIComponent(rawName.replace(/\s+/g, ''));
+      return `https://www.pgsoft.com/en/download?search=${searchParam}`;
+    }
+
+    // Default: Google Imagens
+    return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((provider ? provider + ' ' : '') + rawName)}`;
+  }
+
+  getGameSearchTitle(gameOrItem) {
+    if (!gameOrItem) return 'Pesquisar Imagem';
+    const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
+    const normProv = this.normalizeName(provider);
+
+    if (
+      normProv === 'spinomenal' ||
+      normProv === 'spinonemal' ||
+      normProv.includes('spinomenal') ||
+      normProv.includes('spinonemal')
+    ) {
+      return 'Pesquisar na biblioteca oficial Spinomenal (Canto)';
+    }
+
+    if (
+      normProv === 'pg soft' ||
+      normProv === 'pgsoft' ||
+      normProv.includes('pg soft') ||
+      normProv.includes('pgsoft')
+    ) {
+      return 'Pesquisar downloads oficiais PG Soft';
+    }
+
+    return 'Pesquisar Imagem no Google (Administrador)';
   }
 
   handleNewGameInputSimilarity(textarea) {
@@ -4168,18 +4226,18 @@ class ThumbSyncApp {
                   </div>
                 </div>
 
-                <!-- Botão 6: Buscar Imagem no Google (Admin) -->
+                <!-- Botão 6: Buscar Imagem / Arte (Admin) -->
                 ${this.isAdmin() ? `
                 <div class="flex items-center gap-2">
-                  <div class="w-5 h-5 rounded-lg bg-purple-500/15 border border-purple-500/25 flex items-center justify-center text-purple-400 shrink-0" title="Buscar Imagem">
+                  <div class="w-5 h-5 rounded-lg bg-purple-500/15 border border-purple-500/25 flex items-center justify-center text-purple-400 shrink-0" title="Buscar Arte / Imagem">
                     <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
                       <path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" />
                     </svg>
                   </div>
                   <div class="min-w-0 flex-1">
-                    <span class="font-bold text-purple-400 block text-[10px] leading-tight">Buscar Imagem</span>
-                    <span class="text-[8.5px] text-zinc-500 truncate block">Abre Google Imagens</span>
+                    <span class="font-bold text-purple-400 block text-[10px] leading-tight">Buscar Arte / Download</span>
+                    <span class="text-[8.5px] text-zinc-500 truncate block">Spinomenal, PG Soft ou Google</span>
                   </div>
                 </div>
                 ` : ''}
@@ -5622,11 +5680,11 @@ class ThumbSyncApp {
                             <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
                               ${this.isAdmin()
                       ? `
-                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" 
+                                <a href="${this.getGameSearchUrl(game)}" 
                                    target="_blank" 
                                    rel="noopener noreferrer" 
                                    class="w-7 h-7 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 border border-purple-500/20 flex items-center justify-center cursor-pointer text-purple-400 transition-colors shrink-0" 
-                                   title="Pesquisar Imagem no Google (Administrador)"
+                                   title="${this.getGameSearchTitle(game)}"
                                    onclick="event.stopPropagation()">
                                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                     <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -5780,7 +5838,7 @@ class ThumbSyncApp {
                               ${formattedDate ? `<span class="text-[10px] text-zinc-500 mr-1.5 font-medium">${formattedDate}</span>` : ''}
                               
                               ${this.isAdmin() ? `
-                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" target="_blank" rel="noopener noreferrer" class="w-6.5 h-6.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer shrink-0" title="Pesquisar Imagem" onclick="event.stopPropagation()">
+                                <a href="${this.getGameSearchUrl(game)}" target="_blank" rel="noopener noreferrer" class="w-6.5 h-6.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer shrink-0" title="${this.getGameSearchTitle(game)}" onclick="event.stopPropagation()">
                                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
                                 </a>
                               ` : ''}
@@ -5905,8 +5963,8 @@ class ThumbSyncApp {
                             
                             <div class="flex items-center gap-1">
                               ${this.isAdmin() ? `
-                                <a href="https://www.google.com/search?tbm=isch&q=${encodeURIComponent(game.providerName + ' ' + game.displayName)}" target="_blank" rel="noopener noreferrer" class="w-6 h-6 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer" title="Pesquisar Imagem" onclick="event.stopPropagation()">
-                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+                                <a href="${this.getGameSearchUrl(game)}" target="_blank" rel="noopener noreferrer" class="w-6 h-6 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer" title="${this.getGameSearchTitle(game)}" onclick="event.stopPropagation()">
+                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
                                 </a>
                               ` : ''}
 
@@ -6393,6 +6451,12 @@ class ThumbSyncApp {
         </div>
 
         <div class="flex flex-col gap-2 select-none mt-auto pt-1 pb-2">
+          ${this.isAdmin() ? `
+          <a href="${this.getGameSearchUrl(item)}" target="_blank" rel="noopener noreferrer" class="w-full py-2 px-4 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors" title="${this.getGameSearchTitle(item)}">
+            <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
+            <span>${this.getGameSearchTitle(item)}</span>
+          </a>
+          ` : ''}
           <button id="modal-action-copy-name" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
             <span>Copiar Nome do Jogo</span>
