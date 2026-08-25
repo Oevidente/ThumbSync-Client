@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.1
+ * Versão: Beta v1.1.4
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -172,8 +172,8 @@ export class DriveApiClient {
   }
 
   /**
-   * Lista arquivos de subpastas de provedores usando concorrência controlada (máx 6 requisições por vez).
-   * Garante 100% de compatibilidade com a API v3 do Google Drive e evita falhas de rede ("Failed to fetch").
+   * Lista arquivos de subpastas de provedores usando fila com concorrência otimizada.
+   * Varre todas as pastas de provedores garantindo detecção exata de miniaturas (.webp) no Drive.
    */
   async listFilesInSubfolders(subfolders, maxConcurrency = 6) {
     if (!subfolders || subfolders.length === 0) return [];
@@ -187,7 +187,8 @@ export class DriveApiClient {
         if (!subfolder) break;
         try {
           const subFiles = await this.listFilesInFolder(subfolder.id);
-          subFiles.forEach((sf) => {
+          for (let i = 0; i < subFiles.length; i++) {
+            const sf = subFiles[i];
             if (
               sf.mimeType === 'image/webp' ||
               (sf.name || '').toLowerCase().endsWith('.webp')
@@ -197,7 +198,7 @@ export class DriveApiClient {
                 providerName: subfolder.name,
               });
             }
-          });
+          }
         } catch (e) {
           console.warn(
             `Erro ao ler pasta do provedor '${subfolder.name}':`,
@@ -207,12 +208,9 @@ export class DriveApiClient {
       }
     };
 
-    const workers = Array.from(
-      { length: Math.min(maxConcurrency, subfolders.length) },
-      () => worker(),
-    );
+    const workerCount = Math.min(maxConcurrency, subfolders.length);
+    const workers = Array.from({ length: workerCount }, () => worker());
     await Promise.all(workers);
-
     return results;
   }
 
@@ -1148,9 +1146,11 @@ class ThumbSyncApp {
       this.addLog('Erro: Client ID do Google Cloud não configurado!');
       this.setActiveTab('settings');
       this.render();
-      alert(
-        'Por favor, configure o seu Client ID do Google Cloud antes de conectar.',
-      );
+      this.showAlertDialog({
+        title: 'Configuração Necessária',
+        message: 'Por favor, configure o seu Client ID do Google Cloud antes de conectar.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -1401,7 +1401,6 @@ class ThumbSyncApp {
       }
 
       this.ensureSeedDates();
-      await this.saveAddedDates();
 
       // Contas Administrador (admin_accounts.json)
       const adminAccountsFiles = directFiles.filter(
@@ -1440,7 +1439,13 @@ class ThumbSyncApp {
         'thumbsync_admin_accounts',
         JSON.stringify(combinedAdminAccounts),
       );
-      await this.saveAdminAccounts();
+      if (
+        !this.state.adminAccountsFileId ||
+        combinedAdminAccounts.length !== driveAdminAccounts.length ||
+        combinedAdminAccounts.some((a) => !driveAdminAccounts.includes(a))
+      ) {
+        await this.saveAdminAccounts();
+      }
 
       // Contas Emerson (emerson_accounts.json)
       const emersonAccountsFiles = directFiles.filter(
@@ -1492,7 +1497,13 @@ class ThumbSyncApp {
         'thumbsync_emerson_accounts',
         JSON.stringify(combinedEmersonAccounts),
       );
-      await this.saveEmersonAccounts();
+      if (
+        !this.state.emersonAccountsFileId ||
+        combinedEmersonAccounts.length !== driveEmersonAccounts.length ||
+        combinedEmersonAccounts.some((a) => !driveEmersonAccounts.includes(a))
+      ) {
+        await this.saveEmersonAccounts();
+      }
 
       this.saveStateToStorage();
       this.syncLocalCatalog();
@@ -1587,7 +1598,11 @@ class ThumbSyncApp {
       this.addLog('Sincronização de lista concluída.');
     } catch (e) {
       this.addLog(`Erro ao sincronizar somente a lista: ${e.message}`);
-      alert(`Falha ao sincronizar somente a lista: ${e.message}`);
+      this.showAlertDialog({
+        title: 'Erro de Sincronização',
+        message: `Falha ao sincronizar somente a lista: ${e.message}`,
+        type: 'error',
+      });
     } finally {
       this.state.isLoading = false;
       this.render();
@@ -2284,7 +2299,11 @@ class ThumbSyncApp {
         .filter((line) => line.length > 0);
 
       if (rows.length === 0) {
-        alert('O arquivo selecionado está vazio.');
+        this.showAlertDialog({
+          title: 'Arquivo Vazio',
+          message: 'O arquivo selecionado está vazio.',
+          type: 'warning',
+        });
         return;
       }
 
@@ -2352,18 +2371,26 @@ class ThumbSyncApp {
       }
 
       if (gamesToImport.length === 0) {
-        alert(
-          'Importação finalizada: Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).',
-        );
+        this.showAlertDialog({
+          title: 'Importação Finalizada',
+          message: 'Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).',
+          type: 'info',
+        });
       } else {
         this.handleAddGamesToList(providerName, gamesToImport);
-        alert(
-          `Sucesso! ${gamesToImport.length} novos jogos foram importados para ${providerName}.`,
-        );
+        this.showAlertDialog({
+          title: 'Importação Concluída',
+          message: `Sucesso! ${gamesToImport.length} novos jogos foram importados para ${providerName}.`,
+          type: 'success',
+        });
       }
     } catch (err) {
       console.error('Erro no processamento do CSV:', err);
-      alert('Falha ao ler o arquivo CSV. Verifique se o formato está correto.');
+      this.showAlertDialog({
+        title: 'Erro na Planilha',
+        message: 'Falha ao ler o arquivo CSV. Verifique se o formato está correto.',
+        type: 'error',
+      });
     } finally {
       this.state.isImportingCSV = false;
       this.render();
@@ -2404,9 +2431,11 @@ class ThumbSyncApp {
           this.addLog(`Tag salva globalmente.`);
         } catch (err) {
           this.addLog(`Erro ao salvar tag no Drive: ${err.message}`);
-          alert(
-            'A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.',
-          );
+          this.showAlertDialog({
+            title: 'Aviso de Sincronização',
+            message: 'A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.',
+            type: 'warning',
+          });
         } finally {
           this.state.isSavingTag = false;
           this.renderActiveTab();
@@ -2512,9 +2541,11 @@ class ThumbSyncApp {
    */
   async handleDownloadFile(item) {
     if (!item.driveFileId) {
-      alert(
-        'Esta miniatura não possui imagem (.webp) no Google Drive para download.',
-      );
+      this.showAlertDialog({
+        title: 'Arquivo Indisponível',
+        message: 'Esta miniatura não possui imagem (.webp) no Google Drive para download.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -2526,7 +2557,11 @@ class ThumbSyncApp {
       this.triggerBlobDownload(blob, `${item.displayName}.webp`);
       this.addLog(`Download concluído: ${item.displayName}.webp`);
     } catch (e) {
-      alert(`Falha no download: ${e.message}`);
+      this.showAlertDialog({
+        title: 'Erro de Download',
+        message: `Falha no download: ${e.message}`,
+        type: 'error',
+      });
     }
   }
 
@@ -2536,9 +2571,11 @@ class ThumbSyncApp {
    */
   async copyImageToClipboard(item) {
     if (!item.driveFileId) {
-      alert(
-        'Esta miniatura não possui imagem (.webp) no Google Drive para cópia.',
-      );
+      this.showAlertDialog({
+        title: 'Arquivo Indisponível',
+        message: 'Esta miniatura não possui imagem (.webp) no Google Drive para cópia.',
+        type: 'warning',
+      });
       return;
     }
 
@@ -2615,9 +2652,11 @@ class ThumbSyncApp {
       }
     } catch (err) {
       console.error(err);
-      alert(
-        'Erro ao copiar a imagem. O navegador pode não suportar a cópia de imagens diretamente.',
-      );
+      this.showAlertDialog({
+        title: 'Erro ao Copiar',
+        message: 'Erro ao copiar a imagem. O navegador pode não suportar a cópia de imagens diretamente.',
+        type: 'error',
+      });
       const btn = document.getElementById('modal-action-copy-img');
       if (btn) {
         btn.innerHTML =
@@ -2672,13 +2711,173 @@ class ThumbSyncApp {
       this.syncLocalCatalog();
     } catch (err) {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
-      alert(
-        'Falha ao salvar as alterações. Verifique sua conexão e tente novamente.',
-      );
+      this.showAlertDialog({
+        title: 'Erro ao Salvar',
+        message: 'Falha ao salvar as alterações. Verifique sua conexão e tente novamente.',
+        type: 'error',
+      });
     } finally {
       this.state.isLoading = false;
       this.render();
     }
+  }
+
+  /**
+   * Modal de confirmação visual integrado no site (In-App Confirm Dialog).
+   * Funciona 100% em qualquer ambiente, inclusive dentro de iframes (AI Studio, sandbox, etc.)
+   * onde o confirm() nativo do navegador é bloqueado.
+   */
+  showConfirmDialog({
+    title = 'Confirmação',
+    message = 'Tem certeza que deseja continuar?',
+    confirmText = 'Confirmar',
+    cancelText = 'Cancelar',
+    isDanger = false,
+    icon = 'warning',
+  } = {}) {
+    return new Promise((resolve) => {
+      const existing = document.getElementById('in-app-confirm-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'in-app-confirm-modal';
+      modal.className =
+        'fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-200';
+
+      const iconSvgs = {
+        warning: `<div class="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4 shadow-lg shadow-amber-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>`,
+        trash: `<div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+          </svg>
+        </div>`,
+        info: `<div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>`,
+      };
+
+      const selectedIcon = isDanger
+        ? iconSvgs.trash
+        : iconSvgs[icon] || iconSvgs.warning;
+
+      modal.innerHTML = `
+        <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center">
+          ${selectedIcon}
+          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 font-sans">${title}</h3>
+          <p class="text-xs text-zinc-300 leading-relaxed mb-6 whitespace-pre-line">${message}</p>
+          <div class="flex items-center gap-3 w-full">
+            <button id="in-app-confirm-cancel" class="flex-1 py-2.5 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer transition-colors">
+              ${cancelText}
+            </button>
+            <button id="in-app-confirm-btn" class="flex-1 py-2.5 px-4 rounded-xl ${isDanger
+          ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/20'
+          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20'
+        } font-semibold text-xs cursor-pointer transition-colors">
+              ${confirmText}
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const cleanup = (result) => {
+        document.removeEventListener('keydown', handleKey);
+        modal.remove();
+        resolve(result);
+      };
+
+      const handleKey = (e) => {
+        if (e.key === 'Escape') cleanup(false);
+        if (e.key === 'Enter') cleanup(true);
+      };
+
+      document.addEventListener('keydown', handleKey);
+
+      modal.querySelector('#in-app-confirm-cancel')?.addEventListener('click', () => cleanup(false));
+      modal.querySelector('#in-app-confirm-btn')?.addEventListener('click', () => cleanup(true));
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) cleanup(false);
+      });
+    });
+  }
+
+  /**
+   * Modal de alerta visual integrado no site (In-App Alert Dialog).
+   */
+  showAlertDialog({
+    title = 'Aviso',
+    message = '',
+    buttonText = 'Entendido',
+    type = 'info',
+  } = {}) {
+    return new Promise((resolve) => {
+      const existing = document.getElementById('in-app-alert-modal');
+      if (existing) existing.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'in-app-alert-modal';
+      modal.className =
+        'fixed inset-0 z-[9999] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 transition-all duration-200';
+
+      const iconSvgs = {
+        info: `<div class="w-12 h-12 rounded-2xl bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center mb-4 shadow-lg shadow-blue-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>`,
+        warning: `<div class="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center mb-4 shadow-lg shadow-amber-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+        </div>`,
+        error: `<div class="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400 flex items-center justify-center mb-4 shadow-lg shadow-rose-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+          </svg>
+        </div>`,
+        success: `<div class="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 flex items-center justify-center mb-4 shadow-lg shadow-emerald-500/5">
+          <svg class="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+          </svg>
+        </div>`,
+      };
+
+      modal.innerHTML = `
+        <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col items-center text-center">
+          ${iconSvgs[type] || iconSvgs.info}
+          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 font-sans">${title}</h3>
+          <p class="text-xs text-zinc-300 leading-relaxed mb-6 whitespace-pre-line">${message}</p>
+          <button id="in-app-alert-btn" class="w-full py-2.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold text-xs cursor-pointer transition-colors shadow-lg shadow-blue-600/20">
+            ${buttonText}
+          </button>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', handleKey);
+        modal.remove();
+        resolve(true);
+      };
+
+      const handleKey = (e) => {
+        if (e.key === 'Escape' || e.key === 'Enter') cleanup();
+      };
+
+      document.addEventListener('keydown', handleKey);
+      modal.querySelector('#in-app-alert-btn')?.addEventListener('click', cleanup);
+      modal.addEventListener('click', (e) => {
+        if (e.target === modal) cleanup();
+      });
+    });
   }
 
   showDuplicatedGameToast(games) {
@@ -3403,9 +3602,14 @@ class ThumbSyncApp {
   }
 
   async handleExcludeGameFromList(item) {
-    const isConfirmed = confirm(
-      `Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo list.txt.`,
-    );
+    const isConfirmed = await this.showConfirmDialog({
+      title: 'Excluir Jogo',
+      message: `Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`,
+      confirmText: 'Excluir',
+      cancelText: 'Cancelar',
+      isDanger: true,
+      icon: 'trash',
+    });
     if (!isConfirmed) return;
 
     await this.fetchLatestListContent();
@@ -3534,9 +3738,14 @@ class ThumbSyncApp {
    * Remove da lista todos os jogos que já possuem arquivo .webp correspondente no Drive.
    */
   async handleClearFinishedGames() {
-    const isConfirmed = confirm(
-      `Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) no Drive?`,
-    );
+    const isConfirmed = await this.showConfirmDialog({
+      title: 'Limpar Feitos',
+      message: 'Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) correspondentes no Drive?',
+      confirmText: 'Limpar Feitos',
+      cancelText: 'Cancelar',
+      isDanger: true,
+      icon: 'trash',
+    });
     if (!isConfirmed) return;
 
     await this.fetchLatestListContent();
@@ -3612,7 +3821,11 @@ class ThumbSyncApp {
     });
 
     if (removedCount === 0) {
-      alert('Nenhum jogo concluído para limpar.');
+      this.showAlertDialog({
+        title: 'Limpeza de Jogos',
+        message: 'Nenhum jogo concluído para limpar na lista no momento.',
+        type: 'info',
+      });
       return;
     }
 
@@ -3645,9 +3858,14 @@ class ThumbSyncApp {
     const selectedCount = this.state.selectedListKeys.size;
     if (selectedCount === 0) return;
 
-    const isConfirmed = confirm(
-      `Excluir os ${selectedCount} jogos selecionados da lista de provedores?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`,
-    );
+    const isConfirmed = await this.showConfirmDialog({
+      title: 'Excluir Selecionados',
+      message: `Excluir os ${selectedCount} jogos selecionados da lista de provedores?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`,
+      confirmText: `Excluir (${selectedCount})`,
+      cancelText: 'Cancelar',
+      isDanger: true,
+      icon: 'trash',
+    });
     if (!isConfirmed) return;
 
     await this.fetchLatestListContent();
@@ -3770,11 +3988,19 @@ class ThumbSyncApp {
         this.state.isImportingCSV = false;
         this.renderActiveTab();
       } else {
-        alert('Nenhum nome de jogo válido foi encontrado na planilha.');
+        this.showAlertDialog({
+          title: 'Planilha Vazia ou Inválida',
+          message: 'Nenhum nome de jogo válido foi encontrado na planilha.',
+          type: 'warning',
+        });
       }
     } catch (err) {
       console.error('Erro ao importar CSV:', err);
-      alert('Falha ao ler o arquivo CSV.');
+      this.showAlertDialog({
+        title: 'Erro na Planilha',
+        message: 'Falha ao ler o arquivo CSV. Verifique o formato e tente novamente.',
+        type: 'error',
+      });
     }
   }
 
@@ -4996,9 +5222,11 @@ class ThumbSyncApp {
         if (dropZone) dropZone.classList.remove('opacity-100');
 
         if (this.state.useMock) {
-          alert(
-            'Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para sincronizar Webps reais!',
-          );
+          this.showAlertDialog({
+            title: 'Modo Offline',
+            message: 'Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para sincronizar Webps reais!',
+            type: 'warning',
+          });
           return;
         }
 
@@ -5007,9 +5235,11 @@ class ThumbSyncApp {
 
         const file = files[0];
         if (!file.name.toLowerCase().endsWith('.webp')) {
-          alert(
-            'Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.',
-          );
+          this.showAlertDialog({
+            title: 'Formato Inválido',
+            message: 'Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.',
+            type: 'warning',
+          });
           return;
         }
 
@@ -5049,7 +5279,11 @@ class ThumbSyncApp {
           await this.syncWithGoogleDrive();
         } catch (uploadError) {
           this.addLog(`Incorreto ao enviar imagem: ${uploadError.message}`);
-          alert(`Incompatibilidade na sincronização: ${uploadError.message}`);
+          this.showAlertDialog({
+            title: 'Erro de Envio',
+            message: `Incompatibilidade na sincronização: ${uploadError.message}`,
+            type: 'error',
+          });
         } finally {
           this.state.isLoading = false;
           this.render();
@@ -6979,9 +7213,11 @@ class ThumbSyncApp {
           if (dropzonePanel) dropzonePanel.classList.add('scale-95');
 
           if (!driveClient.isAuthenticated()) {
-            alert(
-              'Ação não permitida offline. Conecte sua conta do Google Drive para fazer a sincronização inteligente!',
-            );
+            this.showAlertDialog({
+              title: 'Ação Não Permitida',
+              message: 'Conecte sua conta do Google Drive para fazer a sincronização inteligente de arquivos!',
+              type: 'warning',
+            });
             return;
           }
 
@@ -6989,9 +7225,11 @@ class ThumbSyncApp {
             f.name.toLowerCase().endsWith('.webp'),
           );
           if (files.length === 0) {
-            alert(
-              'Nenhum arquivo .webp válido detectado! Envie apenas arquivos .webp.',
-            );
+            this.showAlertDialog({
+              title: 'Arquivo Incompatível',
+              message: 'Nenhum arquivo .webp válido detectado! Envie apenas arquivos no formato .webp.',
+              type: 'warning',
+            });
             return;
           }
 
@@ -7055,9 +7293,11 @@ class ThumbSyncApp {
           this.addLog(
             `Lote concluído! Sucesso: ${successCount} | Pulado: ${skippedCount} | Falha: ${failCount}`,
           );
-          alert(
-            `Sincronização em lote concluída!\n\nSucesso: ${successCount} miniaturas associadas e enviadas.\nNão encontrados no catálogo: ${skippedCount}.\nErros: ${failCount}.`,
-          );
+          this.showAlertDialog({
+            title: 'Sincronização em Lote Concluída',
+            message: `Sucesso: ${successCount} miniaturas associadas e enviadas.\nNão encontrados no catálogo: ${skippedCount}.\nErros: ${failCount}.`,
+            type: successCount > 0 ? 'success' : 'info',
+          });
 
           // Sincronizar após envio de todos os arquivos do lote
           await this.syncWithGoogleDrive();
@@ -7428,7 +7668,11 @@ class ThumbSyncApp {
           if (selectedProvider && file) {
             await this.handleImportCSV(selectedProvider, file);
           } else if (!file) {
-            alert('Por favor, selecione um arquivo CSV.');
+            this.showAlertDialog({
+              title: 'Arquivo Necessário',
+              message: 'Por favor, selecione um arquivo CSV para continuar.',
+              type: 'warning',
+            });
           }
         });
       }
@@ -7582,7 +7826,11 @@ class ThumbSyncApp {
           if (input && input.value.trim()) {
             const emailToAdd = input.value.trim().toLowerCase();
             await this.registerAdminAccount(emailToAdd);
-            alert(`Conta ${emailToAdd} adicionada como Administrador com sucesso!`);
+            this.showAlertDialog({
+              title: 'Administrador Registrado',
+              message: `Conta ${emailToAdd} adicionada como Administrador com sucesso!`,
+              type: 'success',
+            });
             this.render();
           }
         });
@@ -7590,7 +7838,7 @@ class ThumbSyncApp {
 
       const btnSaveConfig = document.getElementById('btn-save-config');
       if (btnSaveConfig) {
-        btnSaveConfig.addEventListener('click', () => {
+        btnSaveConfig.addEventListener('click', async () => {
           const clientIdInput = document.getElementById('conf-clientId');
           const folderInput = document.getElementById('conf-folder');
           const fileInput = document.getElementById('conf-file');
@@ -7601,9 +7849,15 @@ class ThumbSyncApp {
             const newClientId = clientIdInput.value.trim();
 
             if (newClientId !== defaultClientId && newClientId !== '') {
-              const proceed = confirm(
-                'ATENÇÃO & CUIDADO:\nVocê está alterando o Google Client ID padrão homologado para esta aplicação.\n\nFazer isso pode comprometer a autenticação e interromper totalmente o sincronismo automático de imagens com o Google Drive.\n\nDeseja realmente prosseguir com a alteração do Client ID?',
-              );
+              const proceed = await this.showConfirmDialog({
+                title: 'Atenção & Cuidado',
+                message:
+                  'Você está alterando o Google Client ID padrão homologado para esta aplicação.\n\nFazer isso pode comprometer a autenticação e interromper totalmente o sincronismo automático de imagens com o Google Drive.\n\nDeseja realmente prosseguir com a alteração do Client ID?',
+                confirmText: 'Prosseguir e Alterar',
+                cancelText: 'Cancelar',
+                isDanger: true,
+                icon: 'warning',
+              });
               if (!proceed) {
                 clientIdInput.value = defaultClientId;
                 return;
@@ -7619,9 +7873,12 @@ class ThumbSyncApp {
 
             this.initGISAutomatic();
 
-            alert(
-              'Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.',
-            );
+            this.showAlertDialog({
+              title: 'Configurações Salvas',
+              message:
+                'Ajustes salvos com sucesso! Verifique a conexão com o Google Drive para testar.',
+              type: 'success',
+            });
             this.render();
           }
         });
