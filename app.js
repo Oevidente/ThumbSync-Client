@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.6
+ * Versão: Beta v1.2.0
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -34,6 +34,9 @@ export class DriveApiClient {
         q,
         fields: `nextPageToken,${fields}`,
         pageSize: String(pageSize),
+        spaces: 'drive',
+        includeItemsFromAllDrives: 'true',
+        supportsAllDrives: 'true',
       });
       if (pageToken) {
         params.set('pageToken', pageToken);
@@ -166,7 +169,7 @@ export class DriveApiClient {
     const q = `'${folderId}' in parents and trashed = false`;
     return await this.queryFiles(
       q,
-      'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink)',
+      'files(id,name,mimeType,size,modifiedTime,thumbnailLink,webContentLink,resourceKey)',
       1000,
     );
   }
@@ -175,7 +178,11 @@ export class DriveApiClient {
    * Lista arquivos de subpastas de provedores com pesquisa em lote (batching) e streaming progressivo.
    * Otimizado para executar em milissegundos utilizando consulta global filtrada por pais.
    */
-  async listFilesInSubfolders(subfolders, optionsOrConcurrency = 12, onProgressLegacy = null) {
+  async listFilesInSubfolders(
+    subfolders,
+    optionsOrConcurrency = 12,
+    onProgressLegacy = null,
+  ) {
     if (!subfolders || subfolders.length === 0) return [];
 
     let onProgress = null;
@@ -185,7 +192,10 @@ export class DriveApiClient {
     if (typeof optionsOrConcurrency === 'number') {
       maxConcurrency = optionsOrConcurrency;
       onProgress = onProgressLegacy;
-    } else if (typeof optionsOrConcurrency === 'object' && optionsOrConcurrency !== null) {
+    } else if (
+      typeof optionsOrConcurrency === 'object' &&
+      optionsOrConcurrency !== null
+    ) {
       maxConcurrency = optionsOrConcurrency.maxConcurrency || 12;
       onProgress = optionsOrConcurrency.onProgress || null;
       chunkSize = optionsOrConcurrency.chunkSize || 20;
@@ -196,41 +206,6 @@ export class DriveApiClient {
 
     const results = [];
 
-    // 1. Tentar busca global ultra-rápida no Drive (1 requisição HTTP para todas as miniaturas .webp)
-    try {
-      const q = `trashed = false and (mimeType = 'image/webp' or name contains '.webp')`;
-      const rawFiles = await this.queryFiles(
-        q,
-        'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
-        1000,
-      );
-
-      if (rawFiles && rawFiles.length > 0) {
-        for (let j = 0; j < rawFiles.length; j++) {
-          const rf = rawFiles[j];
-          const parentId = rf.parents && rf.parents[0];
-          if (parentId && folderMap.has(parentId)) {
-            results.push({
-              ...rf,
-              providerName: folderMap.get(parentId),
-            });
-          }
-        }
-
-        if (results.length > 0) {
-          if (typeof onProgress === 'function') {
-            try {
-              onProgress(results, subfolders.length, subfolders.length);
-            } catch (e) { }
-          }
-          return results;
-        }
-      }
-    } catch (broadErr) {
-      console.warn('[DriveClient] Busca global otimizada falhou, usando lotes paralelos:', broadErr.message);
-    }
-
-    // 2. Fallback de alta concorrência por lotes de pastas (20 pastas por lote em paralelo)
     const chunks = [];
     for (let i = 0; i < subfolders.length; i += chunkSize) {
       chunks.push(subfolders.slice(i, i + chunkSize));
@@ -241,11 +216,13 @@ export class DriveApiClient {
     const processChunk = async (chunk) => {
       let chunkFiles = [];
       try {
-        const parentsQuery = chunk.map((sf) => `'${sf.id}' in parents`).join(' or ');
-        const q = `(${parentsQuery}) and trashed = false and (mimeType = 'image/webp' or name contains '.webp')`;
+        const parentsQuery = chunk
+          .map((sf) => `'${sf.id}' in parents`)
+          .join(' or ');
+        const q = `(${parentsQuery}) and trashed = false`;
         const rawFiles = await this.queryFiles(
           q,
-          'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
+          'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink,resourceKey)',
           1000,
         );
 
@@ -262,21 +239,24 @@ export class DriveApiClient {
         }
       } catch (batchErr) {
         // Fallback por pasta individual do lote em paralelo (sem bloquear sequencialmente)
+        const fallbackFailures = [];
         await Promise.all(
           chunk.map(async (sf) => {
             try {
               const sfFiles = await this.listFilesInFolder(sf.id);
               sfFiles.forEach((f) => {
-                if (
-                  f.mimeType === 'image/webp' ||
-                  (f.name || '').toLowerCase().endsWith('.webp')
-                ) {
-                  chunkFiles.push({ ...f, providerName: sf.name });
-                }
+                chunkFiles.push({ ...f, providerName: sf.name });
               });
-            } catch (e) { }
+            } catch (e) {
+              fallbackFailures.push(sf.name || sf.id);
+            }
           }),
         );
+        if (fallbackFailures.length > 0) {
+          throw new Error(
+            `Não foi possível consultar as pastas: ${fallbackFailures.join(', ')}`,
+          );
+        }
       }
 
       results.push(...chunkFiles);
@@ -285,7 +265,7 @@ export class DriveApiClient {
       if (typeof onProgress === 'function') {
         try {
           onProgress(chunkFiles, processedFoldersCount, subfolders.length);
-        } catch (progErr) { }
+        } catch (progErr) {}
       }
     };
 
@@ -319,15 +299,24 @@ export class DriveApiClient {
   /**
    * Baixa arquivo binário (como imagens) como Blob
    */
-  async downloadBinaryFile(fileId) {
-    const url = `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`;
+  async downloadBinaryFile(fileId, resourceKey = '') {
+    const params = new URLSearchParams({
+      alt: 'media',
+      supportsAllDrives: 'true',
+    });
+    if (resourceKey) params.set('resourceKey', resourceKey);
+    const url = `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?${params.toString()}`;
     const res = await this.fetchWithAuth(url);
     if (!res.ok) {
       throw new Error(
-        `Erro ao carregar miniatura do Google Drive: ${res.statusText}`,
+        `Erro ao carregar miniatura do Google Drive (${res.status}): ${res.statusText}`,
       );
     }
-    return await res.blob();
+    const blob = await res.blob();
+    if (!blob.size) {
+      throw new Error('O Google Drive retornou uma miniatura vazia.');
+    }
+    return blob;
   }
 
   async findExistingTextFileId(fileName, parentFolderId) {
@@ -724,7 +713,9 @@ class ThumbSyncApp {
     ) {
       return true;
     }
-    const adminAccounts = this.getAdminAccounts().map((e) => e.toLowerCase().trim());
+    const adminAccounts = this.getAdminAccounts().map((e) =>
+      e.toLowerCase().trim(),
+    );
     return adminAccounts.includes(lower);
   }
 
@@ -758,10 +749,7 @@ class ThumbSyncApp {
       const saved = this.getAdminAccounts();
       if (!saved.includes(lower)) {
         saved.push(lower);
-        localStorage.setItem(
-          'thumbsync_admin_accounts',
-          JSON.stringify(saved),
-        );
+        localStorage.setItem('thumbsync_admin_accounts', JSON.stringify(saved));
         await this.saveAdminAccounts();
       }
       await this.removeEmersonAccount(lower);
@@ -819,7 +807,10 @@ class ThumbSyncApp {
         }
       } catch (e) {
         this.state.emersonAccountsFileId = null;
-        console.warn('Erro ao salvar emerson_accounts.json no Drive:', e.message);
+        console.warn(
+          'Erro ao salvar emerson_accounts.json no Drive:',
+          e.message,
+        );
       }
     }
   }
@@ -897,7 +888,9 @@ class ThumbSyncApp {
         localStorage.getItem('thumbsync_emerson_accounts') || '[]',
       );
       const defaults = ['emerson@betdasorte.com'];
-      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase().trim());
+      const adminList = this.getAdminAccounts().map((a) =>
+        a.toLowerCase().trim(),
+      );
       const cleanList = [...defaults, ...saved]
         .map((e) => (e || '').toLowerCase().trim())
         .filter(
@@ -1002,7 +995,8 @@ class ThumbSyncApp {
     }
     try {
       this.state.driveProviders =
-        JSON.parse(localStorage.getItem('thumbsync_cached_drive_providers')) || [];
+        JSON.parse(localStorage.getItem('thumbsync_cached_drive_providers')) ||
+        [];
     } catch (e) {
       this.state.driveProviders = [];
     }
@@ -1044,7 +1038,7 @@ class ThumbSyncApp {
           );
         }
       }
-    } catch (e) { }
+    } catch (e) {}
 
     this.state.filterTag =
       localStorage.getItem('thumbsync_filter_tag') || 'todos';
@@ -1185,8 +1179,6 @@ class ThumbSyncApp {
     }
   }
 
-
-
   addLog(message) {
     console.log(`[ThumbSync] ${message}`);
     this.state.loadingStatusText = message;
@@ -1266,6 +1258,12 @@ class ThumbSyncApp {
           client_id: this.config.clientId,
           scope: 'https://www.googleapis.com/auth/drive',
           prompt: '', // sem popup — usa consentimento já concedido
+          error_callback: (err) => {
+            console.warn(
+              '[ThumbSync] Renovação de token em background evitada ou impedida pelo navegador:',
+              err,
+            );
+          },
           callback: async (response) => {
             if (response.error) {
               this.addLog(`Renovação silenciosa falhou: ${response.error}`);
@@ -1290,7 +1288,7 @@ class ThumbSyncApp {
             this.render();
           },
         });
-        client.requestAccessToken();
+        client.requestAccessToken({ prompt: '' });
       } catch (err) {
         this.addLog(`Erro na renovação silenciosa: ${err.message}`);
         window.dispatchEvent(new Event('gdrive_unauthorized'));
@@ -1308,7 +1306,8 @@ class ThumbSyncApp {
       this.render();
       this.showAlertDialog({
         title: 'Configuração Necessária',
-        message: 'Por favor, configure o seu Client ID do Google Cloud antes de conectar.',
+        message:
+          'Por favor, configure o seu Client ID do Google Cloud antes de conectar.',
         type: 'warning',
       });
       return;
@@ -1427,7 +1426,9 @@ class ThumbSyncApp {
         localStorage.setItem('thumbsync_user_email', user.emailAddress);
       }
       localStorage.setItem('thumbsync_google_user', JSON.stringify(user));
-      this.addLog(`Perfil reconhecido: ${user.displayName || user.emailAddress}`);
+      this.addLog(
+        `Perfil reconhecido: ${user.displayName || user.emailAddress}`,
+      );
     }
     return user;
   }
@@ -1506,8 +1507,10 @@ class ThumbSyncApp {
       );
 
       if (listFile) this.state.listFileId = listFile.id;
-      if (adminAccountsFile) this.state.adminAccountsFileId = adminAccountsFile.id;
-      if (emersonAccountsFile) this.state.emersonAccountsFileId = emersonAccountsFile.id;
+      if (adminAccountsFile)
+        this.state.adminAccountsFileId = adminAccountsFile.id;
+      if (emersonAccountsFile)
+        this.state.emersonAccountsFileId = emersonAccountsFile.id;
       if (tagsFile) this.state.tagsFileId = tagsFile.id;
       if (datesFile) this.state.datesFileId = datesFile.id;
 
@@ -1588,7 +1591,9 @@ class ThumbSyncApp {
         new Set(
           [...localEmersonAccounts, ...driveEmersonAccounts]
             .map((a) => (a || '').toLowerCase().trim())
-            .filter((a) => a && !adminList.includes(a) && !this.isAndreEmail(a)),
+            .filter(
+              (a) => a && !adminList.includes(a) && !this.isAndreEmail(a),
+            ),
         ),
       );
       localStorage.setItem(
@@ -1663,7 +1668,11 @@ class ThumbSyncApp {
         this.state.driveFiles = [...directFiles, ...subFiles];
       } catch (scanErr) {
         console.warn('Erro ao escanear subpastas do Drive:', scanErr);
-        this.state.driveFiles = [...directFiles];
+        // Não descarte as miniaturas já sincronizadas se uma consulta parcial
+        // falhar; isso fazia itens concluídos voltarem para "em produção".
+        if (!(this.state.driveFiles || []).length) {
+          this.state.driveFiles = [...directFiles];
+        }
       }
 
       // RENDERIZAÇÃO 2: Catálogo e status de feito/não feito 100% atualizados
@@ -1927,8 +1936,14 @@ class ThumbSyncApp {
   }
 
   isDriveWebpFile(file) {
-    const name = String(file?.name || '').toLowerCase();
-    return file?.mimeType === 'image/webp' || name.endsWith('.webp');
+    if (!file) return false;
+    const name = String(file.name || '').toLowerCase();
+    const mime = String(file.mimeType || '').toLowerCase();
+    return (
+      mime.startsWith('image/') ||
+      /\.(webp|png|jpe?g|gif|svg)$/i.test(name) ||
+      mime === 'application/octet-stream'
+    );
   }
 
   getDriveFilesFingerprint(files) {
@@ -1937,7 +1952,7 @@ class ThumbSyncApp {
         (f) =>
           this.isDriveWebpFile(f) ||
           (f.name || '').toLowerCase() ===
-          (this.config.listFileName || 'lista.txt').toLowerCase(),
+            (this.config.listFileName || 'lista.txt').toLowerCase(),
       )
       .map(
         (f) =>
@@ -2026,38 +2041,89 @@ class ThumbSyncApp {
       });
     });
 
+    // Mapeamento auxiliar por normalizedName para correspondência secundária ultra-flexível
+    const normNameToItemsMap = new Map();
+    itemsMap.forEach((item) => {
+      if (!normNameToItemsMap.has(item.normalizedName)) {
+        normNameToItemsMap.set(item.normalizedName, []);
+      }
+      normNameToItemsMap.get(item.normalizedName).push(item);
+    });
+
     driveFiles.forEach((file) => {
       if (!this.isDriveWebpFile(file)) return;
 
-      const baseName = file.name.replace(/\.webp$/i, '');
+      const baseName = file.name.replace(/\.(webp|png|jpe?g|gif|svg)$/i, '');
       const normName = this.normalizeName(baseName);
+      if (!normName) return;
 
-      let fileProvider = 'Sem provedor';
-      if (file.providerName) {
-        fileProvider = file.providerName;
-      } else {
-        const matchGame = listGames.find((g) => g.normalizedName === normName);
+      let fileProvider =
+        file.providerName && file.providerName !== 'Sem provedor'
+          ? file.providerName
+          : null;
+
+      let matchedItem = null;
+
+      // 1. Tentar correspondência exata de Provedor + Nome do Jogo
+      if (fileProvider) {
+        const exactKey = `${this.normalizeName(fileProvider)}::${normName}`;
+        matchedItem = itemsMap.get(exactKey);
+      }
+
+      // 2. Tentar buscar pelo nome do jogo na lista oficial para recuperar o provedor correspondente
+      if (!matchedItem) {
+        const strippedNorm = normName
+          .replace(/\s*\(\d+\)$/i, '')
+          .replace(/\s+\d+$/i, '')
+          .trim();
+        const matchGame = listGames.find(
+          (g) =>
+            g.normalizedName === normName ||
+            (strippedNorm && g.normalizedName === strippedNorm),
+        );
         if (matchGame) {
-          fileProvider = matchGame.providerName;
+          const gameKey = `${this.normalizeName(matchGame.providerName)}::${matchGame.normalizedName}`;
+          matchedItem = itemsMap.get(gameKey);
         }
       }
 
-      const key = `${this.normalizeName(fileProvider)}::${normName}`;
-      const existing = itemsMap.get(key);
-      if (existing) {
-        existing.hasWebp = true;
-        existing.driveFileId = file.id;
-        existing.fileSize = file.size;
-        existing.modifiedTime = file.modifiedTime;
+      // 3. Tentar qualquer item no catálogo com o mesmo normalizedName que ainda não possua WebP
+      if (!matchedItem) {
+        const candidates = normNameToItemsMap.get(normName) || [];
+        matchedItem = candidates.find((item) => !item.hasWebp) || candidates[0];
+      }
+
+      // 4. Se ainda assim não encontrou, verificar sem numeração entre parênteses "(1)"
+      if (!matchedItem) {
+        const strippedNorm = normName
+          .replace(/\s*\(\d+\)$/i, '')
+          .replace(/\s+\d+$/i, '')
+          .trim();
+        if (strippedNorm) {
+          const candidates = normNameToItemsMap.get(strippedNorm) || [];
+          matchedItem =
+            candidates.find((item) => !item.hasWebp) || candidates[0];
+        }
+      }
+
+      if (matchedItem) {
+        matchedItem.hasWebp = true;
+        matchedItem.driveFileId = file.id;
+        matchedItem.driveResourceKey = file.resourceKey || '';
+        matchedItem.fileSize = file.size;
+        matchedItem.modifiedTime = file.modifiedTime;
       } else {
+        const fallbackProvider = fileProvider || 'Sem provedor';
+        const key = `${this.normalizeName(fallbackProvider)}::${normName}`;
         itemsMap.set(key, {
           id: key,
           displayName: baseName,
           normalizedName: normName,
-          providerName: fileProvider,
+          providerName: fallbackProvider,
           isListed: false,
           hasWebp: true,
           driveFileId: file.id,
+          driveResourceKey: file.resourceKey || '',
           fileSize: file.size,
           modifiedTime: file.modifiedTime,
         });
@@ -2087,10 +2153,11 @@ class ThumbSyncApp {
   }
 
   normalizeName(val) {
+    if (!val) return '';
     return String(val)
       .normalize('NFD')
       .replace(/[\u0300-\u036f]/g, '')
-      .replace(/\.webp$/i, '')
+      .replace(/\.(webp|png|jpe?g|gif|svg)$/i, '')
       .replace(/[^\p{L}\p{N}]+/gu, ' ')
       .replace(/\s+/g, ' ')
       .trim()
@@ -2099,7 +2166,11 @@ class ThumbSyncApp {
 
   getGameSearchUrl(gameOrItem) {
     if (!gameOrItem) return 'https://www.google.com/imghp';
-    const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
+    const provider = (
+      gameOrItem.providerName ||
+      gameOrItem.provider ||
+      ''
+    ).trim();
     const rawName = (gameOrItem.displayName || gameOrItem.name || '').trim();
     const normProv = this.normalizeName(provider);
 
@@ -2131,7 +2202,11 @@ class ThumbSyncApp {
 
   getGameSearchTitle(gameOrItem) {
     if (!gameOrItem) return 'Pesquisar Imagem';
-    const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
+    const provider = (
+      gameOrItem.providerName ||
+      gameOrItem.provider ||
+      ''
+    ).trim();
     const normProv = this.normalizeName(provider);
 
     if (
@@ -2156,17 +2231,24 @@ class ThumbSyncApp {
   }
 
   handleNewGameInputSimilarity(textarea) {
-    const container = document.getElementById('similarity-suggestions-container');
+    const container = document.getElementById(
+      'similarity-suggestions-container',
+    );
     const list = document.getElementById('similarity-suggestions-list');
     if (!container || !list) return;
 
-    const providerSelect = document.getElementById('modal-add-game-provider-select');
-    const selectedProvider = providerSelect ? providerSelect.value : this.state.addingGameToProvider;
+    const providerSelect = document.getElementById(
+      'modal-add-game-provider-select',
+    );
+    const selectedProvider = providerSelect
+      ? providerSelect.value
+      : this.state.addingGameToProvider;
     const normProvider = this.normalizeName(selectedProvider);
 
-    const lines = textarea.value.split('\n')
-      .map(l => l.trim())
-      .filter(l => l.length >= 3);
+    const lines = textarea.value
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length >= 3);
 
     if (lines.length === 0) {
       container.classList.add('hidden');
@@ -2177,16 +2259,19 @@ class ThumbSyncApp {
     const suggestions = [];
     const seenKeys = new Set();
 
-    lines.forEach(line => {
+    lines.forEach((line) => {
       const normInput = this.normalizeName(line);
-      this.state.catalogItems.forEach(item => {
+      this.state.catalogItems.forEach((item) => {
         const normItemName = item.normalizedName;
         const normItemProv = this.normalizeName(item.providerName);
 
         let similarity = 0;
         if (normItemName === normInput) {
           similarity = 1.0;
-        } else if (normItemName.includes(normInput) || normInput.includes(normItemName)) {
+        } else if (
+          normItemName.includes(normInput) ||
+          normInput.includes(normItemName)
+        ) {
           similarity = 0.9;
         } else {
           const maxLen = Math.max(normItemName.length, normInput.length);
@@ -2201,7 +2286,7 @@ class ThumbSyncApp {
             suggestions.push({
               item,
               similarity,
-              matchingLine: line
+              matchingLine: line,
             });
           }
         }
@@ -2222,19 +2307,24 @@ class ThumbSyncApp {
     });
 
     container.classList.remove('hidden');
-    list.innerHTML = suggestions.slice(0, 5).map(s => {
-      const item = s.item;
-      const isSameProvider = this.normalizeName(item.providerName) === normProvider;
-      const providerColorClass = isSameProvider ? 'text-indigo-300' : 'text-zinc-400';
+    list.innerHTML = suggestions
+      .slice(0, 5)
+      .map((s) => {
+        const item = s.item;
+        const isSameProvider =
+          this.normalizeName(item.providerName) === normProvider;
+        const providerColorClass = isSameProvider
+          ? 'text-indigo-300'
+          : 'text-zinc-400';
 
-      let badgeHtml = '';
-      if (item.hasWebp) {
-        badgeHtml = `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Pronto no Drive</span>`;
-      } else if (item.isListed) {
-        badgeHtml = `<span class="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Na Fila</span>`;
-      }
+        let badgeHtml = '';
+        if (item.hasWebp) {
+          badgeHtml = `<span class="bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Pronto no Drive</span>`;
+        } else if (item.isListed) {
+          badgeHtml = `<span class="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] px-1.5 py-0.5 rounded-full font-bold">Na Fila</span>`;
+        }
 
-      return `
+        return `
         <div data-suggestion-key="${item.id}" class="flex items-center justify-between p-2 rounded-lg bg-zinc-900/80 border border-white/5 hover:border-indigo-500/40 hover:bg-zinc-800/80 cursor-pointer transition-all text-left">
           <div class="flex flex-col min-w-0">
             <span class="text-xs font-bold text-white truncate">${item.displayName}</span>
@@ -2248,12 +2338,13 @@ class ThumbSyncApp {
           </div>
         </div>
       `;
-    }).join('');
+      })
+      .join('');
 
-    list.querySelectorAll('[data-suggestion-key]').forEach(el => {
+    list.querySelectorAll('[data-suggestion-key]').forEach((el) => {
       el.addEventListener('click', () => {
         const key = el.getAttribute('data-suggestion-key');
-        const item = this.state.catalogItems.find(i => i.id === key);
+        const item = this.state.catalogItems.find((i) => i.id === key);
         if (item) {
           this.state.isAddingGame = false;
           this.renderActiveTab();
@@ -2263,7 +2354,9 @@ class ThumbSyncApp {
           } else {
             this.state.activeTab = 'list_manager';
             this.renderActiveTab();
-            this.addLog(`O jogo ${item.displayName} já está na fila de demandas!`);
+            this.addLog(
+              `O jogo ${item.displayName} já está na fila de demandas!`,
+            );
           }
         }
       });
@@ -2371,10 +2464,10 @@ class ThumbSyncApp {
             const fractionNeeded = tempPending / capacityToday;
             const hoursTodayLeft =
               iterations === 1 &&
-                currentDate.getHours() + currentDate.getMinutes() / 60 >
+              currentDate.getHours() + currentDate.getMinutes() / 60 >
                 workStartHour
                 ? workEndHour -
-                (currentDate.getHours() + currentDate.getMinutes() / 60)
+                  (currentDate.getHours() + currentDate.getMinutes() / 60)
                 : workDuration;
 
             const hoursNeeded = fractionNeeded * hoursTodayLeft;
@@ -2523,10 +2616,7 @@ class ThumbSyncApp {
         if (gameName) {
           const norm = this.normalizeName(gameName);
           // Evita duplicatas dentro do CSV e conflitos com o que já está na lista.txt
-          if (
-            !seenInCSV.has(norm) &&
-            !currentlyListedNorms.has(norm)
-          ) {
+          if (!seenInCSV.has(norm) && !currentlyListedNorms.has(norm)) {
             gamesToImport.push(gameName);
             seenInCSV.add(norm);
           }
@@ -2536,7 +2626,8 @@ class ThumbSyncApp {
       if (gamesToImport.length === 0) {
         this.showAlertDialog({
           title: 'Importação Finalizada',
-          message: 'Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).',
+          message:
+            'Nenhum jogo novo foi encontrado (todos já existem ou são duplicatas).',
           type: 'info',
         });
       } else {
@@ -2551,7 +2642,8 @@ class ThumbSyncApp {
       console.error('Erro no processamento do CSV:', err);
       this.showAlertDialog({
         title: 'Erro na Planilha',
-        message: 'Falha ao ler o arquivo CSV. Verifique se o formato está correto.',
+        message:
+          'Falha ao ler o arquivo CSV. Verifique se o formato está correto.',
         type: 'error',
       });
     } finally {
@@ -2596,7 +2688,8 @@ class ThumbSyncApp {
           this.addLog(`Erro ao salvar tag no Drive: ${err.message}`);
           this.showAlertDialog({
             title: 'Aviso de Sincronização',
-            message: 'A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.',
+            message:
+              'A tag foi salva localmente, mas houve um erro ao sincronizar com o Google Drive.',
             type: 'warning',
           });
         } finally {
@@ -2612,8 +2705,7 @@ class ThumbSyncApp {
 
   /**
    * Carrega visualmente a imagem webp do jogo sob demanda (lazy loading).
-   * Se offline (Mock), tenta puxar o arquivo real no diretório `/mock_data/source/...` com fallback p/ SVG processual.
-   * Utiliza fila com concorrência controlada (max 6) e desduplicação de requisições.
+   * Utiliza a fila concorrente de download via API autenticada com cache em memória (imageCache).
    */
   async loadThumbnailSrc(item, imgEl) {
     if (!item || !item.driveFileId) return;
@@ -2622,11 +2714,13 @@ class ThumbSyncApp {
       if (imgEl && imgEl.isConnected) return imgEl;
       return (
         document.getElementById(`thumb-${item.id}`) ||
-        document.querySelector(`img[data-catalog-key="${item.id}"]`)
+        document.querySelector(
+          `img[data-catalog-key="${CSS.escape ? CSS.escape(item.id) : item.id}"]`,
+        )
       );
     };
 
-    // 1. Já está em cache (carregamento instantâneo)
+    // 1. Já está em cache (carregamento instantâneo via Blob)
     if (this.imageCache.has(item.driveFileId)) {
       const cachedUrl = this.imageCache.get(item.driveFileId);
       const target = getActiveImg();
@@ -2656,7 +2750,7 @@ class ThumbSyncApp {
       return;
     }
 
-    // 3. Adicionar à fila concorrente de download
+    // 3. Adicionar à fila concorrente de download autenticado
     const downloadPromise = this.enqueueThumbnailDownload(item.driveFileId);
     this.pendingDownloads.set(item.driveFileId, downloadPromise);
 
@@ -2708,7 +2802,13 @@ class ThumbSyncApp {
       if (this.imageCache.has(driveFileId)) {
         resolve(this.imageCache.get(driveFileId));
       } else {
-        const blob = await driveClient.downloadBinaryFile(driveFileId);
+        const item = this.state.catalogItems.find(
+          (catalogItem) => catalogItem.driveFileId === driveFileId,
+        );
+        const blob = await driveClient.downloadBinaryFile(
+          driveFileId,
+          item?.driveResourceKey,
+        );
         const url = URL.createObjectURL(blob);
         this.imageCache.set(driveFileId, url);
         resolve(url);
@@ -2728,7 +2828,8 @@ class ThumbSyncApp {
     if (!item.driveFileId) {
       this.showAlertDialog({
         title: 'Arquivo Indisponível',
-        message: 'Esta miniatura não possui imagem (.webp) no Google Drive para download.',
+        message:
+          'Esta miniatura não possui imagem (.webp) no Google Drive para download.',
         type: 'warning',
       });
       return;
@@ -2738,7 +2839,10 @@ class ThumbSyncApp {
       `Baixando miniatura do Google Drive: ${item.displayName}.webp...`,
     );
     try {
-      const blob = await driveClient.downloadBinaryFile(item.driveFileId);
+      const blob = await driveClient.downloadBinaryFile(
+        item.driveFileId,
+        item.driveResourceKey,
+      );
       this.triggerBlobDownload(blob, `${item.displayName}.webp`);
       this.addLog(`Download concluído: ${item.displayName}.webp`);
     } catch (e) {
@@ -2758,7 +2862,8 @@ class ThumbSyncApp {
     if (!item.driveFileId) {
       this.showAlertDialog({
         title: 'Arquivo Indisponível',
-        message: 'Esta miniatura não possui imagem (.webp) no Google Drive para cópia.',
+        message:
+          'Esta miniatura não possui imagem (.webp) no Google Drive para cópia.',
         type: 'warning',
       });
       return;
@@ -2772,7 +2877,10 @@ class ThumbSyncApp {
         btn.innerHTML =
           '<svg class="w-4 h-4 shrink-0 animate-spin" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg><span>Copiando...</span>';
 
-      const blob = await driveClient.downloadBinaryFile(item.driveFileId);
+      const blob = await driveClient.downloadBinaryFile(
+        item.driveFileId,
+        item.driveResourceKey,
+      );
       const webpBlob = new Blob([blob], { type: 'image/webp' });
 
       try {
@@ -2839,7 +2947,8 @@ class ThumbSyncApp {
       console.error(err);
       this.showAlertDialog({
         title: 'Erro ao Copiar',
-        message: 'Erro ao copiar a imagem. O navegador pode não suportar a cópia de imagens diretamente.',
+        message:
+          'Erro ao copiar a imagem. O navegador pode não suportar a cópia de imagens diretamente.',
         type: 'error',
       });
       const btn = document.getElementById('modal-action-copy-img');
@@ -2898,7 +3007,8 @@ class ThumbSyncApp {
       this.addLog(`Erro ao salvar lista de jogos: ${err.message}`);
       this.showAlertDialog({
         title: 'Erro ao Salvar',
-        message: 'Falha ao salvar as alterações. Verifique sua conexão e tente novamente.',
+        message:
+          'Falha ao salvar as alterações. Verifique sua conexão e tente novamente.',
         type: 'error',
       });
     } finally {
@@ -2960,10 +3070,11 @@ class ThumbSyncApp {
             <button id="in-app-confirm-cancel" class="flex-1 py-2.5 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer transition-colors">
               ${cancelText}
             </button>
-            <button id="in-app-confirm-btn" class="flex-1 py-2.5 px-4 rounded-xl ${isDanger
-          ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/20'
-          : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20'
-        } font-semibold text-xs cursor-pointer transition-colors">
+            <button id="in-app-confirm-btn" class="flex-1 py-2.5 px-4 rounded-xl ${
+              isDanger
+                ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-600/20'
+                : 'bg-blue-600 hover:bg-blue-700 text-white shadow-lg shadow-blue-600/20'
+            } font-semibold text-xs cursor-pointer transition-colors">
               ${confirmText}
             </button>
           </div>
@@ -2985,8 +3096,12 @@ class ThumbSyncApp {
 
       document.addEventListener('keydown', handleKey);
 
-      modal.querySelector('#in-app-confirm-cancel')?.addEventListener('click', () => cleanup(false));
-      modal.querySelector('#in-app-confirm-btn')?.addEventListener('click', () => cleanup(true));
+      modal
+        .querySelector('#in-app-confirm-cancel')
+        ?.addEventListener('click', () => cleanup(false));
+      modal
+        .querySelector('#in-app-confirm-btn')
+        ?.addEventListener('click', () => cleanup(true));
       modal.addEventListener('click', (e) => {
         if (e.target === modal) cleanup(false);
       });
@@ -3058,7 +3173,9 @@ class ThumbSyncApp {
       };
 
       document.addEventListener('keydown', handleKey);
-      modal.querySelector('#in-app-alert-btn')?.addEventListener('click', cleanup);
+      modal
+        .querySelector('#in-app-alert-btn')
+        ?.addEventListener('click', cleanup);
       modal.addEventListener('click', (e) => {
         if (e.target === modal) cleanup();
       });
@@ -3925,7 +4042,8 @@ class ThumbSyncApp {
   async handleClearFinishedGames() {
     const isConfirmed = await this.showConfirmDialog({
       title: 'Limpar Feitos',
-      message: 'Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) correspondentes no Drive?',
+      message:
+        'Deseja remover da lista todos os jogos que já possuem miniaturas (.webp) correspondentes no Drive?',
       confirmText: 'Limpar Feitos',
       cancelText: 'Cancelar',
       isDanger: true,
@@ -4183,7 +4301,8 @@ class ThumbSyncApp {
       console.error('Erro ao importar CSV:', err);
       this.showAlertDialog({
         title: 'Erro na Planilha',
-        message: 'Falha ao ler o arquivo CSV. Verifique o formato e tente novamente.',
+        message:
+          'Falha ao ler o arquivo CSV. Verifique o formato e tente novamente.',
         type: 'error',
       });
     }
@@ -4280,8 +4399,9 @@ class ThumbSyncApp {
       </style>
       <div id="app-container" class="flex w-full overflow-hidden text-[#f4f4f5] select-none font-sans bg-[#0c0c0e]" style="height: var(--app-height, 100dvh); max-height: var(--app-height, 100dvh);">
 
-        ${showOnboarding
-        ? `
+        ${
+          showOnboarding
+            ? `
         <div id="onboarding-overlay" class="fixed inset-0 z-[10000] bg-black/80 backdrop-blur-md flex items-center justify-center transition-opacity duration-300">
           <div class="bg-[#131316] border border-white/10 rounded-[32px] p-8 max-w-lg w-[90%] shadow-2xl relative overflow-hidden">
             <div class="absolute top-0 right-0 w-32 h-32 bg-blue-500/10 blur-[50px] rounded-full pointer-events-none"></div>
@@ -4323,12 +4443,13 @@ class ThumbSyncApp {
           </div>
         </div>
         `
-        : ''
-      }
+            : ''
+        }
 
         <!-- BANNER DE DESCONEXÃO DO GOOGLE DRIVE -->
-        ${!this.state.gdriveConnected
-        ? `
+        ${
+          !this.state.gdriveConnected
+            ? `
         <!-- Overlay + card: visível só no desktop (>= 1024px) -->
         <div id="disconnected-overlay" style="
           position: fixed;
@@ -4469,8 +4590,8 @@ class ThumbSyncApp {
           }
         </style>
         `
-        : ''
-      }
+            : ''
+        }
         <!-- SIDEBAR -->
         <aside class="hidden lg:flex w-64 max-w-64 border-r border-white/[0.06] bg-[#0f0f13] flex-col justify-between shrink-0 h-full p-4 relative z-10">
           <div class="space-y-4 overflow-y-auto custom-scrollbar flex-1 min-h-0 pr-1 pb-2">
@@ -4504,36 +4625,36 @@ class ThumbSyncApp {
             <!-- Side Nav Tabs -->
             <nav class="space-y-1">
               ${this.renderNavItem(
-        'catalog',
-        'Miniaturas',
-        `
+                'catalog',
+                'Miniaturas',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                 </svg>
               `,
-        `
+                `
                 <span class="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-white/10 text-white font-bold">${this.state.catalogItems.filter((i) => i.hasWebp).length}</span>
               `,
-      )}
+              )}
               ${this.renderNavItem(
-        'list_manager',
-        'Mural de Jogos',
-        `
+                'list_manager',
+                'Mural de Jogos',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
                 </svg>
               `,
-      )}
+              )}
               ${this.renderNavItem(
-        'settings',
-        'Configurações',
-        `
+                'settings',
+                'Configurações',
+                `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
                 </svg>
               `,
-      )}
+              )}
             </nav>
 
             <!-- Previsão de Conclusão / Barra de Progresso Widget -->
@@ -4635,7 +4756,9 @@ class ThumbSyncApp {
                 </div>
 
                 <!-- Botão 6: Buscar Imagem / Arte (Admin) -->
-                ${this.isAdmin() ? `
+                ${
+                  this.isAdmin()
+                    ? `
                 <div class="flex items-center gap-2">
                   <div class="w-5 h-5 rounded-lg bg-purple-500/15 border border-purple-500/25 flex items-center justify-center text-purple-400 shrink-0" title="Buscar Arte / Imagem">
                     <svg class="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
@@ -4648,15 +4771,18 @@ class ThumbSyncApp {
                     <span class="text-[8.5px] text-zinc-500 truncate block">Spinomenal, PG Soft ou Google</span>
                   </div>
                 </div>
-                ` : ''}
+                `
+                    : ''
+                }
               </div>
             </div>
           </div>
 
           <!-- Bottom account control -->
           <div class="border-t border-white/[0.05] pt-4 flex flex-col gap-2 relative z-10 w-full select-none">
-            ${this.state.gdriveConnected
-        ? `
+            ${
+              this.state.gdriveConnected
+                ? `
               <div class="flex flex-col gap-1.5 bg-white/[0.015] border border-white/[0.04] p-3 rounded-2xl w-full">
                 <div class="flex items-center gap-2.5 min-w-0">
                   <div class="w-8 h-8 rounded-full ${profile.isAdmin ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'bg-blue-600/20 text-blue-300 border border-blue-500/30'} flex items-center justify-center font-black text-xs uppercase shrink-0">
@@ -4673,12 +4799,12 @@ class ThumbSyncApp {
                 Desconectar Google
               </button>
             `
-        : `
+                : `
               <button id="btn-login" class="flex items-center justify-center gap-2 text-xs font-black bg-white text-black hover:bg-neutral-100 py-2.5 px-4 rounded-xl shadow-md w-full transition-all cursor-pointer">
                 Conectar Google Drive
               </button>
             `
-      }
+            }
           </div>
         </aside>
 
@@ -4694,14 +4820,15 @@ class ThumbSyncApp {
                 <span class="hidden sm:inline">${this.state.gdriveConnected ? 'GOOGLE DRIVE CONECTADO' : 'NÃO CONECTADO'}</span>
                 <span class="inline sm:hidden">${this.state.gdriveConnected ? 'CONECTADO' : 'OFFLINE'}</span>
               </span>
-              ${this.state.gdriveConnected
-        ? `
+              ${
+                this.state.gdriveConnected
+                  ? `
                 <span class="px-2.5 py-0.5 rounded-full text-[8px] sm:text-[9px] font-black border ${profile.badgeColor} flex items-center gap-1 shadow-sm">
                   ${profile.isAdmin ? 'André Luiz' : 'Emerson'}
                 </span>
               `
-        : ''
-      }
+                  : ''
+              }
             </div>
 
             <!-- Apple-style Center Title for Mobile -->
@@ -4711,8 +4838,9 @@ class ThumbSyncApp {
 
             <div class="flex items-center gap-3">
               <button id="btn-sync-gdrive" class="flex items-center justify-center w-8 h-8 sm:w-auto sm:h-auto sm:px-3.5 sm:py-1.5 cursor-pointer bg-white/[0.03] text-white hover:bg-white/[0.06] border border-white/[0.08] rounded-xl text-[10px] sm:text-xs font-bold transition-all active:scale-95 shrink-0" title="Sincronizar Google Drive">
-                ${this.state.isLoading
-        ? `
+                ${
+                  this.state.isLoading
+                    ? `
                   <svg id="sync-icon" class="w-3.5 h-3.5 animate-spin text-white shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                     <g transform="translate(12,12)">
                       <line x1="0" y1="-7" x2="0" y2="-4" stroke-width="2.5" stroke-linecap="round" opacity="1" />
@@ -4726,12 +4854,12 @@ class ThumbSyncApp {
                     </g>
                   </svg>
                 `
-        : `
+                    : `
                   <svg id="sync-icon" class="w-3.5 h-3.5 shrink-0 text-zinc-300" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
                   </svg>
                 `
-      }
+                }
                 <span class="hidden sm:inline ml-1.5">Sincronizar</span>
               </button>
             </div>
@@ -4766,32 +4894,32 @@ class ThumbSyncApp {
           <!-- MOBILE TAB BAR -->
           <nav class="lg:hidden fixed bottom-0 left-0 right-0 z-[9999] bg-[#0a0a0d]/95 backdrop-blur-2xl border-t border-white/[0.08] flex items-center justify-around px-2 py-1.5 shadow-[0_-8px_32px_rgba(0,0,0,0.6)]">
             ${this.renderMobileNavItem(
-        'catalog',
-        'Miniaturas',
-        `
+              'catalog',
+              'Miniaturas',
+              `
               <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
               </svg>
             `,
-      )}
+            )}
             ${this.renderMobileNavItem(
-        'list_manager',
-        'Mural',
-        `
+              'list_manager',
+              'Mural',
+              `
               <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
               </svg>
             `,
-      )}
+            )}
             ${this.renderMobileNavItem(
-        'settings',
-        'Ajustes',
-        `
+              'settings',
+              'Ajustes',
+              `
               <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               </svg>
             `,
-      )}
+            )}
           </nav>
         </main>
       </div>
@@ -4821,15 +4949,16 @@ class ThumbSyncApp {
       <!-- Bubble Trigger Button -->
       <button id="assistant-bubble" aria-label="Dicas e avisos do desenvolvedor" class="fixed z-50 bottom-20 right-4 lg:bottom-6 lg:right-6 w-12 h-12 rounded-full flex items-center justify-center shadow-[0_8px_32px_rgba(59,130,246,0.45)] transition-all duration-300 active:scale-95 hover:scale-105 focus:outline-none" style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); border: 1px solid rgba(255,255,255,0.15);">
         <!-- Pulsing green dot — shown only on first visit -->
-        ${!localStorage.getItem('thumbsync_assistant_opened')
-        ? `
+        ${
+          !localStorage.getItem('thumbsync_assistant_opened')
+            ? `
           <span class="absolute -top-0.5 -right-0.5 flex h-3.5 w-3.5">
             <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
             <span class="relative inline-flex rounded-full h-3.5 w-3.5 bg-emerald-500 border-2 border-[#0c0c0e]"></span>
           </span>
         `
-        : ''
-      }
+            : ''
+        }
         <!-- Icon: sparkle / help -->
         <svg class="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
@@ -5199,12 +5328,12 @@ class ThumbSyncApp {
                 <select id="catalouge-provider-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                   <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterProvider === 'todos' ? 'selected' : ''}>Todos os Provedores</option>
                   ${uniqueProviders
-          .map(
-            (p) => `
+                    .map(
+                      (p) => `
                     <option value="${p}" class="bg-zinc-900 text-white" ${this.state.filterProvider === p ? 'selected' : ''}>${p}</option>
                   `,
-          )
-          .join('')}
+                    )
+                    .join('')}
                 </select>
               </div>
               <div class="space-y-1">
@@ -5212,20 +5341,20 @@ class ThumbSyncApp {
                 <select id="catalouge-tag-filter" class="w-full bg-[#131317] border border-white/10 rounded-xl px-3 py-1.5 text-xs text-white outline-none">
                   <option value="todos" class="bg-zinc-900 text-white" ${this.state.filterTag === 'todos' ? 'selected' : ''}>Todas as Categorias</option>
                   ${[
-          'Slot',
-          'Ao Vivo',
-          'Crash',
-          'Mesa RNG',
-          'Instant Win',
-          'Scratchcard',
-          'Prioridades',
-        ]
-          .map(
-            (tag) => `
+                    'Slot',
+                    'Ao Vivo',
+                    'Crash',
+                    'Mesa RNG',
+                    'Instant Win',
+                    'Scratchcard',
+                    'Prioridades',
+                  ]
+                    .map(
+                      (tag) => `
                     <option value="${tag}" class="bg-zinc-900 text-white" ${this.state.filterTag === tag ? 'selected' : ''}>${tag}</option>
                   `,
-          )
-          .join('')}
+                    )
+                    .join('')}
                 </select>
               </div>
               <div class="space-y-1">
@@ -5249,64 +5378,70 @@ class ThumbSyncApp {
       resultsArea.innerHTML = `
         <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
           ${Array.from({ length: 15 })
-          .map(
-            () => `
+            .map(
+              () => `
             <div class="aspect-[2/3] rounded-2xl bg-white/[0.02] border border-white/[0.03] animate-pulse flex flex-col justify-end p-4">
               <div class="w-1/2 h-2.5 bg-white/10 rounded mb-2"></div>
               <div class="w-3/4 h-3.5 bg-white/20 rounded"></div>
             </div>
           `,
-          )
-          .join('')}
+            )
+            .join('')}
         </div>
       `;
     } else {
       resultsArea.innerHTML = `
-        ${items.length === 0
-          ? `
+        ${
+          items.length === 0
+            ? `
           <div class="py-20 text-center italic text-zinc-650 text-xs select-none">Nenhuma miniatura encontrada para os filtros selecionados.</div>
         `
-          : `
+            : `
           <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-4">
             ${itemsToShow
-            .map((item) => {
-              const providerKey = (item.providerName || '')
-                .toLowerCase()
-                .trim();
-              const customLogo = this.state.customLogos
-                ? this.state.customLogos[providerKey]
-                : null;
+              .map((item) => {
+                const providerKey = (item.providerName || '')
+                  .toLowerCase()
+                  .trim();
+                const customLogo = this.state.customLogos
+                  ? this.state.customLogos[providerKey]
+                  : null;
 
-              const gradient =
-                customLogo && customLogo.customBgGradient
-                  ? customLogo.customBgGradient
-                  : PROVIDER_GRADIENTS[providerKey] ||
-                  PROVIDER_GRADIENTS['default'];
+                const gradient =
+                  customLogo && customLogo.customBgGradient
+                    ? customLogo.customBgGradient
+                    : PROVIDER_GRADIENTS[providerKey] ||
+                      PROVIDER_GRADIENTS['default'];
 
-              const boardGlow = customLogo
-                ? customLogo.customGlowColor || 'rgba(255,255,255,0.08)'
-                : PROVIDER_BORDER_GLOWS[providerKey] ||
-                PROVIDER_BORDER_GLOWS['default'];
+                const boardGlow = customLogo
+                  ? customLogo.customGlowColor || 'rgba(255,255,255,0.08)'
+                  : PROVIDER_BORDER_GLOWS[providerKey] ||
+                    PROVIDER_BORDER_GLOWS['default'];
 
-              const hasWebp = item.hasWebp;
-              const tag = this.getGameTag(item);
-              const tagHtml = this.getGameTagHTML(tag);
+                const hasWebp = item.hasWebp;
+                const tag = this.getGameTag(item);
+                const tagHtml = this.getGameTagHTML(tag);
+                const initialSrc =
+                  item.driveFileId && this.imageCache.has(item.driveFileId)
+                    ? this.imageCache.get(item.driveFileId)
+                    : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
-              return `
+                return `
               <div data-catalog-key="${item.id}" 
                    style="--card-glow: ${boardGlow}" 
                    class="group relative aspect-[2/3] rounded-2xl overflow-hidden bg-zinc-950 border border-white/[0.08] hover:border-white/20 hover:shadow-[0_0_22px_var(--card-glow)] shadow-md cursor-pointer transition-all transform hover:scale-[1.02] duration-300">
-                ${hasWebp
-                  ? `
+                ${
+                  hasWebp
+                    ? `
                   <img id="thumb-${item.id}" 
                        data-catalog-key="${item.id}" 
                        decoding="async" 
-                       src="${item.driveFileId && this.imageCache.has(item.driveFileId) ? this.imageCache.get(item.driveFileId) : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}" 
+                       src="${initialSrc}" 
                        alt="${item.displayName}" 
                        class="w-full h-full object-cover ${item.driveFileId && this.imageCache.has(item.driveFileId) ? '' : 'opacity-0'} transition-opacity duration-300">
                 `
-                  : customLogo
-                    ? `
+                    : customLogo
+                      ? `
                   <div class="absolute inset-0 bg-gradient-to-tr ${customLogo.customBgGradient} flex flex-col justify-between p-4 text-left overflow-hidden select-none">
                     <img src="${customLogo.customCover}" class="absolute inset-0 w-full h-full object-cover opacity-[0.22] mix-blend-overlay filter blur-[0.3px] scale-105 transition-transform duration-700 hover:scale-110 pointer-events-none">
                     <div class="text-[8px] font-extrabold uppercase tracking-widest text-[#0a84ff] bg-[#0a84ff]/10 border border-[#0a84ff]/20 px-2.5 py-0.5 rounded-full w-fit z-10">
@@ -5323,7 +5458,7 @@ class ThumbSyncApp {
                     </div>
                   </div>
                 `
-                    : `
+                      : `
                   <div class="absolute inset-0 bg-gradient-to-tr from-neutral-900 to-neutral-800 flex flex-col justify-between p-4 text-left">
                     <div class="text-[8px] font-extrabold uppercase tracking-widest text-orange-400 bg-orange-400/5 border border-orange-400/10 px-2 py-0.5 rounded-full w-fit">
                       PENDENTE
@@ -5343,14 +5478,15 @@ class ThumbSyncApp {
 
                 <div class="absolute inset-0 ${hasWebp ? 'bg-gradient-to-t from-black/80 via-transparent to-transparent' : `bg-gradient-to-t ${gradient} opacity-90`} pointer-events-none"></div>
                 
-                ${hasWebp
-                  ? `
+                ${
+                  hasWebp
+                    ? `
                   <div class="absolute inset-x-0 bottom-0 p-4 text-left z-10 leading-none">
                     <span class="text-[8px] text-zinc-400 font-black uppercase tracking-widest block">${item.providerName}</span>
                     <h4 class="text-xs font-black text-white leading-normal mt-0.5">${item.displayName}</h4>
                   </div>
                 `
-                  : ''
+                    : ''
                 }
 
                 <div class="absolute inset-0 bg-blue-600/20 m-1 rounded-2xl border-2 border-dashed border-blue-500 flex flex-col items-center justify-center opacity-0 group-hover:pointer-events-none transition-opacity duration-300 pointer-events-none dropzone-indicator">
@@ -5359,17 +5495,18 @@ class ThumbSyncApp {
                 </div>
               </div>
             `;
-            })
-            .join('')}
+              })
+              .join('')}
         </div>
-        ${totalItemsCount > itemsToShow.length
+        ${
+          totalItemsCount > itemsToShow.length
             ? `
           <div id="catalog-sentinel" class="col-span-full py-10 flex justify-center">
             <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
           </div>
         `
             : ''
-          }
+        }
       `
         }
     `;
@@ -5402,7 +5539,8 @@ class ThumbSyncApp {
         if (this.state.useMock) {
           this.showAlertDialog({
             title: 'Modo Offline',
-            message: 'Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para sincronizar Webps reais!',
+            message:
+              'Ação não permitida no modo de demonstração off-line. Ative e conecte seu Google Drive para sincronizar Webps reais!',
             type: 'warning',
           });
           return;
@@ -5415,7 +5553,8 @@ class ThumbSyncApp {
         if (!file.name.toLowerCase().endsWith('.webp')) {
           this.showAlertDialog({
             title: 'Formato Inválido',
-            message: 'Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.',
+            message:
+              'Formato incompatível! Por favor, envie apenas arquivos de imagem do formato .webp.',
             type: 'warning',
           });
           return;
@@ -5473,7 +5612,7 @@ class ThumbSyncApp {
   /**
    * TELA DE HISTÓRICO DE JOGOS CONCLUÍDOS
    */
-  renderHistory() { }
+  renderHistory() {}
 
   /**
    * TELA DE GERENCIAMENTO DE LISTA.TXT (Mural)
@@ -5629,7 +5768,9 @@ class ThumbSyncApp {
       modalProvidersSet.add('Pragmatic Play');
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
+    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) =>
+      a.localeCompare(b),
+    );
 
     // Calcular KPIs globais para a barra de métricas e filtros rápidos
     let totalGamesCount = 0;
@@ -5651,10 +5792,15 @@ class ThumbSyncApp {
       if (g.isPriority) totalPriorityCount++;
     });
 
-    const completionRate = totalGamesCount > 0 ? Math.round((totalDoneCount / totalGamesCount) * 100) : 0;
+    const completionRate =
+      totalGamesCount > 0
+        ? Math.round((totalDoneCount / totalGamesCount) * 100)
+        : 0;
 
     // Aplicar Filtro de Busca e Filtro de Status no Mural
-    const muralSearch = (this.state.muralSearchQuery || '').toLowerCase().trim();
+    const muralSearch = (this.state.muralSearchQuery || '')
+      .toLowerCase()
+      .trim();
     const muralFilter = this.state.muralFilterStatus || 'todos';
 
     const filterGame = (g) => {
@@ -5809,11 +5955,15 @@ class ThumbSyncApp {
                 placeholder="Buscar jogo ou provedor..." 
                 class="w-full bg-black/40 border border-white/10 rounded-xl pl-8 sm:pl-9 pr-7 sm:pr-8 py-1 sm:py-1.5 text-[11px] sm:text-xs text-white placeholder-zinc-500 outline-none focus:border-blue-500/50 focus:ring-1 focus:ring-blue-500/50 transition-all"
               />
-              ${this.state.muralSearchQuery ? `
+              ${
+                this.state.muralSearchQuery
+                  ? `
                 <button id="mural-search-clear" class="absolute right-2 sm:right-2.5 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-white cursor-pointer p-0.5" title="Limpar busca">
                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
-              ` : ''}
+              `
+                  : ''
+              }
             </div>
 
             <!-- Filtro de Status Pills -->
@@ -5830,23 +5980,28 @@ class ThumbSyncApp {
               <button data-mural-filter="prioridades" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'prioridades' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' : 'text-zinc-400 hover:text-yellow-300 hover:bg-yellow-500/10'}" title="Filtrar prioridades">
                 ★ ${totalPriorityCount}
               </button>
-              ${totalNotFoundCount > 0 ? `
+              ${
+                totalNotFoundCount > 0
+                  ? `
                 <button data-mural-filter="nao_encontrados" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'nao_encontrados' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'text-zinc-400 hover:text-red-300 hover:bg-red-500/10'}" title="Filtrar não encontrados">
                   ? ${totalNotFoundCount}
                 </button>
-              ` : ''}
+              `
+                  : ''
+              }
             </div>
           </div>
         </div>
 
         <!-- Renderização do Modo de Visualização Escolhido -->
         <div id="mural-view-container" class="w-full">
-          ${this.state.isLoading && groupsList.length === 0
-        ? `
+          ${
+            this.state.isLoading && groupsList.length === 0
+              ? `
               <div class="space-y-4">
                 ${Array.from({ length: 4 })
-          .map(
-            () => `
+                  .map(
+                    () => `
                       <div class="rounded-2xl border border-white/[0.03] bg-white/[0.01] px-4 py-3 flex justify-between items-center animate-pulse">
                         <div class="flex items-center gap-3">
                           <div class="w-1.5 h-1.5 rounded-full bg-blue-500/30"></div>
@@ -5858,38 +6013,50 @@ class ThumbSyncApp {
                         </div>
                       </div>
                     `,
-          )
-          .join('')}
+                  )
+                  .join('')}
               </div>
             `
-        : filteredGroupsList.length === 0
-          ? `
+              : filteredGroupsList.length === 0
+                ? `
                 <div class="py-20 text-center flex flex-col items-center justify-center gap-2">
                   <div class="w-10 h-10 rounded-2xl bg-white/[0.02] border border-white/5 flex items-center justify-center text-zinc-500">
                     <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
                   </div>
                   <p class="text-xs text-zinc-400 font-bold">${isFiltered ? 'Nenhum jogo encontrado com os filtros aplicados.' : 'Nenhum provedor ou jogo cadastrado ainda.'}</p>
-                  ${isFiltered ? `
+                  ${
+                    isFiltered
+                      ? `
                     <button id="btn-reset-mural-filters" class="text-[11px] text-blue-400 hover:text-blue-300 font-bold underline cursor-pointer mt-1">Limpar Filtros e Busca</button>
-                  ` : `
+                  `
+                      : `
                     <p class="text-[11px] text-zinc-600">Use os botões no topo para adicionar novos provedores ou jogos.</p>
-                  `}
+                  `
+                  }
                 </div>
               `
-          : currentViewMode === 'board'
-            ? this.renderListBoardView(filteredGroupsList)
-            : currentViewMode === 'compact'
-              ? this.renderListCompactView(filteredGroupsList, listGames)
-              : currentViewMode === 'grid'
-                ? this.renderListGridView(filteredGroupsList)
-                : this.renderListOverviewView(groupsList, totalDoneCount, totalGamesCount, totalPendingCount, totalPriorityCount, totalNotFoundCount)
-      }
+                : currentViewMode === 'board'
+                  ? this.renderListBoardView(filteredGroupsList)
+                  : currentViewMode === 'compact'
+                    ? this.renderListCompactView(filteredGroupsList, listGames)
+                    : currentViewMode === 'grid'
+                      ? this.renderListGridView(filteredGroupsList)
+                      : this.renderListOverviewView(
+                          groupsList,
+                          totalDoneCount,
+                          totalGamesCount,
+                          totalPendingCount,
+                          totalPriorityCount,
+                          totalNotFoundCount,
+                        )
+          }
         </div>
       </div>
 
       <!-- Add Game Modal -->
-      ${this.state.isAddingGame
-        ? `
+      ${
+        this.state.isAddingGame
+          ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Adicionar Jogos</h3>
@@ -5898,12 +6065,12 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-add-game-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
                 ${modalProvidersList
-          .map(
-            (prov) => `
+                  .map(
+                    (prov) => `
                   <option value="${prov}" ${prov === this.state.addingGameToProvider ? 'selected' : ''}>${prov}</option>
                 `,
-          )
-          .join('')}
+                  )
+                  .join('')}
               </select>
             </div>
 
@@ -5925,12 +6092,13 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-        : ''
+          : ''
       }
 
       <!-- Import CSV Modal -->
-      ${this.state.isImportingCSV
-        ? `
+      ${
+        this.state.isImportingCSV
+          ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Importar Planilha</h3>
@@ -5939,12 +6107,12 @@ class ThumbSyncApp {
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Selecione o Provedor</label>
               <select id="modal-import-csv-provider-select" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white">
                 ${modalProvidersList
-          .map(
-            (prov) => `
+                  .map(
+                    (prov) => `
                   <option value="${prov}">${prov}</option>
                 `,
-          )
-          .join('')}
+                  )
+                  .join('')}
               </select>
             </div>
 
@@ -5961,12 +6129,13 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-        : ''
+          : ''
       }
       
       <!-- Edit Game Name Modal -->
-      ${this.state.isEditingGameName && this.state.editingGameItem
-        ? `
+      ${
+        this.state.isEditingGameName && this.state.editingGameItem
+          ? `
         <div class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center">
           <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
             <h3 class="text-sm font-black text-white uppercase tracking-wider mb-4 leading-none font-sans">Editar Nome do Jogo</h3>
@@ -5983,7 +6152,7 @@ class ThumbSyncApp {
           </div>
         </div>
       `
-        : ''
+          : ''
       }
 
       <!-- Add Provider Modal -->
@@ -6010,15 +6179,17 @@ class ThumbSyncApp {
     return `
       <div id="mural-horizontal-scroll" class="flex overflow-x-auto items-start gap-6 pb-6 custom-scrollbar snap-x w-full">
         ${groupsList
-        .map(([providerName, games]) => {
-          const providerKey = this.normalizeName(providerName);
-          const providerAttr = encodeURIComponent(providerKey);
-          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-          const isPrioritySection = providerName === 'Prioridades';
-          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+          .map(([providerName, games]) => {
+            const providerKey = this.normalizeName(providerName);
+            const providerAttr = encodeURIComponent(providerKey);
+            const isCollapsed =
+              this.state.collapsedProviderKeys.has(providerKey);
+            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+            const isPrioritySection = providerName === 'Prioridades';
+            const isCustomPriorityProv =
+              this.state.priorityProvidersSet?.has(providerKey);
 
-          return `
+            return `
               <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
                 <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
                   <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
@@ -6034,39 +6205,41 @@ class ThumbSyncApp {
                     <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
                       ${games.length} jogos
                     </span>
-                    ${isNotFoundSection || isPrioritySection
-              ? ''
-              : `
+                    ${
+                      isNotFoundSection || isPrioritySection
+                        ? ''
+                        : `
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
                           <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
                       `
-            }
+                    }
                   </div>
                 </div>
 
-                ${isCollapsed
-              ? ''
-              : `
+                ${
+                  isCollapsed
+                    ? ''
+                    : `
                   <div id="provider-games-${providerAttr}" class="p-2 bg-[#09090c]/40 space-y-1.5">
                     ${games
-                .map((game) => {
-                  const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-                  const catalogItem = this.state.catalogItems.find(
-                    (i) => i.id === key,
-                  );
-                  const hasWebp = catalogItem?.hasWebp || false;
-                  const formattedDate = catalogItem?.modifiedTime
-                    ? new Date(
-                      catalogItem.modifiedTime,
-                    ).toLocaleDateString('pt-BR', {
-                      day: '2-digit',
-                      month: '2-digit',
-                      year: '2-digit',
-                    })
-                    : '';
+                      .map((game) => {
+                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                        const catalogItem = this.state.catalogItems.find(
+                          (i) => i.id === key,
+                        );
+                        const hasWebp = catalogItem?.hasWebp || false;
+                        const formattedDate = catalogItem?.modifiedTime
+                          ? new Date(
+                              catalogItem.modifiedTime,
+                            ).toLocaleDateString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: '2-digit',
+                            })
+                          : '';
 
-                  return `
+                        return `
                           <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
                             <div class="flex items-start gap-2.5 min-w-0 w-full">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
@@ -6090,8 +6263,9 @@ class ThumbSyncApp {
 
                             <!-- Action buttons row -->
                             <div class="flex items-center flex-wrap gap-1.5 pl-6 mt-1">
-                              ${this.isAdmin()
-                      ? `
+                              ${
+                                this.isAdmin()
+                                  ? `
                                 <a href="${this.getGameSearchUrl(game)}" 
                                    target="_blank" 
                                    rel="noopener noreferrer" 
@@ -6104,8 +6278,8 @@ class ThumbSyncApp {
                                   </svg>
                                 </a>
                                 `
-                      : ''
-                    }
+                                  : ''
+                              }
                               <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-7 h-7 rounded-lg bg-zinc-500/5 hover:bg-zinc-500/15 border border-zinc-500/10 flex items-center justify-center cursor-pointer text-zinc-400 transition-colors" title="Copiar Nome">
                                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                                   <path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
@@ -6130,15 +6304,15 @@ class ThumbSyncApp {
                             </div>
                           </div>
                         `;
-                })
-                .join('')}
+                      })
+                      .join('')}
                   </div>
                   `
-            }
+                }
               </div>
             `;
-        })
-        .join('')}
+          })
+          .join('')}
       </div>
     `;
   }
@@ -6165,21 +6339,27 @@ class ThumbSyncApp {
         <!-- Seções por Provedor em Formato Lista Densa -->
         <div class="space-y-3">
           ${groupsList
-        .map(([providerName, games]) => {
-          const providerKey = this.normalizeName(providerName);
-          const providerAttr = encodeURIComponent(providerKey);
-          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-          const isPrioritySection = providerName === 'Prioridades';
-          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+            .map(([providerName, games]) => {
+              const providerKey = this.normalizeName(providerName);
+              const providerAttr = encodeURIComponent(providerKey);
+              const isCollapsed =
+                this.state.collapsedProviderKeys.has(providerKey);
+              const isNotFoundSection =
+                providerName === 'Não Foi Possível Criar';
+              const isPrioritySection = providerName === 'Prioridades';
+              const isCustomPriorityProv =
+                this.state.priorityProvidersSet?.has(providerKey);
 
-          const provDoneCount = games.filter(g => {
-            const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-            return catalogItemsByKey.get(k)?.hasWebp;
-          }).length;
-          const provPct = games.length > 0 ? Math.round((provDoneCount / games.length) * 100) : 0;
+              const provDoneCount = games.filter((g) => {
+                const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                return catalogItemsByKey.get(k)?.hasWebp;
+              }).length;
+              const provPct =
+                games.length > 0
+                  ? Math.round((provDoneCount / games.length) * 100)
+                  : 0;
 
-          return `
+              return `
                 <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.015]'} overflow-hidden transition-all">
                   <!-- Header da Seção do Provedor -->
                   <div class="flex items-center justify-between px-4 py-2.5 bg-white/[0.02] border-b border-white/[0.04]">
@@ -6202,36 +6382,54 @@ class ThumbSyncApp {
                         <span class="text-[10px] text-zinc-400 font-bold">${provDoneCount}/${games.length} (${provPct}%)</span>
                       </div>
 
-                      ${!isNotFoundSection && !isPrioritySection ? `
+                      ${
+                        !isNotFoundSection && !isPrioritySection
+                          ? `
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                           <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
-                      ` : ''}
+                      `
+                          : ''
+                      }
                     </div>
                   </div>
 
                   <!-- Linhas de Jogos Compactas -->
-                  ${isCollapsed ? '' : `
+                  ${
+                    isCollapsed
+                      ? ''
+                      : `
                     <div id="provider-games-${providerAttr}" class="p-2 space-y-1 divide-y divide-white/[0.02]">
-                      ${games.map(game => {
-            const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-            const catalogItem = catalogItemsByKey.get(key);
-            const hasWebp = catalogItem?.hasWebp || false;
-            const formattedDate = catalogItem?.modifiedTime
-              ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-              : '';
+                      ${games
+                        .map((game) => {
+                          const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                          const catalogItem = catalogItemsByKey.get(key);
+                          const hasWebp = catalogItem?.hasWebp || false;
+                          const formattedDate = catalogItem?.modifiedTime
+                            ? new Date(
+                                catalogItem.modifiedTime,
+                              ).toLocaleDateString('pt-BR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: '2-digit',
+                              })
+                            : '';
 
-            return `
+                          return `
                           <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-white/[0.04] transition-colors border ${hasWebp && !game.isNotFound ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-transparent'} cursor-pointer">
                             <div class="flex items-center gap-2.5 flex-1 min-w-0">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                               
                               <!-- Status Tag -->
-                              <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
-                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                  game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
-                    'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-              }">
+                              <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
+                                game.isNotFound
+                                  ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                                  : hasWebp
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                    : game.isPriority
+                                      ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20'
+                                      : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                              }">
                                 ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
                               </span>
 
@@ -6240,20 +6438,28 @@ class ThumbSyncApp {
                                 ${game.displayName}
                               </span>
 
-                              ${isNotFoundSection || isPrioritySection ? `
+                              ${
+                                isNotFoundSection || isPrioritySection
+                                  ? `
                                 <span class="text-[10px] text-zinc-500 shrink-0 font-medium">(${game.providerName})</span>
-                              ` : ''}
+                              `
+                                  : ''
+                              }
                             </div>
 
                             <!-- Ações e Data à Direita -->
                             <div class="flex items-center gap-1.5 shrink-0 pl-6 sm:pl-0">
                               ${formattedDate ? `<span class="text-[10px] text-zinc-500 mr-1.5 font-medium">${formattedDate}</span>` : ''}
                               
-                              ${this.isAdmin() ? `
+                              ${
+                                this.isAdmin()
+                                  ? `
                                 <a href="${this.getGameSearchUrl(game)}" target="_blank" rel="noopener noreferrer" class="w-6.5 h-6.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer shrink-0" title="${this.getGameSearchTitle(game)}" onclick="event.stopPropagation()">
                                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
                                 </a>
-                              ` : ''}
+                              `
+                                  : ''
+                              }
                               
                               <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-6.5 h-6.5 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 flex items-center justify-center cursor-pointer" title="Copiar Nome">
                                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
@@ -6277,13 +6483,15 @@ class ThumbSyncApp {
                             </div>
                           </div>
                         `;
-          }).join('')}
+                        })
+                        .join('')}
                     </div>
-                  `}
+                  `
+                  }
                 </div>
               `;
-        })
-        .join('')}
+            })
+            .join('')}
         </div>
       </div>
     `;
@@ -6300,15 +6508,17 @@ class ThumbSyncApp {
     return `
       <div class="space-y-6 w-full">
         ${groupsList
-        .map(([providerName, games]) => {
-          const providerKey = this.normalizeName(providerName);
-          const providerAttr = encodeURIComponent(providerKey);
-          const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
-          const isNotFoundSection = providerName === 'Não Foi Possível Criar';
-          const isPrioritySection = providerName === 'Prioridades';
-          const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+          .map(([providerName, games]) => {
+            const providerKey = this.normalizeName(providerName);
+            const providerAttr = encodeURIComponent(providerKey);
+            const isCollapsed =
+              this.state.collapsedProviderKeys.has(providerKey);
+            const isNotFoundSection = providerName === 'Não Foi Possível Criar';
+            const isPrioritySection = providerName === 'Prioridades';
+            const isCustomPriorityProv =
+              this.state.priorityProvidersSet?.has(providerKey);
 
-          return `
+            return `
               <div class="space-y-3">
                 <!-- Header de Seção da Grade -->
                 <div class="flex items-center justify-between pb-2 border-b border-white/[0.05]">
@@ -6323,38 +6533,56 @@ class ThumbSyncApp {
                     <span class="text-[10px] text-zinc-500 font-bold ml-1">(${games.length} jogos)</span>
                   </div>
 
-                  ${!isNotFoundSection && !isPrioritySection ? `
+                  ${
+                    !isNotFoundSection && !isPrioritySection
+                      ? `
                     <div class="flex items-center gap-2">
                       <button data-trigger-add-game="${providerName}" class="w-6 h-6 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                       </button>
                     </div>
-                  ` : ''}
+                  `
+                      : ''
+                  }
                 </div>
 
                 <!-- Grid de Cards do Provedor -->
-                ${isCollapsed ? '' : `
+                ${
+                  isCollapsed
+                    ? ''
+                    : `
                   <div id="provider-games-${providerAttr}" class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-5 gap-3">
-                    ${games.map(game => {
-            const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-            const catalogItem = catalogItemsByKey.get(key);
-            const hasWebp = catalogItem?.hasWebp || false;
-            const formattedDate = catalogItem?.modifiedTime
-              ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
-              : '';
+                    ${games
+                      .map((game) => {
+                        const key = `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
+                        const catalogItem = catalogItemsByKey.get(key);
+                        const hasWebp = catalogItem?.hasWebp || false;
+                        const formattedDate = catalogItem?.modifiedTime
+                          ? new Date(
+                              catalogItem.modifiedTime,
+                            ).toLocaleDateString('pt-BR', {
+                              day: '2-digit',
+                              month: '2-digit',
+                              year: '2-digit',
+                            })
+                          : '';
 
-            return `
+                        return `
                         <div data-list-preview-key="${key}" class="group relative rounded-2xl border ${hasWebp && !game.isNotFound ? 'border-emerald-500/40 bg-emerald-500/[0.03] shadow-[0_0_15px_rgba(16,185,129,0.08)]' : 'border-white/[0.06] bg-[#111116]'} p-3.5 flex flex-col justify-between hover:border-white/20 transition-all cursor-pointer">
                           <!-- Topo do Card: Checkbox + Status Pill -->
                           <div>
                             <div class="flex items-center justify-between gap-2 mb-2.5">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                               
-                              <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
-                hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
-                  game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
-                    'bg-amber-500/15 text-amber-400 border border-amber-500/20'
-              }">
+                              <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded ${
+                                game.isNotFound
+                                  ? 'bg-red-500/15 text-red-400 border border-red-500/20'
+                                  : hasWebp
+                                    ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20'
+                                    : game.isPriority
+                                      ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20'
+                                      : 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
+                              }">
                                 ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
                               </span>
                             </div>
@@ -6364,9 +6592,13 @@ class ThumbSyncApp {
                               ${game.displayName}
                             </h4>
 
-                            ${isNotFoundSection || isPrioritySection ? `
+                            ${
+                              isNotFoundSection || isPrioritySection
+                                ? `
                               <p class="text-[10px] text-zinc-500 truncate mb-2">${game.providerName}</p>
-                            ` : ''}
+                            `
+                                : ''
+                            }
                           </div>
 
                           <!-- Rodapé do Card: Data e Ações Rápidas -->
@@ -6374,11 +6606,15 @@ class ThumbSyncApp {
                             <span class="text-[9px] text-zinc-500 font-medium">${formattedDate || 'Pendente'}</span>
                             
                             <div class="flex items-center gap-1">
-                              ${this.isAdmin() ? `
+                              ${
+                                this.isAdmin()
+                                  ? `
                                 <a href="${this.getGameSearchUrl(game)}" target="_blank" rel="noopener noreferrer" class="w-6 h-6 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-400 border border-purple-500/20 flex items-center justify-center cursor-pointer" title="${this.getGameSearchTitle(game)}" onclick="event.stopPropagation()">
                                   <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
                                 </a>
-                              ` : ''}
+                              `
+                                  : ''
+                              }
 
                               <button data-copy-catalog-name="${game.displayName.replace(/"/g, '&quot;')}" class="w-6 h-6 rounded-lg bg-white/5 hover:bg-white/10 text-zinc-400 border border-white/5 flex items-center justify-center cursor-pointer" title="Copiar Nome">
                                 <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
@@ -6399,13 +6635,15 @@ class ThumbSyncApp {
                           </div>
                         </div>
                       `;
-          }).join('')}
+                      })
+                      .join('')}
                   </div>
-                `}
+                `
+                }
               </div>
             `;
-        })
-        .join('')}
+          })
+          .join('')}
       </div>
     `;
   }
@@ -6413,13 +6651,22 @@ class ThumbSyncApp {
   /**
    * MODO 4: PAINEL RESUMO (Métricas Executivas e Produção por Provedor)
    */
-  renderListOverviewView(groupsList, totalDone, totalGames, totalPending, totalPriority, totalNotFound) {
+  renderListOverviewView(
+    groupsList,
+    totalDone,
+    totalGames,
+    totalPending,
+    totalPriority,
+    totalNotFound,
+  ) {
     const catalogItemsByKey = new Map(
       this.state.catalogItems.map((item) => [item.id, item]),
     );
 
     // Provedores reais (excluindo seções virtuais)
-    const realProviders = groupsList.filter(([p]) => p !== 'Não Foi Possível Criar' && p !== 'Prioridades');
+    const realProviders = groupsList.filter(
+      ([p]) => p !== 'Não Foi Possível Criar' && p !== 'Prioridades',
+    );
 
     return `
       <div class="space-y-6 w-full">
@@ -6464,23 +6711,28 @@ class ThumbSyncApp {
           </div>
 
           <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            ${realProviders.map(([providerName, games]) => {
-      const providerKey = this.normalizeName(providerName);
-      const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
+            ${realProviders
+              .map(([providerName, games]) => {
+                const providerKey = this.normalizeName(providerName);
+                const isCustomPriorityProv =
+                  this.state.priorityProvidersSet?.has(providerKey);
 
-      const provDone = games.filter(g => {
-        const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-        return catalogItemsByKey.get(k)?.hasWebp;
-      });
-      const provPending = games.filter(g => {
-        const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
-        return !catalogItemsByKey.get(k)?.hasWebp && !g.isNotFound;
-      });
-      const provPriorities = games.filter(g => g.isPriority);
+                const provDone = games.filter((g) => {
+                  const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                  return catalogItemsByKey.get(k)?.hasWebp;
+                });
+                const provPending = games.filter((g) => {
+                  const k = `${this.normalizeName(g.providerName)}::${g.normalizedName}`;
+                  return !catalogItemsByKey.get(k)?.hasWebp && !g.isNotFound;
+                });
+                const provPriorities = games.filter((g) => g.isPriority);
 
-      const pct = games.length > 0 ? Math.round((provDone.length / games.length) * 100) : 0;
+                const pct =
+                  games.length > 0
+                    ? Math.round((provDone.length / games.length) * 100)
+                    : 0;
 
-      return `
+                return `
                 <div class="rounded-2xl border ${isCustomPriorityProv ? 'border-yellow-500/30 bg-yellow-500/[0.02]' : 'border-white/[0.06] bg-white/[0.015]'} p-4 flex flex-col justify-between space-y-4 hover:border-white/15 transition-all">
                   <div>
                     <!-- Topo do Card de Provedor -->
@@ -6518,32 +6770,45 @@ class ThumbSyncApp {
                       <span class="text-[9px] font-bold px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-400 border border-amber-500/20">
                         ${provPending.length} pendentes
                       </span>
-                      ${provPriorities.length > 0 ? `
+                      ${
+                        provPriorities.length > 0
+                          ? `
                         <span class="text-[9px] font-bold px-2 py-0.5 rounded-md bg-yellow-500/10 text-yellow-400 border border-yellow-500/20">
                           ★ ${provPriorities.length} urgentes
                         </span>
-                      ` : ''}
+                      `
+                          : ''
+                      }
                     </div>
 
                     <!-- Prévia dos Jogos Pendentes -->
-                    ${provPending.length > 0 ? `
+                    ${
+                      provPending.length > 0
+                        ? `
                       <div class="space-y-1 bg-black/30 p-2.5 rounded-xl border border-white/[0.04]">
                         <span class="text-[9px] text-zinc-500 font-bold uppercase tracking-wider block mb-1">Fila de Produção:</span>
-                        ${provPending.slice(0, 3).map(pGame => `
+                        ${provPending
+                          .slice(0, 3)
+                          .map(
+                            (pGame) => `
                           <div class="flex items-center justify-between text-xs text-zinc-300 py-0.5">
                             <span class="truncate pr-2">• ${pGame.displayName}</span>
                             <button data-copy-catalog-name="${pGame.displayName.replace(/"/g, '&quot;')}" class="text-zinc-500 hover:text-white p-0.5" title="Copiar">
                               <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
                             </button>
                           </div>
-                        `).join('')}
+                        `,
+                          )
+                          .join('')}
                         ${provPending.length > 3 ? `<span class="text-[9px] text-zinc-500 italic block mt-1">+ ${provPending.length - 3} outros jogos na fila</span>` : ''}
                       </div>
-                    ` : `
+                    `
+                        : `
                       <div class="p-2.5 rounded-xl bg-emerald-500/[0.04] border border-emerald-500/15 text-center text-xs text-emerald-400 font-medium">
                         ✓ Todas as miniaturas prontas!
                       </div>
-                    `}
+                    `
+                    }
                   </div>
 
                   <!-- Ação de Abrir no Mural/Lista -->
@@ -6553,7 +6818,8 @@ class ThumbSyncApp {
                   </button>
                 </div>
               `;
-    }).join('')}
+              })
+              .join('')}
           </div>
         </div>
       </div>
@@ -6607,10 +6873,11 @@ class ThumbSyncApp {
               </div>
 
               <p class="text-[11px] text-zinc-400 leading-relaxed">
-                ${driveClient.isAuthenticated()
-        ? 'O sistema está conectado diretamente ao seu <strong class="text-blue-300">Google Drive</strong> para armazenar e sincronizar todas as informações de catálogo e miniaturas.'
-        : 'O Google Drive não está autenticado. Os dados estão sendo lidos do <strong class="text-amber-300">Cache Local do Navegador</strong>.'
-      }
+                ${
+                  driveClient.isAuthenticated()
+                    ? 'O sistema está conectado diretamente ao seu <strong class="text-blue-300">Google Drive</strong> para armazenar e sincronizar todas as informações de catálogo e miniaturas.'
+                    : 'O Google Drive não está autenticado. Os dados estão sendo lidos do <strong class="text-amber-300">Cache Local do Navegador</strong>.'
+                }
               </p>
 
               <!-- Grid de Mapeamento das 5 Entidades do Banco de Dados -->
@@ -6670,8 +6937,9 @@ class ThumbSyncApp {
               </div>
             </div>
 
-            ${this.state.gdriveConnected
-        ? `
+            ${
+              this.state.gdriveConnected
+                ? `
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                 <div class="min-w-0">
                   <p class="text-xs font-bold text-white truncate">${profile.email ? profile.email : 'Google Drive Conectado'}</p>
@@ -6682,7 +6950,7 @@ class ThumbSyncApp {
                 </button>
               </div>
             `
-        : `
+                : `
               <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl leading-relaxed">
                 <div class="max-w-md">
                   <p class="text-xs font-bold text-white">Nenhum Drive Conectado</p>
@@ -6699,12 +6967,13 @@ class ThumbSyncApp {
                 </button>
               </div>
             `
-      }
+            }
           </div>
 
           <!-- Gestão de Perfis Card (RESTRITO AO ADMINISTRADOR) -->
-          ${isAdmin
-        ? `
+          ${
+            isAdmin
+              ? `
             <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-5">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-3">
@@ -6738,17 +7007,21 @@ class ThumbSyncApp {
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Atreladas ao Administrador:</span>
                   <div class="flex flex-wrap gap-1.5 items-center">
                     ${this.getAdminAccounts()
-          .map(
-            (email) => `
+                      .map(
+                        (email) => `
                       <span class="inline-flex items-center gap-1.5 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">
                         ${email}
-                        ${email.toLowerCase() !== 'andreluiz1902@gmail.com' ? `
+                        ${
+                          email.toLowerCase() !== 'andreluiz1902@gmail.com'
+                            ? `
                           <button data-remove-admin-email="${email}" class="text-zinc-500 hover:text-red-400 cursor-pointer text-xs font-bold leading-none ml-0.5" title="Remover Administrador">×</button>
-                        ` : ''}
+                        `
+                            : ''
+                        }
                       </span>
                     `,
-          )
-          .join('')}
+                      )
+                      .join('')}
                   </div>
                   <div class="flex items-center gap-2 pt-1">
                     <input type="email" id="input-add-admin-email" placeholder="Novo email de adm (ex: adm@empresa.com)..." class="text-[11px] bg-black/40 border border-white/10 rounded-xl px-3 py-1.5 text-white w-64 focus:border-amber-500/50 focus:outline-none placeholder:text-zinc-600" />
@@ -6774,24 +7047,28 @@ class ThumbSyncApp {
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Registradas sob este Perfil:</span>
                   <div class="flex flex-wrap gap-1.5">
                     ${this.getEmersonAccounts()
-          .map(
-            (email) => `
+                      .map(
+                        (email) => `
                       <span class="inline-flex items-center gap-1.5 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">
                         ${email}
-                        ${email.toLowerCase() !== 'emerson@betdasorte.com' ? `
+                        ${
+                          email.toLowerCase() !== 'emerson@betdasorte.com'
+                            ? `
                           <button data-remove-emerson-email="${email}" class="text-zinc-500 hover:text-red-400 cursor-pointer text-xs font-bold leading-none ml-0.5" title="Remover Conta">×</button>
-                        ` : ''}
+                        `
+                            : ''
+                        }
                       </span>
                     `,
-          )
-          .join('')}
+                      )
+                      .join('')}
                   </div>
                 </div>
               </div>
             </div>
           `
-        : ''
-      }
+              : ''
+          }
 
           <!-- Manutenção e Limpeza de Cache Card -->
           <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
@@ -6870,44 +7147,49 @@ class ThumbSyncApp {
         <div id="modal-cat-container" class="${showCatEditor ? '' : 'hidden'} space-y-1.5 select-none pt-1 transition-all">
           <div class="text-[10px] text-zinc-500 font-extrabold uppercase tracking-wider block">Categoria do Jogo (Tag)</div>
           <div class="flex gap-1.5 p-1 bg-white/[0.03] border border-white/[0.05] rounded-xl flex-wrap">
-            ${this.state.isSavingTag
-        ? `
+            ${
+              this.state.isSavingTag
+                ? `
               <div class="w-full py-1.5 flex items-center justify-center gap-2 text-[10px] font-bold text-zinc-500 animate-pulse">
                 <svg class="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M12 2v4m0 12v4M4.93 4.93l2.83 2.83m8.48 8.48l2.83 2.83M2 12h4m12 0h4M4.93 19.07l2.83-2.83m8.48-8.48l2.83-2.83" /></svg>
                 SALVANDO...
               </div>
             `
-        : `
+                : `
             ${[
-          'Slot',
-          'Ao Vivo',
-          'Crash',
-          'Mesa RNG',
-          'Instant Win',
-          'Scratchcard',
-          'Prioridades',
-        ]
-          .map(
-            (tag) => `
+              'Slot',
+              'Ao Vivo',
+              'Crash',
+              'Mesa RNG',
+              'Instant Win',
+              'Scratchcard',
+              'Prioridades',
+            ]
+              .map(
+                (tag) => `
               <button data-cat-tag="${tag}" class="cat-tag-btn flex-1 min-w-[28%] sm:min-w-[30%] py-1.5 px-2 sm:px-3 rounded-lg text-[10px] sm:text-xs font-black flex items-center justify-center gap-1 transition-all cursor-pointer ${currentTag === tag ? 'bg-[#0a84ff]/20 text-[#0a84ff] border border-[#0a84ff]/30 shadow-sm' : 'bg-transparent text-zinc-500 hover:bg-white/[0.03] hover:text-zinc-300'}">
                 <span class="w-1.5 h-1.5 rounded-full ${currentTag === tag ? 'bg-[#0a84ff] animate-pulse' : 'bg-transparent border border-zinc-600'}"></span>
                 ${tag}
               </button>
             `,
-          )
-          .join('')}
+              )
+              .join('')}
             `
-      }
+            }
           </div>
         </div>
 
         <div class="flex flex-col gap-2 select-none mt-auto pt-1 pb-2">
-          ${this.isAdmin() ? `
+          ${
+            this.isAdmin()
+              ? `
           <a href="${this.getGameSearchUrl(item)}" target="_blank" rel="noopener noreferrer" class="w-full py-2 px-4 rounded-xl bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition-colors" title="${this.getGameSearchTitle(item)}">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /><path stroke-linecap="round" stroke-linejoin="round" d="M10.5 7.5v6m3-3h-6" /></svg>
             <span>${this.getGameSearchTitle(item)}</span>
           </a>
-          ` : ''}
+          `
+              : ''
+          }
           <button id="modal-action-copy-name" class="w-full py-2 px-4 rounded-xl bg-zinc-800 text-white font-bold text-xs hover:bg-zinc-700 flex items-center justify-center gap-1.5 cursor-pointer">
             <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
             <span>Copiar Nome do Jogo</span>
@@ -7366,10 +7648,7 @@ class ThumbSyncApp {
           const item = this.state.catalogItems.find((i) => i.id === key);
           if (!item || !item.hasWebp) return;
 
-          if (
-            item.driveFileId &&
-            this.imageCache.has(item.driveFileId)
-          ) {
+          if (item.driveFileId && this.imageCache.has(item.driveFileId)) {
             if (
               img.classList.contains('opacity-0') ||
               !img.src.startsWith('blob:')
@@ -7514,7 +7793,8 @@ class ThumbSyncApp {
           if (!driveClient.isAuthenticated()) {
             this.showAlertDialog({
               title: 'Ação Não Permitida',
-              message: 'Conecte sua conta do Google Drive para fazer a sincronização inteligente de arquivos!',
+              message:
+                'Conecte sua conta do Google Drive para fazer a sincronização inteligente de arquivos!',
               type: 'warning',
             });
             return;
@@ -7526,7 +7806,8 @@ class ThumbSyncApp {
           if (files.length === 0) {
             this.showAlertDialog({
               title: 'Arquivo Incompatível',
-              message: 'Nenhum arquivo .webp válido detectado! Envie apenas arquivos no formato .webp.',
+              message:
+                'Nenhum arquivo .webp válido detectado! Envie apenas arquivos no formato .webp.',
               type: 'warning',
             });
             return;
@@ -7669,7 +7950,9 @@ class ThumbSyncApp {
       }
 
       // Resetar Filtros do Mural
-      const btnResetMuralFilters = document.getElementById('btn-reset-mural-filters');
+      const btnResetMuralFilters = document.getElementById(
+        'btn-reset-mural-filters',
+      );
       if (btnResetMuralFilters) {
         btnResetMuralFilters.addEventListener('click', () => {
           this.state.muralSearchQuery = '';
@@ -7679,7 +7962,9 @@ class ThumbSyncApp {
       }
 
       // Focar Provedor a partir do Painel Resumo
-      const focusProviderBtns = document.querySelectorAll('[data-focus-provider]');
+      const focusProviderBtns = document.querySelectorAll(
+        '[data-focus-provider]',
+      );
       focusProviderBtns.forEach((btn) => {
         btn.addEventListener('click', (e) => {
           const prov = e.currentTarget.getAttribute('data-focus-provider');
@@ -7925,15 +8210,22 @@ class ThumbSyncApp {
         });
       }
 
-      const modalAddGameTextarea = document.getElementById('new-game-displayNames');
+      const modalAddGameTextarea = document.getElementById(
+        'new-game-displayNames',
+      );
       if (modalAddGameTextarea && !modalAddGameTextarea.dataset.bound) {
         modalAddGameTextarea.dataset.bound = 'true';
         modalAddGameTextarea.addEventListener('input', () => {
           this.handleNewGameInputSimilarity(modalAddGameTextarea);
         });
 
-        const modalAddGameProviderSelect = document.getElementById('modal-add-game-provider-select');
-        if (modalAddGameProviderSelect && !modalAddGameProviderSelect.dataset.bound) {
+        const modalAddGameProviderSelect = document.getElementById(
+          'modal-add-game-provider-select',
+        );
+        if (
+          modalAddGameProviderSelect &&
+          !modalAddGameProviderSelect.dataset.bound
+        ) {
           modalAddGameProviderSelect.dataset.bound = 'true';
           modalAddGameProviderSelect.addEventListener('change', () => {
             this.handleNewGameInputSimilarity(modalAddGameTextarea);
@@ -8217,7 +8509,8 @@ class ThumbSyncApp {
             this.render();
             this.showAlertDialog({
               title: 'Cache Limpo',
-              message: 'O cache local foi limpo e os dados foram revalidados com sucesso!',
+              message:
+                'O cache local foi limpo e os dados foram revalidados com sucesso!',
               type: 'success',
             });
           }
