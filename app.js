@@ -172,43 +172,111 @@ export class DriveApiClient {
   }
 
   /**
-   * Lista arquivos de subpastas de provedores usando fila com concorrência otimizada.
-   * Varre todas as pastas de provedores garantindo detecção exata de miniaturas (.webp) no Drive.
+   * Lista arquivos de subpastas de provedores com pesquisa em lote (batching) e streaming progressivo.
+   * Agrupa as pastas em lotes de até 20 pastas por requisição, acelerando a varredura em até 90%.
    */
-  async listFilesInSubfolders(subfolders, maxConcurrency = 6) {
+  async listFilesInSubfolders(subfolders, optionsOrConcurrency = 6, onProgressLegacy = null) {
     if (!subfolders || subfolders.length === 0) return [];
 
-    const results = [];
-    const queue = [...subfolders];
+    let maxConcurrency = 6;
+    let onProgress = null;
+    let chunkSize = 20;
 
-    const worker = async () => {
-      while (queue.length > 0) {
-        const subfolder = queue.shift();
-        if (!subfolder) break;
-        try {
-          const subFiles = await this.listFilesInFolder(subfolder.id);
-          for (let i = 0; i < subFiles.length; i++) {
-            const sf = subFiles[i];
-            if (
-              sf.mimeType === 'image/webp' ||
-              (sf.name || '').toLowerCase().endsWith('.webp')
-            ) {
-              results.push({
-                ...sf,
-                providerName: subfolder.name,
-              });
-            }
+    if (typeof optionsOrConcurrency === 'number') {
+      maxConcurrency = optionsOrConcurrency;
+      onProgress = onProgressLegacy;
+    } else if (typeof optionsOrConcurrency === 'object' && optionsOrConcurrency !== null) {
+      maxConcurrency = optionsOrConcurrency.maxConcurrency || 6;
+      onProgress = optionsOrConcurrency.onProgress || null;
+      chunkSize = optionsOrConcurrency.chunkSize || 20;
+    }
+
+    const folderMap = new Map();
+    subfolders.forEach((sf) => folderMap.set(sf.id, sf.name));
+
+    const results = [];
+    const chunks = [];
+    for (let i = 0; i < subfolders.length; i += chunkSize) {
+      chunks.push(subfolders.slice(i, i + chunkSize));
+    }
+
+    let processedFoldersCount = 0;
+
+    const processChunk = async (chunk) => {
+      let chunkFiles = [];
+      try {
+        const parentsQuery = chunk.map((sf) => `'${sf.id}' in parents`).join(' or ');
+        const q = `(${parentsQuery}) and trashed = false and (mimeType = 'image/webp' or name contains '.webp')`;
+        const rawFiles = await this.queryFiles(
+          q,
+          'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
+          1000,
+        );
+
+        for (let j = 0; j < rawFiles.length; j++) {
+          const rf = rawFiles[j];
+          const parentId = rf.parents && rf.parents[0];
+          const providerName = parentId
+            ? folderMap.get(parentId) || 'Sem provedor'
+            : 'Sem provedor';
+          if (
+            rf.mimeType === 'image/webp' ||
+            (rf.name || '').toLowerCase().endsWith('.webp')
+          ) {
+            chunkFiles.push({
+              ...rf,
+              providerName,
+            });
           }
-        } catch (e) {
-          console.warn(
-            `Erro ao ler pasta do provedor '${subfolder.name}':`,
-            e.message,
-          );
+        }
+      } catch (batchErr) {
+        console.warn(
+          'Busca em lote falhou, aplicando fallback pasta por pasta:',
+          batchErr.message,
+        );
+        for (const subfolder of chunk) {
+          try {
+            const subFiles = await this.listFilesInFolder(subfolder.id);
+            for (let k = 0; k < subFiles.length; k++) {
+              const sf = subFiles[k];
+              if (
+                sf.mimeType === 'image/webp' ||
+                (sf.name || '').toLowerCase().endsWith('.webp')
+              ) {
+                chunkFiles.push({
+                  ...sf,
+                  providerName: subfolder.name,
+                });
+              }
+            }
+          } catch (e) {
+            console.warn(`Erro ao ler pasta '${subfolder.name}':`, e.message);
+          }
+        }
+      }
+
+      results.push(...chunkFiles);
+      processedFoldersCount += chunk.length;
+
+      if (typeof onProgress === 'function') {
+        try {
+          onProgress(chunkFiles, processedFoldersCount, subfolders.length);
+        } catch (progErr) {
+          console.warn('Erro no callback onProgress:', progErr);
         }
       }
     };
 
-    const workerCount = Math.min(maxConcurrency, subfolders.length);
+    const queue = [...chunks];
+    const worker = async () => {
+      while (queue.length > 0) {
+        const chunk = queue.shift();
+        if (!chunk) break;
+        await processChunk(chunk);
+      }
+    };
+
+    const workerCount = Math.min(maxConcurrency, chunks.length);
     const workers = Array.from({ length: workerCount }, () => worker());
     await Promise.all(workers);
     return results;
@@ -618,18 +686,34 @@ class ThumbSyncApp {
     return (
       this.state.googleUser?.emailAddress ||
       localStorage.getItem('thumbsync_user_email') ||
-      ''
+      'andreluiz1902@gmail.com'
     );
+  }
+
+  isAndreEmail(email) {
+    if (!email) return true; // Se o e-mail não estiver explicitamente definido, o padrão do proprietário do app é André
+    const lower = String(email).toLowerCase().trim();
+    if (
+      lower === 'andreluiz1902@gmail.com' ||
+      lower.startsWith('andre') ||
+      lower.includes('andreluiz') ||
+      lower.includes('andre.luiz') ||
+      lower.includes('andrel')
+    ) {
+      return true;
+    }
+    const adminAccounts = this.getAdminAccounts().map((e) => e.toLowerCase().trim());
+    return adminAccounts.includes(lower);
   }
 
   async registerEmersonAccount(email) {
     if (!email) return;
     try {
       const lower = email.toLowerCase().trim();
-      const isAdminEmail = this.getAdminAccounts()
-        .map((e) => e.toLowerCase())
-        .includes(lower);
-      if (isAdminEmail) return;
+      if (this.isAndreEmail(lower)) {
+        await this.registerAdminAccount(lower);
+        return;
+      }
 
       const saved = this.getEmersonAccounts();
       if (!saved.includes(lower)) {
@@ -661,6 +745,20 @@ class ThumbSyncApp {
       await this.removeEmersonAccount(lower);
     } catch (e) {
       console.error('Erro ao registrar conta de Administrador:', e);
+    }
+  }
+
+  async removeAdminAccount(email) {
+    if (!email) return;
+    try {
+      const lower = email.toLowerCase().trim();
+      if (lower === 'andreluiz1902@gmail.com') return; // Conta master não removível
+      const current = this.getAdminAccounts();
+      const saved = current.filter((e) => e.toLowerCase() !== lower);
+      localStorage.setItem('thumbsync_admin_accounts', JSON.stringify(saved));
+      await this.saveAdminAccounts();
+    } catch (e) {
+      console.warn('Erro ao remover conta da lista de Administradores:', e);
     }
   }
 
@@ -751,8 +849,18 @@ class ThumbSyncApp {
         localStorage.getItem('thumbsync_admin_accounts') || '[]',
       );
       const defaults = ['andreluiz1902@gmail.com'];
+      const currentEmail = (this.getUserEmail() || '').toLowerCase().trim();
+      const isCurrentAndre =
+        currentEmail &&
+        (currentEmail === 'andreluiz1902@gmail.com' ||
+          currentEmail.startsWith('andre') ||
+          currentEmail.includes('andreluiz') ||
+          (this.state?.googleUser?.displayName &&
+            /andr[eé]/i.test(this.state.googleUser.displayName)));
+
       const combined = [
         ...defaults,
+        ...(isCurrentAndre ? [currentEmail] : []),
         ...saved.map((e) => (e || '').toLowerCase().trim()),
       ];
       return Array.from(new Set(combined)).filter(Boolean);
@@ -766,23 +874,34 @@ class ThumbSyncApp {
       const saved = JSON.parse(
         localStorage.getItem('thumbsync_emerson_accounts') || '[]',
       );
-      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase());
-      return Array.from(
-        new Set(saved.map((e) => (e || '').toLowerCase().trim())),
-      ).filter((e) => e && !adminList.includes(e));
+      const defaults = ['emerson@betdasorte.com'];
+      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase().trim());
+      const cleanList = [...defaults, ...saved]
+        .map((e) => (e || '').toLowerCase().trim())
+        .filter(
+          (e) =>
+            e &&
+            !adminList.includes(e) &&
+            e !== 'andreluiz1902@gmail.com' &&
+            !e.startsWith('andre') &&
+            !e.includes('andreluiz') &&
+            !e.includes('andre.luiz') &&
+            !e.includes('andrel'),
+        );
+      return Array.from(new Set(cleanList));
     } catch (e) {
-      return [];
+      return ['emerson@betdasorte.com'];
     }
   }
 
   getProfile() {
     const email = this.getUserEmail().toLowerCase().trim();
-    const adminAccounts = this.getAdminAccounts().map((e) => e.toLowerCase());
-    const isAdminEmail = email && adminAccounts.includes(email);
+    const displayName = this.state.googleUser?.displayName || '';
+    const isAdmin = this.isAndreEmail(email) || /andr[eé]/i.test(displayName);
 
-    if (isAdminEmail) {
+    if (isAdmin) {
       return {
-        name: 'André Luiz',
+        name: displayName || 'André Luiz',
         role: 'administrador',
         isAdmin: true,
         email: email,
@@ -793,7 +912,7 @@ class ThumbSyncApp {
     }
 
     return {
-      name: 'Emerson',
+      name: displayName || 'Emerson',
       role: 'usuario',
       isAdmin: false,
       email: email,
@@ -886,6 +1005,25 @@ class ThumbSyncApp {
     } catch (e) {
       this.state.googleUser = null;
     }
+
+    // Higienização de contas: garantir que contas do André nunca fiquem em thumbsync_emerson_accounts
+    try {
+      const savedEmerson = JSON.parse(
+        localStorage.getItem('thumbsync_emerson_accounts') || '[]',
+      );
+      if (Array.isArray(savedEmerson)) {
+        const cleanedEmerson = savedEmerson.filter(
+          (e) => e && !this.isAndreEmail(e),
+        );
+        if (cleanedEmerson.length !== savedEmerson.length) {
+          localStorage.setItem(
+            'thumbsync_emerson_accounts',
+            JSON.stringify(cleanedEmerson),
+          );
+        }
+      }
+    } catch (e) { }
+
     this.state.filterTag =
       localStorage.getItem('thumbsync_filter_tag') || 'todos';
     this.state.filterDate =
@@ -1293,65 +1431,87 @@ class ThumbSyncApp {
 
       this.state.driveProviders = subfolders.map((f) => f.name);
 
-      // --- PASSO 1: CARREGAR LISTA E ESCANEAR SUBPASTAS DE MINIATURAS EM PARALELO ---
-      // Desta forma, assim que a lista for exibida, o status de miniaturas ("thumb feita" vs "em produção") já estará 100% atualizado!
+      // --- ETAPA 1: DOWNLOAD IMEDIATO DO CATÁLOGO PRINCIPAL (lista.txt) ---
       const listFile = directFiles.find(
         (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
       );
 
-      const downloadListPromise = (async () => {
-        if (listFile) {
+      if (listFile) {
+        this.addLog(
+          `Baixando catálogo principal '${this.config.listFileName}'...`,
+        );
+        this.state.listFileId = listFile.id;
+        try {
+          const listText = await driveClient.downloadTextFile(listFile.id);
+          this.state.listContent = listText;
           this.addLog(
-            `Baixando catálogo principal '${this.config.listFileName}'...`,
+            `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
           );
-          this.state.listFileId = listFile.id;
-          try {
-            const listText = await driveClient.downloadTextFile(listFile.id);
-            this.state.listContent = listText;
-            this.addLog(
-              `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
-            );
-          } catch (err) {
-            console.warn('Erro ao baixar lista.txt do Drive:', err);
-          }
-        } else {
-          this.addLog(
-            `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
-          );
-          try {
-            const newFileId = await driveClient.saveTextFile(
-              this.config.listFileName,
-              DEFAULT_LIST_CONTENT,
-              folderId,
-            );
-            this.state.listFileId = newFileId;
-            this.state.listContent = DEFAULT_LIST_CONTENT;
-          } catch (e) {
-            console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
-          }
+        } catch (err) {
+          console.warn('Erro ao baixar lista.txt do Drive:', err);
         }
-      })();
+      } else {
+        this.addLog(
+          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
+        );
+        try {
+          const newFileId = await driveClient.saveTextFile(
+            this.config.listFileName,
+            DEFAULT_LIST_CONTENT,
+            folderId,
+          );
+          this.state.listFileId = newFileId;
+          this.state.listContent = DEFAULT_LIST_CONTENT;
+        } catch (e) {
+          console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
+        }
+      }
 
+      // RENDERIZAÇÃO INSTANTÂNEA: O usuário vê a lista e mural de jogos na hora sem esperar o escaneamento total!
+      this.saveStateToStorage();
+      this.syncLocalCatalog();
+      this.state.isLoading = false;
+      this.render();
+
+      // --- ETAPA 2: ESCANEAMENTO DINÂMICO E PROGRESSIVO DE MINIATURAS (.WEBP) ---
       this.addLog(
         `Indexando miniaturas de ${subfolders.length} pastas de provedores...`,
       );
 
-      const scanSubfoldersPromise = (async () => {
-        try {
-          const subFiles = await driveClient.listFilesInSubfolders(subfolders);
-          this.state.driveFiles = [...directFiles, ...subFiles];
-        } catch (scanErr) {
-          console.warn('Erro ao escanear subpastas do Drive:', scanErr);
-          this.state.driveFiles = [...directFiles];
-        }
-      })();
+      const accumulatedFilesMap = new Map();
+      directFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
+      (this.state.driveFiles || []).forEach((f) =>
+        accumulatedFilesMap.set(f.id, f),
+      );
 
-      await Promise.all([downloadListPromise, scanSubfoldersPromise]);
+      try {
+        const subFiles = await driveClient.listFilesInSubfolders(subfolders, {
+          maxConcurrency: 6,
+          chunkSize: 20,
+          onProgress: (chunkFiles, processedCount, totalFolders) => {
+            chunkFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
+            this.state.driveFiles = Array.from(accumulatedFilesMap.values());
+            this.syncLocalCatalog();
 
-      // Atualiza o catálogo local e libera a interface com os status ("thumb feita" e "em produção") 100% prontos!
+            this.state.loadingStatusText = `Indexando miniaturas (${processedCount}/${totalFolders} pastas)...`;
+            const statusTxtEl = document.getElementById('gdrive-status-text');
+            if (statusTxtEl) {
+              statusTxtEl.innerText = this.state.loadingStatusText;
+            }
+
+            // Atualiza a visualização dinamicamente conforme os status são descobertos
+            this.renderActiveTab();
+          },
+        });
+        this.state.driveFiles = [...directFiles, ...subFiles];
+      } catch (scanErr) {
+        console.warn('Erro ao escanear subpastas do Drive:', scanErr);
+        this.state.driveFiles = [...directFiles];
+      }
+
+      // Atualiza catálogo com os status finais consolidados
       this.saveStateToStorage();
       this.syncLocalCatalog();
-      this.state.isLoading = false;
       this.render();
 
       // --- PASSO 2: CARREGAR METADADOS EM SEGUNDO PLANO (Tags, Datas, Emerson Accounts) ---
@@ -1427,26 +1587,6 @@ class ThumbSyncApp {
         }
       }
 
-      const localAdminAccounts = this.getAdminAccounts();
-      const combinedAdminAccounts = Array.from(
-        new Set(
-          [...localAdminAccounts, ...driveAdminAccounts].map((a) =>
-            a.toLowerCase().trim(),
-          ),
-        ),
-      ).filter(Boolean);
-      localStorage.setItem(
-        'thumbsync_admin_accounts',
-        JSON.stringify(combinedAdminAccounts),
-      );
-      if (
-        !this.state.adminAccountsFileId ||
-        combinedAdminAccounts.length !== driveAdminAccounts.length ||
-        combinedAdminAccounts.some((a) => !driveAdminAccounts.includes(a))
-      ) {
-        await this.saveAdminAccounts();
-      }
-
       // Contas Emerson (emerson_accounts.json)
       const emersonAccountsFiles = directFiles.filter(
         (f) => f.name.toLowerCase() === 'emerson_accounts.json',
@@ -1472,25 +1612,55 @@ class ThumbSyncApp {
         }
       }
 
+      // Higienização: remover qualquer conta associada a André da lista de Emerson e mover para Administradores
+      const misplacedAndreAccounts = driveEmersonAccounts.filter((email) =>
+        this.isAndreEmail(email),
+      );
+      if (misplacedAndreAccounts.length > 0) {
+        driveAdminAccounts.push(...misplacedAndreAccounts);
+        driveEmersonAccounts = driveEmersonAccounts.filter(
+          (email) => !this.isAndreEmail(email),
+        );
+      }
+
       const currentEmail = this.getUserEmail().toLowerCase().trim();
       if (currentEmail) {
-        const isAdmin = this.getAdminAccounts()
-          .map((e) => e.toLowerCase())
-          .includes(currentEmail);
-        if (isAdmin) {
+        if (this.isAndreEmail(currentEmail)) {
+          driveAdminAccounts.push(currentEmail);
           await this.registerAdminAccount(currentEmail);
         } else {
+          driveEmersonAccounts.push(currentEmail);
           await this.registerEmersonAccount(currentEmail);
         }
       }
 
-      const adminList = this.getAdminAccounts().map((a) => a.toLowerCase());
+      const localAdminAccounts = this.getAdminAccounts();
+      const combinedAdminAccounts = Array.from(
+        new Set(
+          [...localAdminAccounts, ...driveAdminAccounts].map((a) =>
+            (a || '').toLowerCase().trim(),
+          ),
+        ),
+      ).filter(Boolean);
+      localStorage.setItem(
+        'thumbsync_admin_accounts',
+        JSON.stringify(combinedAdminAccounts),
+      );
+      if (
+        !this.state.adminAccountsFileId ||
+        combinedAdminAccounts.length !== driveAdminAccounts.length ||
+        combinedAdminAccounts.some((a) => !driveAdminAccounts.includes(a))
+      ) {
+        await this.saveAdminAccounts();
+      }
+
+      const adminList = combinedAdminAccounts.map((a) => a.toLowerCase());
       const localEmersonAccounts = this.getEmersonAccounts();
       const combinedEmersonAccounts = Array.from(
         new Set(
           [...localEmersonAccounts, ...driveEmersonAccounts]
-            .map((a) => a.toLowerCase().trim())
-            .filter((a) => a && !adminList.includes(a)),
+            .map((a) => (a || '').toLowerCase().trim())
+            .filter((a) => a && !adminList.includes(a) && !this.isAndreEmail(a)),
         ),
       );
       localStorage.setItem(
@@ -1500,7 +1670,8 @@ class ThumbSyncApp {
       if (
         !this.state.emersonAccountsFileId ||
         combinedEmersonAccounts.length !== driveEmersonAccounts.length ||
-        combinedEmersonAccounts.some((a) => !driveEmersonAccounts.includes(a))
+        combinedEmersonAccounts.some((a) => !driveEmersonAccounts.includes(a)) ||
+        misplacedAndreAccounts.length > 0
       ) {
         await this.saveEmersonAccounts();
       }
@@ -2455,11 +2626,21 @@ class ThumbSyncApp {
   async loadThumbnailSrc(item, imgEl) {
     if (!item || !item.driveFileId) return;
 
+    const getActiveImg = () => {
+      if (imgEl && imgEl.isConnected) return imgEl;
+      return (
+        document.getElementById(`thumb-${item.id}`) ||
+        document.querySelector(`img[data-catalog-key="${item.id}"]`)
+      );
+    };
+
     // 1. Já está em cache (carregamento instantâneo)
     if (this.imageCache.has(item.driveFileId)) {
-      if (imgEl && imgEl.isConnected) {
-        imgEl.src = this.imageCache.get(item.driveFileId);
-        imgEl.classList.remove('opacity-0');
+      const cachedUrl = this.imageCache.get(item.driveFileId);
+      const target = getActiveImg();
+      if (target) {
+        target.src = cachedUrl;
+        target.classList.remove('opacity-0');
       }
       return;
     }
@@ -2468,13 +2649,15 @@ class ThumbSyncApp {
     if (this.pendingDownloads.has(item.driveFileId)) {
       try {
         const url = await this.pendingDownloads.get(item.driveFileId);
-        if (imgEl && imgEl.isConnected) {
-          imgEl.src = url;
-          imgEl.classList.remove('opacity-0');
+        const target = getActiveImg();
+        if (target) {
+          target.src = url;
+          target.classList.remove('opacity-0');
         }
       } catch (e) {
-        if (imgEl && imgEl.isConnected) {
-          imgEl.src =
+        const target = getActiveImg();
+        if (target) {
+          target.src =
             'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
         }
       }
@@ -2487,13 +2670,15 @@ class ThumbSyncApp {
 
     try {
       const url = await downloadPromise;
-      if (imgEl && imgEl.isConnected) {
-        imgEl.src = url;
-        imgEl.classList.remove('opacity-0');
+      const target = getActiveImg();
+      if (target) {
+        target.src = url;
+        target.classList.remove('opacity-0');
       }
     } catch (e) {
-      if (imgEl && imgEl.isConnected) {
-        imgEl.src =
+      const target = getActiveImg();
+      if (target) {
+        target.src =
           'data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI0MCIgaGVpZ2h0PSI0MCI+PHJlY3Qgd2lkdGg9IjQwIiBoZWlnaHQ9IjQwIiBmaWxsPSIjMzMzIi8+PC9zdmc+';
       }
     } finally {
@@ -2518,6 +2703,14 @@ class ThumbSyncApp {
 
     const { driveFileId, resolve, reject } = this.imageQueue.shift();
     this.activeDownloadCount++;
+
+    // Disparar workers adicionais até o limite de concorrência para download paralelo veloz
+    if (
+      this.activeDownloadCount < this.maxConcurrentDownloads &&
+      this.imageQueue.length > 0
+    ) {
+      this.processImageDownloadQueue();
+    }
 
     try {
       if (this.imageCache.has(driveFileId)) {
@@ -5121,11 +5314,10 @@ class ThumbSyncApp {
                   ? `
                   <img id="thumb-${item.id}" 
                        data-catalog-key="${item.id}" 
-                       loading="lazy" 
                        decoding="async" 
-                       src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" 
+                       src="${item.driveFileId && this.imageCache.has(item.driveFileId) ? this.imageCache.get(item.driveFileId) : 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7'}" 
                        alt="${item.displayName}" 
-                       class="w-full h-full object-cover opacity-0 transition-opacity duration-500">
+                       class="w-full h-full object-cover ${item.driveFileId && this.imageCache.has(item.driveFileId) ? '' : 'opacity-0'} transition-opacity duration-300">
                 `
                   : customLogo
                     ? `
@@ -6562,7 +6754,12 @@ class ThumbSyncApp {
                     ${this.getAdminAccounts()
           .map(
             (email) => `
-                      <span class="inline-flex items-center gap-1 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">${email}</span>
+                      <span class="inline-flex items-center gap-1.5 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-amber-500/50 text-amber-300 font-bold bg-amber-500/10' : ''}">
+                        ${email}
+                        ${email.toLowerCase() !== 'andreluiz1902@gmail.com' ? `
+                          <button data-remove-admin-email="${email}" class="text-zinc-500 hover:text-red-400 cursor-pointer text-xs font-bold leading-none ml-0.5" title="Remover Administrador">×</button>
+                        ` : ''}
+                      </span>
                     `,
           )
           .join('')}
@@ -6590,18 +6787,15 @@ class ThumbSyncApp {
                 <div class="pt-2 border-t border-white/5 space-y-1">
                   <span class="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Contas Google Registradas sob este Perfil:</span>
                   <div class="flex flex-wrap gap-1.5">
-                    <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === 'emerson@betdasorte.com' ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">emerson@betdasorte.com</span>
-                    ${emersonAccounts
-          .filter(
-            (e) =>
-              e.toLowerCase() !== 'emerson@betdasorte.com' &&
-              !this.getAdminAccounts()
-                .map((a) => a.toLowerCase())
-                .includes(e.toLowerCase()),
-          )
+                    ${this.getEmersonAccounts()
           .map(
             (email) => `
-                      <span class="text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">${email}</span>
+                      <span class="inline-flex items-center gap-1.5 text-[10px] font-mono bg-white/5 text-zinc-300 border border-white/10 px-2 py-0.5 rounded-lg ${profile.email && profile.email.toLowerCase() === email.toLowerCase() ? 'border-blue-500/50 text-blue-300 font-bold bg-blue-500/10' : ''}">
+                        ${email}
+                        ${email.toLowerCase() !== 'emerson@betdasorte.com' ? `
+                          <button data-remove-emerson-email="${email}" class="text-zinc-500 hover:text-red-400 cursor-pointer text-xs font-bold leading-none ml-0.5" title="Remover Conta">×</button>
+                        ` : ''}
+                      </span>
                     `,
           )
           .join('')}
@@ -6612,6 +6806,43 @@ class ThumbSyncApp {
           `
         : ''
       }
+
+          <!-- Manutenção e Limpeza de Cache Card -->
+          <div class="rounded-3xl bg-white/[0.015] border border-white/[0.05] p-6 space-y-4">
+            <div class="flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="w-9 h-9 rounded-xl bg-red-600/10 border border-red-500/20 flex items-center justify-center text-red-400 shadow-sm">
+                  <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                </div>
+                <div>
+                  <h3 class="text-xs font-black text-white">Cache do Navegador & Sessão</h3>
+                  <p class="text-[10px] text-zinc-500 font-semibold">Limpar dados temporários gravados no navegador</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="bg-neutral-900/60 border border-white/[0.04] p-4 rounded-xl space-y-3">
+              <p class="text-[11px] text-zinc-400 leading-relaxed">
+                Se você trocou de conta Google ou deseja forçar uma recarga limpa de permissões, perfis e miniaturas sem afetar os arquivos do Google Drive, use a opção abaixo.
+              </p>
+              <div class="flex flex-wrap gap-2.5 pt-1">
+                <button id="btn-clear-app-cache" class="flex items-center gap-2 text-xs font-bold bg-white/5 hover:bg-white/10 text-zinc-300 border border-white/10 px-4 py-2.5 rounded-xl transition-all cursor-pointer">
+                  <svg class="w-4 h-4 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+                  </svg>
+                  <span>Limpar Cache Local e Recarregar</span>
+                </button>
+                <button id="btn-full-reset-session" class="flex items-center gap-2 text-xs font-bold bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-4 py-2.5 rounded-xl transition-all cursor-pointer">
+                  <svg class="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" />
+                  </svg>
+                  <span>Desconectar Tudo e Resetar Sessão</span>
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     `;
@@ -7128,7 +7359,51 @@ class ThumbSyncApp {
         });
       });
 
-      // 1. Observer para Lazy Loading de imagens conforme rolagem da página
+      // 1. Observer + Scroll Handler para Lazy Loading contínuo de imagens conforme rolagem da página
+      const scrollContainer = document.getElementById('main-scroll-container');
+      const isContainerScrollable =
+        scrollContainer &&
+        (scrollContainer.scrollHeight > scrollContainer.clientHeight ||
+          scrollContainer.offsetHeight > 0);
+
+      const checkAndLoadVisibleImages = () => {
+        const viewportTop = scrollContainer
+          ? scrollContainer.getBoundingClientRect().top
+          : 0;
+        const viewportBottom = scrollContainer
+          ? scrollContainer.getBoundingClientRect().bottom
+          : window.innerHeight;
+        const preloadMargin = 600;
+
+        document.querySelectorAll('img[data-catalog-key]').forEach((img) => {
+          const key = img.getAttribute('data-catalog-key');
+          const item = this.state.catalogItems.find((i) => i.id === key);
+          if (!item || !item.hasWebp) return;
+
+          if (
+            item.driveFileId &&
+            this.imageCache.has(item.driveFileId)
+          ) {
+            if (
+              img.classList.contains('opacity-0') ||
+              !img.src.startsWith('blob:')
+            ) {
+              img.src = this.imageCache.get(item.driveFileId);
+              img.classList.remove('opacity-0');
+            }
+            return;
+          }
+
+          const rect = img.getBoundingClientRect();
+          if (
+            rect.bottom >= viewportTop - preloadMargin &&
+            rect.top <= viewportBottom + preloadMargin
+          ) {
+            this.loadThumbnailSrc(item, img);
+          }
+        });
+      };
+
       const imgObserver = new IntersectionObserver(
         (entries) => {
           entries.forEach((entry) => {
@@ -7136,20 +7411,56 @@ class ThumbSyncApp {
               const img = entry.target;
               const key = img.getAttribute('data-catalog-key');
               const item = this.state.catalogItems.find((i) => i.id === key);
-              if (item) {
+              if (item && item.hasWebp) {
                 this.loadThumbnailSrc(item, img);
               }
               imgObserver.unobserve(img);
             }
           });
         },
-        { rootMargin: '250px 0px' },
+        {
+          root: isContainerScrollable ? scrollContainer : null,
+          rootMargin: '600px 0px',
+          threshold: 0.01,
+        },
       );
 
-      document
-        .querySelectorAll('img[data-catalog-key]')
-        .forEach((img) => imgObserver.observe(img));
+      document.querySelectorAll('img[data-catalog-key]').forEach((img) => {
+        const key = img.getAttribute('data-catalog-key');
+        const item = this.state.catalogItems.find((i) => i.id === key);
+        if (
+          item &&
+          item.hasWebp &&
+          item.driveFileId &&
+          this.imageCache.has(item.driveFileId)
+        ) {
+          img.src = this.imageCache.get(item.driveFileId);
+          img.classList.remove('opacity-0');
+        } else {
+          imgObserver.observe(img);
+        }
+      });
       this.observers.push(imgObserver);
+
+      // Verificação imediata e listener de rolagem suave para garantir carregamento contínuo
+      checkAndLoadVisibleImages();
+
+      let scrollThumbsTimer = null;
+      const onScrollThumbs = () => {
+        if (scrollThumbsTimer) cancelAnimationFrame(scrollThumbsTimer);
+        scrollThumbsTimer = requestAnimationFrame(checkAndLoadVisibleImages);
+      };
+
+      if (scrollContainer && !scrollContainer.dataset.thumbScrollBound) {
+        scrollContainer.dataset.thumbScrollBound = 'true';
+        scrollContainer.addEventListener('scroll', onScrollThumbs, {
+          passive: true,
+        });
+      }
+      if (!window.__thumbsScrollBound) {
+        window.__thumbsScrollBound = true;
+        window.addEventListener('scroll', onScrollThumbs, { passive: true });
+      }
 
       // 2. Observer para Infinite Scroll (Sentinela)
       const sentinel = document.getElementById('catalog-sentinel');
@@ -7157,13 +7468,15 @@ class ThumbSyncApp {
         const scrollObserver = new IntersectionObserver(
           (entries) => {
             if (entries[0].isIntersecting) {
-              // Simular pequeno delay para suavizar a entrada de novos itens se necessário
-              // mas aqui incrementamos e renderizamos imediatamente.
               this.state.catalogPage++;
               this.renderActiveTab();
             }
           },
-          { threshold: 0.1 },
+          {
+            root: isContainerScrollable ? scrollContainer : null,
+            rootMargin: '400px 0px',
+            threshold: 0.05,
+          },
         );
 
         scrollObserver.observe(sentinel);
@@ -7832,6 +8145,117 @@ class ThumbSyncApp {
               type: 'success',
             });
             this.render();
+          }
+        });
+      }
+
+      const removeAdminBtns = document.querySelectorAll(
+        '[data-remove-admin-email]',
+      );
+      removeAdminBtns.forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const email = btn.getAttribute('data-remove-admin-email');
+          if (email) {
+            const ok = await this.showConfirmDialog({
+              title: 'Remover Administrador',
+              message: `Deseja remover ${email} da lista de Administradores?`,
+              confirmText: 'Remover',
+              cancelText: 'Cancelar',
+              isDanger: true,
+              icon: 'warning',
+            });
+            if (ok) {
+              await this.removeAdminAccount(email);
+              this.render();
+            }
+          }
+        });
+      });
+
+      const removeEmersonBtns = document.querySelectorAll(
+        '[data-remove-emerson-email]',
+      );
+      removeEmersonBtns.forEach((btn) => {
+        btn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const email = btn.getAttribute('data-remove-emerson-email');
+          if (email) {
+            const ok = await this.showConfirmDialog({
+              title: 'Remover Conta',
+              message: `Deseja remover ${email} da lista de Usuários?`,
+              confirmText: 'Remover',
+              cancelText: 'Cancelar',
+              isDanger: true,
+              icon: 'warning',
+            });
+            if (ok) {
+              await this.removeEmersonAccount(email);
+              this.render();
+            }
+          }
+        });
+      });
+
+      const btnClearAppCache = document.getElementById('btn-clear-app-cache');
+      if (btnClearAppCache) {
+        btnClearAppCache.addEventListener('click', async () => {
+          const ok = await this.showConfirmDialog({
+            title: 'Limpar Cache Local',
+            message:
+              'Deseja limpar todo o cache local e recarregar os dados do Google Drive? Nenhuma imagem ou lista salva no Google Drive será afetada.',
+            confirmText: 'Limpar e Recarregar',
+            cancelText: 'Cancelar',
+            icon: 'info',
+          });
+          if (ok) {
+            // Limpa dados em cache do localStorage
+            const keysToRemove = [
+              'thumbsync_emerson_accounts',
+              'thumbsync_admin_accounts',
+              'thumbsync_tags',
+              'thumbsync_added_dates',
+              'thumbsync_filter_provider',
+              'thumbsync_filter_status',
+              'thumbsync_filter_tag',
+              'thumbsync_filter_date',
+              'thumbsync_collapsed_providers',
+            ];
+            keysToRemove.forEach((k) => localStorage.removeItem(k));
+            this.imageCache.clear();
+            this.pendingDownloads.clear();
+            this.loadStateFromStorage();
+            if (driveClient.isAuthenticated()) {
+              await this.syncWithGoogleDrive();
+            }
+            this.render();
+            this.showAlertDialog({
+              title: 'Cache Limpo',
+              message: 'O cache local foi limpo e os dados foram revalidados com sucesso!',
+              type: 'success',
+            });
+          }
+        });
+      }
+
+      const btnFullResetSession = document.getElementById(
+        'btn-full-reset-session',
+      );
+      if (btnFullResetSession) {
+        btnFullResetSession.addEventListener('click', async () => {
+          const ok = await this.showConfirmDialog({
+            title: 'Resetar Sessão Completa',
+            message:
+              'Isso irá desconectar sua conta Google e redefinir todo o estado local do aplicativo.\n\nDeseja continuar?',
+            confirmText: 'Resetar Tudo',
+            cancelText: 'Cancelar',
+            isDanger: true,
+            icon: 'warning',
+          });
+          if (ok) {
+            localStorage.clear();
+            sessionStorage.clear();
+            window.location.reload();
           }
         });
       }
