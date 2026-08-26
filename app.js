@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.4
+ * Versão: Beta v1.1.6
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -173,20 +173,20 @@ export class DriveApiClient {
 
   /**
    * Lista arquivos de subpastas de provedores com pesquisa em lote (batching) e streaming progressivo.
-   * Agrupa as pastas em lotes de até 20 pastas por requisição, acelerando a varredura em até 90%.
+   * Otimizado para executar em milissegundos utilizando consulta global filtrada por pais.
    */
-  async listFilesInSubfolders(subfolders, optionsOrConcurrency = 6, onProgressLegacy = null) {
+  async listFilesInSubfolders(subfolders, optionsOrConcurrency = 12, onProgressLegacy = null) {
     if (!subfolders || subfolders.length === 0) return [];
 
-    let maxConcurrency = 6;
     let onProgress = null;
+    let maxConcurrency = 12;
     let chunkSize = 20;
 
     if (typeof optionsOrConcurrency === 'number') {
       maxConcurrency = optionsOrConcurrency;
       onProgress = onProgressLegacy;
     } else if (typeof optionsOrConcurrency === 'object' && optionsOrConcurrency !== null) {
-      maxConcurrency = optionsOrConcurrency.maxConcurrency || 6;
+      maxConcurrency = optionsOrConcurrency.maxConcurrency || 12;
       onProgress = optionsOrConcurrency.onProgress || null;
       chunkSize = optionsOrConcurrency.chunkSize || 20;
     }
@@ -195,6 +195,42 @@ export class DriveApiClient {
     subfolders.forEach((sf) => folderMap.set(sf.id, sf.name));
 
     const results = [];
+
+    // 1. Tentar busca global ultra-rápida no Drive (1 requisição HTTP para todas as miniaturas .webp)
+    try {
+      const q = `trashed = false and (mimeType = 'image/webp' or name contains '.webp')`;
+      const rawFiles = await this.queryFiles(
+        q,
+        'files(id,name,mimeType,size,modifiedTime,parents,thumbnailLink,webContentLink)',
+        1000,
+      );
+
+      if (rawFiles && rawFiles.length > 0) {
+        for (let j = 0; j < rawFiles.length; j++) {
+          const rf = rawFiles[j];
+          const parentId = rf.parents && rf.parents[0];
+          if (parentId && folderMap.has(parentId)) {
+            results.push({
+              ...rf,
+              providerName: folderMap.get(parentId),
+            });
+          }
+        }
+
+        if (results.length > 0) {
+          if (typeof onProgress === 'function') {
+            try {
+              onProgress(results, subfolders.length, subfolders.length);
+            } catch (e) { }
+          }
+          return results;
+        }
+      }
+    } catch (broadErr) {
+      console.warn('[DriveClient] Busca global otimizada falhou, usando lotes paralelos:', broadErr.message);
+    }
+
+    // 2. Fallback de alta concorrência por lotes de pastas (20 pastas por lote em paralelo)
     const chunks = [];
     for (let i = 0; i < subfolders.length; i += chunkSize) {
       chunks.push(subfolders.slice(i, i + chunkSize));
@@ -219,40 +255,28 @@ export class DriveApiClient {
           const providerName = parentId
             ? folderMap.get(parentId) || 'Sem provedor'
             : 'Sem provedor';
-          if (
-            rf.mimeType === 'image/webp' ||
-            (rf.name || '').toLowerCase().endsWith('.webp')
-          ) {
-            chunkFiles.push({
-              ...rf,
-              providerName,
-            });
-          }
+          chunkFiles.push({
+            ...rf,
+            providerName,
+          });
         }
       } catch (batchErr) {
-        console.warn(
-          'Busca em lote falhou, aplicando fallback pasta por pasta:',
-          batchErr.message,
+        // Fallback por pasta individual do lote em paralelo (sem bloquear sequencialmente)
+        await Promise.all(
+          chunk.map(async (sf) => {
+            try {
+              const sfFiles = await this.listFilesInFolder(sf.id);
+              sfFiles.forEach((f) => {
+                if (
+                  f.mimeType === 'image/webp' ||
+                  (f.name || '').toLowerCase().endsWith('.webp')
+                ) {
+                  chunkFiles.push({ ...f, providerName: sf.name });
+                }
+              });
+            } catch (e) { }
+          }),
         );
-        for (const subfolder of chunk) {
-          try {
-            const subFiles = await this.listFilesInFolder(subfolder.id);
-            for (let k = 0; k < subFiles.length; k++) {
-              const sf = subFiles[k];
-              if (
-                sf.mimeType === 'image/webp' ||
-                (sf.name || '').toLowerCase().endsWith('.webp')
-              ) {
-                chunkFiles.push({
-                  ...sf,
-                  providerName: subfolder.name,
-                });
-              }
-            }
-          } catch (e) {
-            console.warn(`Erro ao ler pasta '${subfolder.name}':`, e.message);
-          }
-        }
       }
 
       results.push(...chunkFiles);
@@ -261,9 +285,7 @@ export class DriveApiClient {
       if (typeof onProgress === 'function') {
         try {
           onProgress(chunkFiles, processedFoldersCount, subfolders.length);
-        } catch (progErr) {
-          console.warn('Erro no callback onProgress:', progErr);
-        }
+        } catch (progErr) { }
       }
     };
 
@@ -1359,6 +1381,58 @@ class ThumbSyncApp {
   }
 
   /**
+   * Obtém informações do perfil do usuário do Google autenticado.
+   */
+  async fetchGoogleUserInfo() {
+    if (!driveClient.isAuthenticated()) return null;
+    let user = null;
+
+    try {
+      const aboutRes = await driveClient.fetchWithAuth(
+        'https://www.googleapis.com/drive/v3/about?fields=user(displayName,emailAddress,photoLink,permissionId)',
+      );
+      if (aboutRes.ok) {
+        const aboutData = await aboutRes.json();
+        if (aboutData && aboutData.user) {
+          user = aboutData.user;
+        }
+      }
+    } catch (e) {
+      console.warn('Erro ao consultar about?fields=user:', e.message);
+    }
+
+    if (!user || !user.emailAddress) {
+      try {
+        const infoRes = await driveClient.fetchWithAuth(
+          'https://www.googleapis.com/oauth2/v3/userinfo',
+        );
+        if (infoRes.ok) {
+          const infoData = await infoRes.json();
+          if (infoData && (infoData.email || infoData.name)) {
+            user = {
+              displayName: infoData.name || user?.displayName || '',
+              emailAddress: infoData.email || user?.emailAddress || '',
+              photoLink: infoData.picture || user?.photoLink || '',
+            };
+          }
+        }
+      } catch (e) {
+        // Fallback silencioso
+      }
+    }
+
+    if (user) {
+      this.state.googleUser = user;
+      if (user.emailAddress) {
+        localStorage.setItem('thumbsync_user_email', user.emailAddress);
+      }
+      localStorage.setItem('thumbsync_google_user', JSON.stringify(user));
+      this.addLog(`Perfil reconhecido: ${user.displayName || user.emailAddress}`);
+    }
+    return user;
+  }
+
+  /**
    * Sincroniza listas e miniaturas com o Google Drive baseado nas configurações do usuário.
    */
   async syncWithGoogleDrive() {
@@ -1372,50 +1446,32 @@ class ThumbSyncApp {
       return;
     }
 
+    if (this._isSyncingDrive) return;
+    this._isSyncingDrive = true;
+
     this.state.isLoading = true;
     this.state.activeDatabase = 'Google Drive';
+    this.state.loadingStatusText = 'Sincronizando...';
     this.addLog(`Sincronizando com o seu Google Drive...`);
+
+    // RENDERIZAÇÃO INSTANTÂNEA 0: Exibe imediatamente os dados locais/em cache
+    this.syncLocalCatalog();
     this.render();
 
     try {
-      // Tentar obter informações do perfil logado via API do Drive
-      try {
-        const aboutRes = await driveClient.fetchWithAuth(
-          'https://www.googleapis.com/drive/v3/about?fields=user',
-        );
-        if (aboutRes.ok) {
-          const aboutData = await aboutRes.json();
-          if (aboutData.user) {
-            this.state.googleUser = aboutData.user;
-            if (aboutData.user.emailAddress) {
-              localStorage.setItem(
-                'thumbsync_user_email',
-                aboutData.user.emailAddress,
-              );
-            }
-            localStorage.setItem(
-              'thumbsync_google_user',
-              JSON.stringify(aboutData.user),
-            );
-            this.addLog(
-              `Perfil reconhecido: ${aboutData.user.displayName || aboutData.user.emailAddress}`,
-            );
-          }
-        }
-      } catch (userErr) {
-        console.warn(
-          '[ThumbSync] Não foi possível verificar o perfil do usuário Google:',
-          userErr.message,
-        );
+      // 1. EXECUÇÃO PARALELA: Obter perfil do usuário E localizar pasta raiz do Drive
+      const userPromise = this.fetchGoogleUserInfo().catch((e) => {
+        console.warn('Aviso ao carregar perfil do usuário:', e);
+        return null;
+      });
+
+      let folderId = this.state.thumbsFolderId;
+      if (!folderId) {
+        folderId = await driveClient.findOrCreateFolder(this.config.folderName);
+        this.state.thumbsFolderId = folderId;
       }
 
-      this.addLog(`Buscando pasta '${this.config.folderName}' no Drive...`);
-      const folderId = await driveClient.findOrCreateFolder(
-        this.config.folderName,
-      );
-      this.state.thumbsFolderId = folderId;
-
-      this.addLog('Escaneando arquivos da pasta raiz do Drive...');
+      // 2. LISTAR ARQUIVOS DA PASTA RAIZ (1 requisição)
       const files = await driveClient.listFilesInFolder(folderId);
 
       const directFiles = [];
@@ -1431,188 +1487,69 @@ class ThumbSyncApp {
 
       this.state.driveProviders = subfolders.map((f) => f.name);
 
-      // --- ETAPA 1: DOWNLOAD IMEDIATO DO CATÁLOGO PRINCIPAL (lista.txt) ---
+      // 3. IDENTIFICAR ARQUIVOS CHAVE NA PASTA RAIZ
       const listFile = directFiles.find(
         (f) => f.name.toLowerCase() === this.config.listFileName.toLowerCase(),
       );
-
-      if (listFile) {
-        this.addLog(
-          `Baixando catálogo principal '${this.config.listFileName}'...`,
-        );
-        this.state.listFileId = listFile.id;
-        try {
-          const listText = await driveClient.downloadTextFile(listFile.id);
-          this.state.listContent = listText;
-          this.addLog(
-            `Arquivo '${this.config.listFileName}' lido com sucesso (${listText.split('\n').length} linhas).`,
-          );
-        } catch (err) {
-          console.warn('Erro ao baixar lista.txt do Drive:', err);
-        }
-      } else {
-        this.addLog(
-          `Aviso: Arquivo '${this.config.listFileName}' não localizado na pasta raiz. Criando modelo...`,
-        );
-        try {
-          const newFileId = await driveClient.saveTextFile(
-            this.config.listFileName,
-            DEFAULT_LIST_CONTENT,
-            folderId,
-          );
-          this.state.listFileId = newFileId;
-          this.state.listContent = DEFAULT_LIST_CONTENT;
-        } catch (e) {
-          console.warn('Erro ao criar arquivo lista.txt no Drive:', e);
-        }
-      }
-
-      // RENDERIZAÇÃO INSTANTÂNEA: O usuário vê a lista e mural de jogos na hora sem esperar o escaneamento total!
-      this.saveStateToStorage();
-      this.syncLocalCatalog();
-      this.state.isLoading = false;
-      this.render();
-
-      // --- ETAPA 2: ESCANEAMENTO DINÂMICO E PROGRESSIVO DE MINIATURAS (.WEBP) ---
-      this.addLog(
-        `Indexando miniaturas de ${subfolders.length} pastas de provedores...`,
+      const adminAccountsFile = directFiles.find(
+        (f) => f.name.toLowerCase() === 'admin_accounts.json',
       );
-
-      const accumulatedFilesMap = new Map();
-      directFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
-      (this.state.driveFiles || []).forEach((f) =>
-        accumulatedFilesMap.set(f.id, f),
+      const emersonAccountsFile = directFiles.find(
+        (f) => f.name.toLowerCase() === 'emerson_accounts.json',
       );
-
-      try {
-        const subFiles = await driveClient.listFilesInSubfolders(subfolders, {
-          maxConcurrency: 6,
-          chunkSize: 20,
-          onProgress: (chunkFiles, processedCount, totalFolders) => {
-            chunkFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
-            this.state.driveFiles = Array.from(accumulatedFilesMap.values());
-            this.syncLocalCatalog();
-
-            this.state.loadingStatusText = `Indexando miniaturas (${processedCount}/${totalFolders} pastas)...`;
-            const statusTxtEl = document.getElementById('gdrive-status-text');
-            if (statusTxtEl) {
-              statusTxtEl.innerText = this.state.loadingStatusText;
-            }
-
-            // Atualiza a visualização dinamicamente conforme os status são descobertos
-            this.renderActiveTab();
-          },
-        });
-        this.state.driveFiles = [...directFiles, ...subFiles];
-      } catch (scanErr) {
-        console.warn('Erro ao escanear subpastas do Drive:', scanErr);
-        this.state.driveFiles = [...directFiles];
-      }
-
-      // Atualiza catálogo com os status finais consolidados
-      this.saveStateToStorage();
-      this.syncLocalCatalog();
-      this.render();
-
-      // --- PASSO 2: CARREGAR METADADOS EM SEGUNDO PLANO (Tags, Datas, Emerson Accounts) ---
-      // Tags Personalizadas (tags.json)
       const tagsFile = directFiles.find(
         (f) => f.name.toLowerCase() === this.config.tagsFileName.toLowerCase(),
       );
-      if (tagsFile) {
-        this.state.tagsFileId = tagsFile.id;
-        try {
-          const tagsText = await driveClient.downloadTextFile(tagsFile.id);
-          const parsedTags = this.safeJsonParse(tagsText, null);
-          if (parsedTags && typeof parsedTags === 'object') {
-            this.state.customTags = parsedTags;
-          }
-        } catch (e) {
-          this.addLog('Aviso: Falha ao processar arquivo de tags do Drive.');
-        }
-      }
-
-      // Datas de Adição (added_dates.json)
-      const datesFiles = directFiles.filter(
+      const datesFile = directFiles.find(
         (f) =>
           f.name.toLowerCase() === this.config.addedDatesFileName.toLowerCase(),
       );
-      if (datesFiles.length > 0) {
-        datesFiles.sort(
-          (a, b) =>
-            new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0),
-        );
-        this.state.datesFileId = datesFiles[0].id;
 
-        for (const dFile of datesFiles) {
-          try {
-            const datesText = await driveClient.downloadTextFile(dFile.id);
-            const driveDates = this.safeJsonParse(datesText, null);
-            if (typeof driveDates === 'object' && driveDates !== null) {
-              this.state.itemAddedDates = {
-                ...driveDates,
-                ...this.state.itemAddedDates,
-              };
-            }
-          } catch (e) {
-            console.warn('Aviso ao ler added_dates.json do Drive:', e);
-          }
-        }
-      }
+      if (listFile) this.state.listFileId = listFile.id;
+      if (adminAccountsFile) this.state.adminAccountsFileId = adminAccountsFile.id;
+      if (emersonAccountsFile) this.state.emersonAccountsFileId = emersonAccountsFile.id;
+      if (tagsFile) this.state.tagsFileId = tagsFile.id;
+      if (datesFile) this.state.datesFileId = datesFile.id;
 
-      this.ensureSeedDates();
+      // 4. DOWNLOAD EM PARALELO DE TODOS OS METADADOS E DA LISTA (CONCORRÊNCIA MÁXIMA)
+      const [listResult, adminResult, emersonResult, tagsResult, datesResult] =
+        await Promise.allSettled([
+          listFile
+            ? driveClient.downloadTextFile(listFile.id)
+            : Promise.resolve(null),
+          adminAccountsFile
+            ? driveClient.downloadTextFile(adminAccountsFile.id)
+            : Promise.resolve(null),
+          emersonAccountsFile
+            ? driveClient.downloadTextFile(emersonAccountsFile.id)
+            : Promise.resolve(null),
+          tagsFile
+            ? driveClient.downloadTextFile(tagsFile.id)
+            : Promise.resolve(null),
+          datesFile
+            ? driveClient.downloadTextFile(datesFile.id)
+            : Promise.resolve(null),
+        ]);
 
-      // Contas Administrador (admin_accounts.json)
-      const adminAccountsFiles = directFiles.filter(
-        (f) => f.name.toLowerCase() === 'admin_accounts.json',
-      );
+      // Processar Contas de Administrador
       let driveAdminAccounts = [];
-      if (adminAccountsFiles.length > 0) {
-        adminAccountsFiles.sort(
-          (a, b) =>
-            new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0),
-        );
-        this.state.adminAccountsFileId = adminAccountsFiles[0].id;
-
-        for (const aFile of adminAccountsFiles) {
-          try {
-            const content = await driveClient.downloadTextFile(aFile.id);
-            const parsed = this.safeJsonParse(content, []);
-            if (Array.isArray(parsed)) {
-              driveAdminAccounts.push(...parsed);
-            }
-          } catch (e) {
-            console.warn('Aviso ao ler admin_accounts.json do Drive:', e);
-          }
+      if (adminResult.status === 'fulfilled' && adminResult.value) {
+        const parsed = this.safeJsonParse(adminResult.value, []);
+        if (Array.isArray(parsed)) {
+          driveAdminAccounts = parsed;
         }
       }
 
-      // Contas Emerson (emerson_accounts.json)
-      const emersonAccountsFiles = directFiles.filter(
-        (f) => f.name.toLowerCase() === 'emerson_accounts.json',
-      );
+      // Processar Contas de Emerson
       let driveEmersonAccounts = [];
-      if (emersonAccountsFiles.length > 0) {
-        emersonAccountsFiles.sort(
-          (a, b) =>
-            new Date(b.modifiedTime || 0) - new Date(a.modifiedTime || 0),
-        );
-        this.state.emersonAccountsFileId = emersonAccountsFiles[0].id;
-
-        for (const eFile of emersonAccountsFiles) {
-          try {
-            const content = await driveClient.downloadTextFile(eFile.id);
-            const parsed = this.safeJsonParse(content, []);
-            if (Array.isArray(parsed)) {
-              driveEmersonAccounts.push(...parsed);
-            }
-          } catch (e) {
-            console.warn('Aviso ao ler emerson_accounts.json do Drive:', e);
-          }
+      if (emersonResult.status === 'fulfilled' && emersonResult.value) {
+        const parsed = this.safeJsonParse(emersonResult.value, []);
+        if (Array.isArray(parsed)) {
+          driveEmersonAccounts = parsed;
         }
       }
 
-      // Higienização: remover qualquer conta associada a André da lista de Emerson e mover para Administradores
+      // Higienizar permissões
       const misplacedAndreAccounts = driveEmersonAccounts.filter((email) =>
         this.isAndreEmail(email),
       );
@@ -1627,10 +1564,8 @@ class ThumbSyncApp {
       if (currentEmail) {
         if (this.isAndreEmail(currentEmail)) {
           driveAdminAccounts.push(currentEmail);
-          await this.registerAdminAccount(currentEmail);
         } else {
           driveEmersonAccounts.push(currentEmail);
-          await this.registerEmersonAccount(currentEmail);
         }
       }
 
@@ -1646,13 +1581,6 @@ class ThumbSyncApp {
         'thumbsync_admin_accounts',
         JSON.stringify(combinedAdminAccounts),
       );
-      if (
-        !this.state.adminAccountsFileId ||
-        combinedAdminAccounts.length !== driveAdminAccounts.length ||
-        combinedAdminAccounts.some((a) => !driveAdminAccounts.includes(a))
-      ) {
-        await this.saveAdminAccounts();
-      }
 
       const adminList = combinedAdminAccounts.map((a) => a.toLowerCase());
       const localEmersonAccounts = this.getEmersonAccounts();
@@ -1667,15 +1595,78 @@ class ThumbSyncApp {
         'thumbsync_emerson_accounts',
         JSON.stringify(combinedEmersonAccounts),
       );
-      if (
-        !this.state.emersonAccountsFileId ||
-        combinedEmersonAccounts.length !== driveEmersonAccounts.length ||
-        combinedEmersonAccounts.some((a) => !driveEmersonAccounts.includes(a)) ||
-        misplacedAndreAccounts.length > 0
-      ) {
-        await this.saveEmersonAccounts();
+
+      // Processar Tags
+      if (tagsResult.status === 'fulfilled' && tagsResult.value) {
+        const parsedTags = this.safeJsonParse(tagsResult.value, null);
+        if (parsedTags && typeof parsedTags === 'object') {
+          this.state.customTags = parsedTags;
+        }
       }
 
+      // Processar Datas
+      if (datesResult.status === 'fulfilled' && datesResult.value) {
+        const driveDates = this.safeJsonParse(datesResult.value, null);
+        if (typeof driveDates === 'object' && driveDates !== null) {
+          this.state.itemAddedDates = {
+            ...driveDates,
+            ...this.state.itemAddedDates,
+          };
+        }
+      }
+      this.ensureSeedDates();
+
+      // Processar Conteúdo da Lista
+      if (listResult.status === 'fulfilled' && listResult.value) {
+        this.state.listContent = listResult.value;
+      } else if (!listFile) {
+        try {
+          const newFileId = await driveClient.saveTextFile(
+            this.config.listFileName,
+            DEFAULT_LIST_CONTENT,
+            folderId,
+          );
+          this.state.listFileId = newFileId;
+          this.state.listContent = DEFAULT_LIST_CONTENT;
+        } catch (e) {
+          console.warn('Erro ao criar arquivo lista.txt:', e);
+        }
+      }
+
+      // Aguardar userPromise se ainda estiver executando
+      await userPromise;
+
+      // RENDERIZAÇÃO INSTANTÂNEA 1: O Usuário, o Papel e a Lista já estão 100% carregados e refletidos!
+      this.saveStateToStorage();
+      this.syncLocalCatalog();
+      this.state.isLoading = false;
+      this.render();
+
+      // 5. ESCANEAMENTO ULTRA-RÁPIDO DAS MINIATURAS .WEBP (ESTADO: FEITO / NÃO FEITO)
+      const accumulatedFilesMap = new Map();
+      directFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
+      (this.state.driveFiles || []).forEach((f) =>
+        accumulatedFilesMap.set(f.id, f),
+      );
+
+      try {
+        const subFiles = await driveClient.listFilesInSubfolders(subfolders, {
+          maxConcurrency: 12,
+          chunkSize: 20,
+          onProgress: (chunkFiles, processedCount, totalFolders) => {
+            chunkFiles.forEach((f) => accumulatedFilesMap.set(f.id, f));
+            this.state.driveFiles = Array.from(accumulatedFilesMap.values());
+            this.syncLocalCatalog();
+            this.renderActiveTab();
+          },
+        });
+        this.state.driveFiles = [...directFiles, ...subFiles];
+      } catch (scanErr) {
+        console.warn('Erro ao escanear subpastas do Drive:', scanErr);
+        this.state.driveFiles = [...directFiles];
+      }
+
+      // RENDERIZAÇÃO 2: Catálogo e status de feito/não feito 100% atualizados
       this.saveStateToStorage();
       this.syncLocalCatalog();
       this.render();
@@ -1683,6 +1674,7 @@ class ThumbSyncApp {
       this.addLog(`Erro ao sincronizar com o Drive: ${e.message}`);
       this.syncLocalCatalog();
     } finally {
+      this._isSyncingDrive = false;
       this.state.isLoading = false;
       this.render();
     }
@@ -4532,19 +4524,16 @@ class ThumbSyncApp {
                 </svg>
               `,
       )}
-              ${this.isAdmin()
-        ? this.renderNavItem(
-          'settings',
-          'Configurações',
-          `
+              ${this.renderNavItem(
+        'settings',
+        'Configurações',
+        `
                 <svg class="w-4 h-4 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                   <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
                   <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0" />
                 </svg>
               `,
-        )
-        : ''
-      }
+      )}
             </nav>
 
             <!-- Previsão de Conclusão / Barra de Progresso Widget -->
@@ -4794,18 +4783,15 @@ class ThumbSyncApp {
               </svg>
             `,
       )}
-            ${this.isAdmin()
-        ? this.renderMobileNavItem(
-          'settings',
-          'Ajustes',
-          `
+            ${this.renderMobileNavItem(
+        'settings',
+        'Ajustes',
+        `
               <svg class="w-5 h-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                 <path stroke-linecap="round" stroke-linejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
               </svg>
             `,
-        )
-        : ''
-      }
+      )}
           </nav>
         </main>
       </div>
