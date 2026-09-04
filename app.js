@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.4
+ * Versão: Beta v1.1.5
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -1934,6 +1934,13 @@ class ThumbSyncApp {
       .toLowerCase();
   }
 
+  isForbiddenProviderName(val) {
+    if (!val) return false;
+    const normalized = this.normalizeName(val);
+    // Proíbe expressamente "Ao Vivo", "aovivo" e variações no nome de provedores
+    return /\b(ao\s*vivo|aovivo)\b/i.test(normalized) || normalized.includes('ao vivo') || normalized.includes('aovivo');
+  }
+
   getGameSearchUrl(gameOrItem) {
     if (!gameOrItem) return 'https://www.google.com/imghp';
     const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
@@ -2158,6 +2165,76 @@ class ThumbSyncApp {
     return tmp[a.length][b.length];
   }
 
+  getEasterDate(year) {
+    const a = year % 19;
+    const b = Math.floor(year / 100);
+    const c = year % 100;
+    const d = Math.floor(b / 4);
+    const e = b % 4;
+    const f = Math.floor((b + 8) / 25);
+    const g = Math.floor((b - f + 1) / 3);
+    const h = (19 * a + b - d - g + 15) % 30;
+    const i = Math.floor(c / 4);
+    const k = c % 4;
+    const l = (32 + 2 * e + 2 * i - h - k) % 7;
+    const m = Math.floor((a + 11 * h + 22 * l) / 451);
+    const month = Math.floor((h + l - 7 * m + 114) / 31) - 1; // 0-indexed
+    const day = ((h + l - 7 * m + 114) % 31) + 1;
+    return new Date(year, month, day);
+  }
+
+  isHolidayOrNonWorkingDay(date) {
+    const d = date.getDate();
+    const m = date.getMonth() + 1; // 1 to 12
+    const y = date.getFullYear();
+
+    // 1. Feriados Fixos (Nacionais, Pernambuco e Recife)
+    const fixedHolidays = [
+      { day: 1, month: 1, name: 'Confraternização Universal' },
+      { day: 6, month: 3, name: 'Data Magna de Pernambuco' },
+      { day: 21, month: 4, name: 'Tiradentes' },
+      { day: 1, month: 5, name: 'Dia do Trabalho' },
+      { day: 24, month: 6, name: 'São João' },
+      { day: 16, month: 7, name: 'Nossa Senhora do Carmo (Padroeira do Recife)' },
+      { day: 7, month: 9, name: 'Independência do Brasil' },
+      { day: 12, month: 10, name: 'Nossa Senhora Aparecida' },
+      { day: 2, month: 11, name: 'Finados' },
+      { day: 15, month: 11, name: 'Proclamação da República' },
+      { day: 20, month: 11, name: 'Dia Nacional da Consciência Negra' },
+      { day: 8, month: 12, name: 'Nossa Senhora da Conceição' },
+      { day: 25, month: 12, name: 'Natal' },
+    ];
+
+    for (const h of fixedHolidays) {
+      if (h.day === d && h.month === m) {
+        return h;
+      }
+    }
+
+    // 2. Feriados e datas comemorativas móveis (baseados na Páscoa)
+    const easter = this.getEasterDate(y);
+    const mobileHolidays = [
+      { offset: -48, name: 'Segunda-feira de Carnaval' },
+      { offset: -47, name: 'Terça-feira de Carnaval' },
+      { offset: -46, name: 'Quarta-feira de Cinzas' },
+      { offset: -2, name: 'Sexta-feira da Paixão' },
+      { offset: 60, name: 'Corpus Christi' },
+    ];
+
+    for (const mob of mobileHolidays) {
+      const targetDate = new Date(easter.getFullYear(), easter.getMonth(), easter.getDate() + mob.offset);
+      if (
+        targetDate.getDate() === d &&
+        targetDate.getMonth() + 1 === m &&
+        targetDate.getFullYear() === y
+      ) {
+        return mob;
+      }
+    }
+
+    return null;
+  }
+
   calculateCompletionEstimate(pendingCount) {
     if (pendingCount <= 0) {
       return { dateStr: 'Tudo em dia!' };
@@ -2176,8 +2253,10 @@ class ThumbSyncApp {
       iterations++;
       const dayOfWeek = currentDate.getDay(); // 0 = Sunday, 1 = Monday, ..., 6 = Saturday
       const isWeekend = dayOfWeek === 0 || dayOfWeek === 6;
+      const holiday = this.isHolidayOrNonWorkingDay(currentDate);
+      const isWorkday = !isWeekend && !holiday;
 
-      if (!isWeekend) {
+      if (isWorkday) {
         let capacityToday = maxGamesPerDay;
 
         // If today is a workday and we are on the first day, adjust based on current time
@@ -2208,10 +2287,10 @@ class ThumbSyncApp {
             const fractionNeeded = tempPending / capacityToday;
             const hoursTodayLeft =
               iterations === 1 &&
-                currentDate.getHours() + currentDate.getMinutes() / 60 >
+              currentDate.getHours() + currentDate.getMinutes() / 60 >
                 workStartHour
                 ? workEndHour -
-                (currentDate.getHours() + currentDate.getMinutes() / 60)
+                  (currentDate.getHours() + currentDate.getMinutes() / 60)
                 : workDuration;
 
             const hoursNeeded = fractionNeeded * hoursTodayLeft;
@@ -2290,6 +2369,17 @@ class ThumbSyncApp {
    */
   async handleImportCSV(providerName, file) {
     if (!file) return;
+
+    if (this.isForbiddenProviderName(providerName)) {
+      this.showAlertDialog({
+        title: 'Provedor Inválido',
+        message: 'Não é permitido usar "Ao Vivo" no nome do provedor. "Ao Vivo" é uma categoria de jogo, não um provedor.',
+        type: 'warning',
+      });
+      this.state.isImportingCSV = false;
+      this.render();
+      return;
+    }
 
     try {
       const text = await file.text();
@@ -3115,9 +3205,21 @@ class ThumbSyncApp {
     const validGames = gameNames.map((g) => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
 
+    const cleanProviderName = providerName.replace(/!/g, '').trim();
+    if (this.isForbiddenProviderName(cleanProviderName)) {
+      this.showAlertDialog({
+        title: 'Provedor Inválido',
+        message: 'Não é permitido usar "Ao Vivo" no nome do provedor. "Ao Vivo" é uma categoria de jogo, não um provedor.',
+        type: 'warning',
+      });
+      this.addLog(
+        `Operação cancelada: '${cleanProviderName}' contém 'Ao Vivo' e não pode ser usado como provedor.`,
+      );
+      return;
+    }
+
     await this.fetchLatestListContent();
 
-    const cleanProviderName = providerName.replace(/!/g, '').trim();
     const normProvider = this.normalizeName(cleanProviderName);
     const existingItems = [];
 
@@ -3964,6 +4066,14 @@ class ThumbSyncApp {
    */
   async handleImportCSV(providerName, file) {
     if (!file || !providerName) return;
+    if (this.isForbiddenProviderName(providerName)) {
+      this.showAlertDialog({
+        title: 'Provedor Inválido',
+        message: 'Não é permitido usar "Ao Vivo" no nome do provedor. "Ao Vivo" é uma categoria de jogo, não um provedor.',
+        type: 'warning',
+      });
+      return;
+    }
     try {
       const text = await file.text();
       const lines = text.split(/\r?\n/);
@@ -4369,9 +4479,6 @@ class ThumbSyncApp {
                 <span class="text-xs font-bold text-white block leading-tight">
                   ${estimatedCompletion.dateStr}
                 </span>
-                <p class="text-[9px] text-zinc-500 leading-normal mt-0.5">
-                  De segunda a sexta-feira.
-                </p>
               </div>
             </div>
 
@@ -5452,7 +5559,9 @@ class ThumbSyncApp {
       modalProvidersSet.add('Pragmatic Play');
     }
 
-    const modalProvidersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b));
+    const modalProvidersList = Array.from(modalProvidersSet)
+      .filter((p) => !this.isForbiddenProviderName(p))
+      .sort((a, b) => a.localeCompare(b));
 
     // Calcular KPIs globais para a barra de métricas e filtros rápidos
     let totalGamesCount = 0;
@@ -5812,12 +5921,19 @@ class ThumbSyncApp {
       <!-- Add Provider Modal -->
       <div id="add-provider-dialog" class="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center hidden">
         <div class="w-[90%] max-w-sm bg-[#131316] border border-white/[0.08] p-6 rounded-3xl shadow-2xl flex flex-col">
-          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none">Novo Provedor</h3>
+          <h3 class="text-sm font-black text-white uppercase tracking-wider mb-2 leading-none font-sans">Novo Provedor</h3>
           <p class="text-[10px] text-zinc-500 mb-4 leading-normal">Insira o nome do Provedor para criar uma nova seção no seu arquivo lista.txt.</p>
           
-          <input type="text" id="new-provider-name" placeholder="Ex: PG Soft, Pragmatic Play" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500 mb-5">
+          <input type="text" id="new-provider-name" placeholder="Ex: PG Soft, Pragmatic Play" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-blue-500 mb-2">
           
-          <div class="flex items-center gap-3">
+          <div id="new-provider-error" class="hidden text-[10px] text-red-400 font-semibold mb-3 flex items-center gap-1.5 bg-red-500/10 border border-red-500/20 p-2.5 rounded-xl leading-tight">
+            <svg class="w-4 h-4 shrink-0 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+            <span>"Ao Vivo" é uma categoria de jogo, não um provedor. Proibido no nome.</span>
+          </div>
+
+          <div class="flex items-center gap-3 mt-2">
             <button id="dialog-add-provider-cancel" class="flex-1 py-2 px-4 rounded-xl bg-white/5 border border-white/5 text-zinc-300 font-semibold text-xs hover:bg-white/10 cursor-pointer">Cancelar</button>
             <button id="dialog-add-provider-confirm" class="flex-1 py-2 px-4 rounded-xl bg-blue-600 text-white font-semibold text-xs hover:bg-blue-700 cursor-pointer">Criar Seção</button>
           </div>
@@ -7474,9 +7590,41 @@ class ThumbSyncApp {
 
       const btnAddProvider = document.getElementById('btn-add-provider');
       const providerDialog = document.getElementById('add-provider-dialog');
+      const inputNewProv = document.getElementById('new-provider-name');
+      const errorNewProv = document.getElementById('new-provider-error');
+      const btnCreateProvider = document.getElementById(
+        'dialog-add-provider-confirm',
+      );
+
       if (btnAddProvider && providerDialog) {
         btnAddProvider.addEventListener('click', () => {
           providerDialog.classList.remove('hidden');
+          if (inputNewProv) {
+            inputNewProv.value = '';
+            inputNewProv.classList.remove('border-red-500');
+            inputNewProv.classList.add('focus:border-blue-500');
+            setTimeout(() => inputNewProv.focus(), 50);
+          }
+          if (errorNewProv) errorNewProv.classList.add('hidden');
+          if (btnCreateProvider) btnCreateProvider.disabled = false;
+        });
+      }
+
+      if (inputNewProv && !inputNewProv.dataset.bound) {
+        inputNewProv.dataset.bound = 'true';
+        inputNewProv.addEventListener('input', () => {
+          const val = inputNewProv.value.trim();
+          if (this.isForbiddenProviderName(val)) {
+            inputNewProv.classList.add('border-red-500');
+            inputNewProv.classList.remove('focus:border-blue-500');
+            if (errorNewProv) errorNewProv.classList.remove('hidden');
+            if (btnCreateProvider) btnCreateProvider.disabled = true;
+          } else {
+            inputNewProv.classList.remove('border-red-500');
+            inputNewProv.classList.add('focus:border-blue-500');
+            if (errorNewProv) errorNewProv.classList.add('hidden');
+            if (btnCreateProvider) btnCreateProvider.disabled = false;
+          }
         });
       }
 
@@ -7494,17 +7642,30 @@ class ThumbSyncApp {
       if (btnCancelProvider && providerDialog) {
         btnCancelProvider.addEventListener('click', () => {
           providerDialog.classList.add('hidden');
+          if (inputNewProv) {
+            inputNewProv.value = '';
+            inputNewProv.classList.remove('border-red-500');
+          }
+          if (errorNewProv) errorNewProv.classList.add('hidden');
         });
       }
 
-      const btnCreateProvider = document.getElementById(
-        'dialog-add-provider-confirm',
-      );
       if (btnCreateProvider && providerDialog) {
         btnCreateProvider.addEventListener('click', async () => {
           const input = document.getElementById('new-provider-name');
           if (input && input.value.trim() !== '') {
             const name = input.value.trim();
+
+            if (this.isForbiddenProviderName(name)) {
+              this.showAlertDialog({
+                title: 'Provedor Inválido',
+                message: 'Não é permitido usar "Ao Vivo" no nome do provedor. "Ao Vivo" é uma categoria de jogo, não um provedor.',
+                type: 'warning',
+              });
+              if (errorNewProv) errorNewProv.classList.remove('hidden');
+              input.classList.add('border-red-500');
+              return;
+            }
 
             await this.fetchLatestListContent();
 
@@ -7516,6 +7677,8 @@ class ThumbSyncApp {
             await this.saveUpdatedList(lines.join('\n'));
             providerDialog.classList.add('hidden');
             input.value = '';
+            if (errorNewProv) errorNewProv.classList.add('hidden');
+            input.classList.remove('border-red-500');
           }
         });
       }
