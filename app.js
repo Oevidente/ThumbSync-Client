@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.5
+ * Versão: Beta v1.1.9
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -1833,12 +1833,26 @@ class ThumbSyncApp {
         if (!clean) continue;
       }
 
+      const isNotice = this.isGenericAlterationNotice(clean);
+      let itemProv = currentProvider;
+      if (isNotice && currentProvider === 'Sem provedor') {
+        const detected = this.extractProviderFromNotice(clean);
+        if (detected) itemProv = detected;
+      }
+
+      const isEntryAlteration = this.isGameAlterationEntry(clean);
+      const baseGameName = this.getBaseGameName(clean);
+
       listGames.push({
         displayName: clean,
+        baseName: baseGameName,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider,
+        normalizedBaseName: this.normalizeName(baseGameName),
+        providerName: itemProv,
         isNotFound: isNotFound,
         isPriority: isPriority,
+        isAlterationNotice: isNotice,
+        isAlteration: isEntryAlteration,
       });
     }
 
@@ -1853,12 +1867,16 @@ class ThumbSyncApp {
       itemsMap.set(key, {
         id: key,
         displayName: game.displayName,
+        baseName: game.baseName,
         normalizedName: game.normalizedName,
+        normalizedBaseName: game.normalizedBaseName,
         providerName: game.providerName,
         isListed: true,
         hasWebp: false,
         isNotFound: game.isNotFound,
         isPriority: game.isPriority,
+        isAlterationNotice: game.isAlterationNotice || false,
+        isAlteration: game.isAlteration || false,
         addedDate: addedDate,
       });
     });
@@ -1873,7 +1891,9 @@ class ThumbSyncApp {
       if (file.providerName) {
         fileProvider = file.providerName;
       } else {
-        const matchGame = listGames.find((g) => g.normalizedName === normName);
+        const matchGame = listGames.find(
+          (g) => !g.isAlterationNotice && (g.normalizedName === normName || g.normalizedBaseName === normName),
+        );
         if (matchGame) {
           fileProvider = matchGame.providerName;
         }
@@ -1881,23 +1901,43 @@ class ThumbSyncApp {
 
       const key = `${this.normalizeName(fileProvider)}::${normName}`;
       const existing = itemsMap.get(key);
-      if (existing) {
+      if (existing && !existing.isAlterationNotice) {
         existing.hasWebp = true;
         existing.driveFileId = file.id;
         existing.fileSize = file.size;
         existing.modifiedTime = file.modifiedTime;
       } else {
-        itemsMap.set(key, {
-          id: key,
-          displayName: baseName,
-          normalizedName: normName,
-          providerName: fileProvider,
-          isListed: false,
-          hasWebp: true,
-          driveFileId: file.id,
-          fileSize: file.size,
-          modifiedTime: file.modifiedTime,
-        });
+        // Encontrar item listado correspondente pelo normalizedBaseName
+        const matchingListedGame = listGames.find(
+          (g) =>
+            !g.isAlterationNotice &&
+            this.normalizeName(g.providerName) === this.normalizeName(fileProvider) &&
+            (g.normalizedName === normName || g.normalizedBaseName === normName),
+        );
+        if (matchingListedGame) {
+          const listKey = `${this.normalizeName(matchingListedGame.providerName)}::${matchingListedGame.normalizedName}`;
+          const listExisting = itemsMap.get(listKey);
+          if (listExisting) {
+            listExisting.hasWebp = true;
+            listExisting.driveFileId = file.id;
+            listExisting.fileSize = file.size;
+            listExisting.modifiedTime = file.modifiedTime;
+          }
+        } else if (!existing) {
+          itemsMap.set(key, {
+            id: key,
+            displayName: baseName,
+            baseName: baseName,
+            normalizedName: normName,
+            normalizedBaseName: normName,
+            providerName: fileProvider,
+            isListed: false,
+            hasWebp: true,
+            driveFileId: file.id,
+            fileSize: file.size,
+            modifiedTime: file.modifiedTime,
+          });
+        }
       }
     });
 
@@ -1941,10 +1981,203 @@ class ThumbSyncApp {
     return /\b(ao\s*vivo|aovivo)\b/i.test(normalized) || normalized.includes('ao vivo') || normalized.includes('aovivo');
   }
 
+  cleanAlterationNoticeText(notice) {
+    if (!notice || typeof notice !== 'string') return '';
+    return notice
+      .trim()
+      .replace(/^\uFEFF/, '')
+      .replace(/^[#\-*•\d.)\]\s]+/, '')
+      .replace(
+        /^(?:aviso|nota|obs|observacao|observação|atencao|atenção|alerta|lembrete|pedido(?:\s+de\s+alteracao|\s+de\s+alteração)?)\s*[:\-–\s]*/i,
+        '',
+      )
+      .replace(/[!]+/g, '')
+      .trim();
+  }
+
+  getBaseGameName(text) {
+    if (!text || typeof text !== 'string') return '';
+    let clean = text
+      .replace(/^\uFEFF/, '')
+      .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+      .replace(/[!?]/g, '')
+      .trim();
+
+    // 1. Prefixos de alteração: "Alterar: Jogo", "Refazer - Jogo"
+    clean = clean.replace(
+      /^(?:alterar|refazer|atualizar|trocar|ajustar|mudar|corrigir)\s*[:\-–\s]\s*/i,
+      '',
+    ).trim();
+
+    // 2. Parênteses/colchetes contendo termos de alteração ou avisos no final
+    const alterationMatch = clean.match(
+      /^(.*?)\s*[\(\[\{](?:alteracao|alteração|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|corrigir|correcao|aviso|nota|obs|observacao|observação|atencao|atenção|[^)\]\}]+)[\)\]\}]\s*$/i,
+    );
+    if (alterationMatch && alterationMatch[1] && alterationMatch[1].trim()) {
+      return alterationMatch[1].trim();
+    }
+
+    return clean;
+  }
+
+  formatGameAlterationName(gameName, noticeOrNote = '') {
+    if (!gameName || typeof gameName !== 'string') return '';
+    const isPriority = gameName.includes('!');
+    const isNotFound = gameName.includes('?');
+    let clean = gameName.replace(/[!?]/g, '').trim();
+
+    // Se o próprio nome já tem parênteses ou colchetes com alteração, preserva
+    if (this.isGameAlterationEntry(clean)) {
+      return `${clean}${isPriority ? '!' : ''}${isNotFound ? '?' : ''}`;
+    }
+
+    let note = this.cleanAlterationNoticeText(noticeOrNote);
+    if (!note) {
+      note = 'Alteração';
+    }
+
+    if (note.length > 120) {
+      note = note.slice(0, 117) + '...';
+    }
+
+    return `${clean} (${note})${isPriority ? '!' : ''}${isNotFound ? '?' : ''}`;
+  }
+
+  isGenericAlterationNotice(text) {
+    if (!text || typeof text !== 'string') return false;
+    const clean = text
+      .trim()
+      .replace(/^\uFEFF/, '')
+      .replace(/^[#\-*•\d.)\]\s]+/, '')
+      .trim();
+    if (!clean) return false;
+
+    // Prefixo explícito de aviso / nota / alteração
+    if (
+      /^(?:aviso|nota|obs|observacao|observação|atencao|atenção|alerta|lembrete|pedido(?:\s+de\s+alteracao|\s+de\s+alteração)?)\s*[:\-–]/i.test(
+        clean,
+      )
+    ) {
+      return true;
+    }
+
+    const norm = clean
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    // Verbos de ação/alteração
+    const hasActionVerb =
+      /\b(acrescentar|adicionar|colocar|mudar|alterar|trocar|modificar|atualizar|remover|retirar|ajustar|corrigir|refazer|padronizar|inserir|substituir|aplicar)\b/i.test(
+        norm,
+      );
+
+    // Alvos coletivos ou não específicos
+    const hasTargetGames =
+      /\b(nos\s+jogos|dos\s+jogos|em\s+todos(?:\s+os)?\s+jogos|em\s+jogos|nas\s+miniaturas|nas\s+thumbs|nas\s+artes|jogos\s+da|jogos\s+do|jogos\s+de)\b/i.test(
+        norm,
+      );
+
+    // Menção a atributos genéricos (nome do provedor, logo, etc.)
+    const hasProviderOrLogoNotice =
+      /\b(nome\s+do\s+provedor|logo\s+do\s+provedor|logo\s+da\s+marca|marca\s+d[\s\']?agua)\b/i.test(
+        norm,
+      );
+
+    if (hasActionVerb && (hasTargetGames || hasProviderOrLogoNotice)) {
+      return true;
+    }
+
+    if (
+      /\b(acrescentar|adicionar|colocar|mudar|alterar|trocar)\s+(?:o\s+)?(?:nome\s+do\s+)?provedor\b/i.test(
+        norm,
+      )
+    ) {
+      return true;
+    }
+
+    if (/\b(pedido\s+de\s+alteracao|pedido\s+de\s+ajuste)\b/i.test(norm)) {
+      return true;
+    }
+
+    return false;
+  }
+
+  isGameAlterationEntry(text) {
+    if (!text || typeof text !== 'string') return false;
+    const clean = text.trim();
+    const norm = clean
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase();
+
+    // 1. Tags entre parênteses ou colchetes, ex: (alteração), [refazer], (mudar logo), etc.
+    if (
+      /[\(\[\{][^\)\]\}]*?(?:alteracao|alterar|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|corrigir|correcao|aviso|nota|obs|observacao|observação|atencao|atenção)[^\)\]\}]*?[\)\]\}]/i.test(
+        norm,
+      )
+    ) {
+      return true;
+    }
+
+    // 2. Qualquer parênteses de instrução no final
+    if (/\([^\)]+\)\s*$/i.test(clean)) {
+      return true;
+    }
+
+    // 3. Prefixos com dois pontos ou traço, ex: "Alterar: Sweet Bonanza", "Refazer - Crazy Time"
+    if (
+      /^(?:alterar|refazer|atualizar|trocar|ajustar|mudar|corrigir)\s*[:\-–\s]/i.test(
+        norm,
+      ) ||
+      /[:\-–]\s*(?:alterar|refazer|atualizar|trocar|mudar|ajustar|corrigir|nova\s+arte|novo\s+logo)/i.test(
+        norm,
+      )
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  extractProviderFromNotice(text, availableProviders = []) {
+    if (!text || typeof text !== 'string') return '';
+    const clean = text.trim();
+
+    // 1. Verificar provedores conhecidos da aplicação
+    const provsToCheck = [
+      ...availableProviders,
+      ...(this.state?.driveProviders || []),
+    ];
+    for (const prov of provsToCheck) {
+      if (prov && prov !== 'Sem provedor' && !this.isForbiddenProviderName(prov)) {
+        const escaped = prov.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&');
+        const reg = new RegExp('\\b' + escaped + '\\b', 'i');
+        if (reg.test(clean)) {
+          return prov;
+        }
+      }
+    }
+
+    // 2. Tentar capturar após "jogos da", "jogos do", "jogos de", "provedor"
+    const m = clean.match(
+      /(?:jogos\s+d[aoe]|provedor(?:\s+de|\s+da|\s+do)?)\s+([A-Za-z0-9\x27\s\-]+?)(?:\s*[\.\,\;\:\!]|$)/i,
+    );
+    if (m && m[1]) {
+      const raw = m[1].trim();
+      if (raw && raw.length > 1 && !/^(todos|alguns|outro|outros)$/i.test(raw)) {
+        return raw;
+      }
+    }
+
+    return '';
+  }
+
   getGameSearchUrl(gameOrItem) {
     if (!gameOrItem) return 'https://www.google.com/imghp';
     const provider = (gameOrItem.providerName || gameOrItem.provider || '').trim();
-    const rawName = (gameOrItem.displayName || gameOrItem.name || '').trim();
+    const rawFullName = (gameOrItem.displayName || gameOrItem.name || '').trim();
+    const cleanGameName = this.getBaseGameName(rawFullName);
     const normProv = this.normalizeName(provider);
 
     // 1. Spinomenal (canto.com library search)
@@ -1954,7 +2187,7 @@ class ThumbSyncApp {
       normProv.includes('spinomenal') ||
       normProv.includes('spinonemal')
     ) {
-      const keyword = encodeURIComponent(rawName);
+      const keyword = encodeURIComponent(cleanGameName);
       return `https://spinonemal.canto.com/v/Spinomenal/library?keyword=${keyword}&aiSearchEnabled&gSortingForward=false&gOrderProp=nomad&viewIndex=0&display=fitView&referenceTo=&from=fitView`;
     }
 
@@ -1965,12 +2198,12 @@ class ThumbSyncApp {
       normProv.includes('pg soft') ||
       normProv.includes('pgsoft')
     ) {
-      const searchParam = encodeURIComponent(rawName.replace(/\s+/g, ''));
+      const searchParam = encodeURIComponent(cleanGameName.replace(/\s+/g, ''));
       return `https://www.pgsoft.com/en/download?search=${searchParam}`;
     }
 
     // Default: Google Imagens
-    return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((provider ? provider + ' ' : '') + rawName)}`;
+    return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent((provider ? provider + ' ' : '') + cleanGameName)}`;
   }
 
   getGameSearchTitle(gameOrItem) {
@@ -2012,6 +2245,8 @@ class ThumbSyncApp {
       .map(l => l.trim())
       .filter(l => l.length >= 3);
 
+    const genericNotices = lines.filter((l) => this.isGenericAlterationNotice(l));
+
     if (lines.length === 0) {
       container.classList.add('hidden');
       list.innerHTML = '';
@@ -2022,8 +2257,10 @@ class ThumbSyncApp {
     const seenKeys = new Set();
 
     lines.forEach(line => {
+      if (this.isGenericAlterationNotice(line)) return;
       const normInput = this.normalizeName(line);
       this.state.catalogItems.forEach(item => {
+        if (item.isAlterationNotice) return;
         const normItemName = item.normalizedName;
         const normItemProv = this.normalizeName(item.providerName);
 
@@ -2052,7 +2289,7 @@ class ThumbSyncApp {
       });
     });
 
-    if (suggestions.length === 0) {
+    if (suggestions.length === 0 && genericNotices.length === 0) {
       container.classList.add('hidden');
       list.innerHTML = '';
       return;
@@ -2065,8 +2302,27 @@ class ThumbSyncApp {
       return b.similarity - a.similarity;
     });
 
+    let noticeAlertHtml = '';
+    if (genericNotices.length > 0) {
+      const sampleNotice = genericNotices[0];
+      const detectedProv = this.extractProviderFromNotice(sampleNotice);
+      noticeAlertHtml = `
+        <div class="p-2.5 mb-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs flex items-start gap-2.5">
+          <svg class="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+          </svg>
+          <div class="flex-1 min-w-0">
+            <span class="font-bold block text-amber-200">Aviso / Pedido de Alteração Detectado</span>
+            <span class="text-[11px] text-amber-200/90 leading-relaxed block mt-0.5">
+              "${sampleNotice}" não é um jogo específico${detectedProv ? ` (provedor identificado: <strong>${detectedProv}</strong>)` : ''}. Ao confirmar, você será solicitado a especificar a qual ou quais jogos se refere.
+            </span>
+          </div>
+        </div>
+      `;
+    }
+
     container.classList.remove('hidden');
-    list.innerHTML = suggestions.slice(0, 5).map(s => {
+    list.innerHTML = noticeAlertHtml + suggestions.slice(0, 5).map(s => {
       const item = s.item;
       const isSameProvider = this.normalizeName(item.providerName) === normProvider;
       const providerColorClass = isSameProvider ? 'text-indigo-300' : 'text-zinc-400';
@@ -2971,7 +3227,7 @@ class ThumbSyncApp {
     });
   }
 
-  showDuplicatedGameToast(games) {
+  showDuplicatedGameToast(games, onAddAsAlteration = null) {
     let existingToast = document.getElementById('duplicate-game-toast');
     if (existingToast) {
       existingToast.remove();
@@ -3017,8 +3273,17 @@ class ThumbSyncApp {
         </svg>
       </div>
       <div style="flex:1; min-width:0;">
-        <p style="margin:0 0 6px 0; font-size:22px; font-weight:800; color:#e0e7ff; letter-spacing:-0.01em; line-height:1.2;">Aviso: Miniatura já no Drive!</p>
-        <p style="margin:0; font-size:16px; color:#c7d2fe; font-weight:500; line-height:1.4;">${games.length === 1 ? 'O jogo' : 'Os jogos'} <strong style="color:#ffffff;">${gamesText}</strong> já possu${games.length === 1 ? 'i' : 'em'} miniatura.</p>
+        <p style="margin:0 0 6px 0; font-size:20px; font-weight:800; color:#e0e7ff; letter-spacing:-0.01em; line-height:1.2;">Aviso: Miniatura já no Drive!</p>
+        <p style="margin:0 0 ${onAddAsAlteration ? '10px' : '0'} 0; font-size:14px; color:#c7d2fe; font-weight:500; line-height:1.4;">${games.length === 1 ? 'O jogo' : 'Os jogos'} <strong style="color:#ffffff;">${gamesText}</strong> já possu${games.length === 1 ? 'i' : 'em'} miniatura.</p>
+        ${
+          onAddAsAlteration
+            ? `
+          <button id="duplicate-game-toast-alteration-btn" style="background:#f59e0b; color:#000000; font-weight:800; font-size:11px; padding:6px 14px; border-radius:10px; border:none; cursor:pointer; display:inline-flex; align-items:center; gap:6px; transition:background 0.2s; box-shadow: 0 4px 12px rgba(245, 158, 11, 0.3);">
+            <span>🔄 Adicionar como Pedido de Alteração</span>
+          </button>
+        `
+            : ''
+        }
       </div>
       <button id="duplicate-game-toast-close" style="background:transparent; border:none; cursor:pointer; padding:8px; display:flex; align-items:center; justify-content:center; opacity:0.7;">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a5b4fc" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
@@ -3040,7 +3305,142 @@ class ThumbSyncApp {
     toast
       .querySelector('#duplicate-game-toast-close')
       .addEventListener('click', removeToast);
+
+    if (onAddAsAlteration) {
+      toast
+        .querySelector('#duplicate-game-toast-alteration-btn')
+        ?.addEventListener('click', () => {
+          removeToast();
+          onAddAsAlteration();
+        });
+    }
+
     setTimeout(removeToast, 7000);
+  }
+
+  promptDifferentiateExistingGames({
+    providerName,
+    existingGames,
+    existingItems = [],
+  }) {
+    return new Promise((resolve) => {
+      const existingModal = document.getElementById('modal-differentiate-existing');
+      if (existingModal) existingModal.remove();
+
+      const modal = document.createElement('div');
+      modal.id = 'modal-differentiate-existing';
+      modal.className =
+        'fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-200';
+
+      const gamesListHtml = existingGames
+        .map(
+          (g) => `
+          <div class="flex items-center justify-between p-2 rounded-xl bg-white/5 border border-white/5 text-xs text-white">
+            <span class="font-bold truncate">${g}</span>
+            <span class="text-[9px] font-extrabold uppercase px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shrink-0">
+              Miniatura no Drive
+            </span>
+          </div>
+        `,
+        )
+        .join('');
+
+      modal.innerHTML = `
+        <div class="w-[94%] max-w-md bg-[#131316] border border-amber-500/30 p-6 rounded-3xl shadow-2xl flex flex-col text-left relative max-h-[90vh] overflow-y-auto custom-scrollbar">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/25 text-amber-400 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/10">
+              <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <h3 class="text-sm font-black text-white uppercase tracking-wider font-sans leading-tight">
+                Miniatura já existe no Drive
+              </h3>
+              <p class="text-[11px] text-zinc-400 mt-0.5">
+                Provedor: <strong class="text-zinc-200 font-semibold">${providerName}</strong>
+              </p>
+            </div>
+          </div>
+
+          <div class="mb-4 p-3 rounded-2xl bg-amber-500/[0.08] border border-amber-500/20">
+            <p class="text-xs text-amber-100 font-medium leading-relaxed mb-2">
+              ${existingGames.length === 1 ? 'O jogo abaixo já possui miniatura pronta no Drive' : 'Os jogos abaixo já possuem miniaturas prontas no Drive'}:
+            </p>
+            <div class="space-y-1.5 max-h-36 overflow-y-auto custom-scrollbar">
+              ${gamesListHtml}
+            </div>
+          </div>
+
+          <div class="mb-4 text-left">
+            <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">
+              Instrução / Motivo da Alteração (Opcional - aparecerá entre parênteses)
+            </label>
+            <input type="text" id="diff-alteration-note" placeholder="Ex: Mudar logo, novo fundo, etc." class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500">
+          </div>
+
+          <p class="text-[11.5px] text-zinc-300 leading-relaxed mb-5">
+            Deseja adicionar como um <strong>Pedido de Alteração / Refazer Arte</strong> com prioridade na fila de demandas, ou foi uma tentativa acidental de adicionar um jogo já existente?
+          </p>
+
+          <div class="flex flex-col gap-2.5">
+            <button id="btn-diff-add-alteration" class="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs cursor-pointer transition-colors shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2">
+              <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+              <span>Sim, Adicionar como Pedido de Alteração (!)</span>
+            </button>
+
+            ${
+              existingItems.length > 0
+                ? `
+              <button id="btn-diff-view-existing" class="w-full py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-zinc-300 font-semibold text-xs cursor-pointer transition-colors flex items-center justify-center gap-1.5">
+                <svg class="w-3.5 h-3.5 text-zinc-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                <span>Apenas Ver Miniatura Existente</span>
+              </button>
+            `
+                : ''
+            }
+
+            <button id="btn-diff-cancel" class="w-full py-2 px-3 rounded-xl bg-transparent hover:bg-white/5 text-zinc-400 font-semibold text-xs cursor-pointer transition-colors">
+              Cancelar
+            </button>
+          </div>
+        </div>
+      `;
+
+      document.body.appendChild(modal);
+
+      const cleanup = (result) => {
+        document.removeEventListener('keydown', handleKey);
+        modal.remove();
+        resolve(result);
+      };
+
+      const handleKey = (e) => {
+        if (e.key === 'Escape') cleanup(false);
+      };
+      document.addEventListener('keydown', handleKey);
+
+      modal
+        .querySelector('#btn-diff-add-alteration')
+        ?.addEventListener('click', () => {
+          const noteInput = modal.querySelector('#diff-alteration-note');
+          const note = noteInput ? noteInput.value.trim() : '';
+          cleanup({ confirmed: true, note: note || 'Alteração' });
+        });
+
+      modal
+        .querySelector('#btn-diff-view-existing')
+        ?.addEventListener('click', () => {
+          cleanup(false);
+          if (existingItems[0]) {
+            this.renderPreviewModal(existingItems[0]);
+          }
+        });
+
+      modal.querySelector('#btn-diff-cancel')?.addEventListener('click', () => {
+        cleanup(false);
+      });
+    });
   }
 
   showPendingGameToast(games) {
@@ -3201,9 +3601,53 @@ class ThumbSyncApp {
     setTimeout(removeToast, 7000);
   }
 
-  async handleAddGamesToList(providerName, gameNames) {
+  async handleAddGamesToList(providerName, gameNames, options = {}) {
     const validGames = gameNames.map((g) => g.trim()).filter(Boolean);
     if (validGames.length === 0) return;
+
+    // Identificar pedidos de alteração / avisos genéricos vs nomes de jogos reais
+    const alterationNotices = validGames.filter((g) => this.isGenericAlterationNotice(g));
+    const normalGames = validGames.filter((g) => !this.isGenericAlterationNotice(g));
+
+    if (alterationNotices.length > 0) {
+      if (normalGames.length > 0) {
+        await this._reallyAddGamesToList(providerName, normalGames, options);
+      }
+      for (const noticeText of alterationNotices) {
+        const detectedProv = this.extractProviderFromNotice(noticeText);
+        const targetProv =
+          detectedProv && detectedProv !== 'Sem provedor' ? detectedProv : providerName;
+        await this.promptSpecifyAlterationGames({
+          noticeText,
+          defaultProvider: targetProv,
+          onConfirm: async (specifiedGames, confirmedProv, isPriority) => {
+            const gamesToAdd = specifiedGames.map((g) =>
+              isPriority && !g.includes('!') ? `${g}!` : g,
+            );
+            await this._reallyAddGamesToList(confirmedProv, gamesToAdd, {
+              isAlteration: true,
+              noticeOrigin: noticeText,
+            });
+            this.showAlertDialog({
+              title: 'Pedido de Alteração Vinculado',
+              message: `Sucesso! O pedido de alteração foi vinculado a ${specifiedGames.length} jogo(s) do provedor "${confirmedProv}".\nOs jogos foram devidamente registrados na fila de produção com prioridade.`,
+              type: 'success',
+            });
+            this.renderActiveTab();
+          },
+        });
+      }
+      return;
+    }
+
+    await this._reallyAddGamesToList(providerName, validGames, options);
+  }
+
+  async _reallyAddGamesToList(providerName, gameNames, options = {}) {
+    const validGames = gameNames.map((g) => g.trim()).filter(Boolean);
+    if (validGames.length === 0) return;
+
+    const isExplicitAlteration = Boolean(options && options.isAlteration);
 
     const cleanProviderName = providerName.replace(/!/g, '').trim();
     if (this.isForbiddenProviderName(cleanProviderName)) {
@@ -3223,28 +3667,72 @@ class ThumbSyncApp {
     const normProvider = this.normalizeName(cleanProviderName);
     const existingItems = [];
 
-    const existingOnDriveNames = validGames.filter((gameName) => {
+    // Separar jogos que já existem no Drive
+    const existingOnDriveNames = [];
+    const notOnDriveNames = [];
+
+    validGames.forEach((gameName) => {
       const normGame = this.normalizeName(gameName);
       const key = `${normProvider}::${normGame}`;
       const catalogItem = this.state.catalogItems.find((i) => i.id === key);
 
+      // Checa se o texto do próprio jogo contém intenção de alteração (ex: "Jogo X (alterar)")
+      const isEntryAlteration =
+        isExplicitAlteration || this.isGameAlterationEntry(gameName);
+
       if (catalogItem && catalogItem.hasWebp) {
         existingItems.push(catalogItem);
-        return true;
+        if (isEntryAlteration) {
+          // É um pedido de alteração! Não bloqueia por existir miniatura no Drive
+          notOnDriveNames.push(gameName);
+        } else {
+          // Tentativa de adicionar jogo existente sem marcar alteração
+          existingOnDriveNames.push(gameName);
+        }
+      } else {
+        notOnDriveNames.push(gameName);
       }
-      return false;
     });
 
-    if (existingOnDriveNames.length > 0) {
-      this.showDuplicatedGameToast(existingOnDriveNames);
-      if (existingItems[0]) {
-        this.renderPreviewModal(existingItems[0]);
+    // Se houver jogos já existentes no Drive adicionados sem aviso de alteração:
+    // Diferenciar a ação abrindo diálogo inteligente de alteração vs duplicata acidental
+    let diffNote = '';
+    if (existingOnDriveNames.length > 0 && !isExplicitAlteration) {
+      const diffResult = await this.promptDifferentiateExistingGames({
+        providerName: cleanProviderName,
+        existingGames: existingOnDriveNames,
+        existingItems: existingItems,
+      });
+
+      const shouldAddAsAlteration = Boolean(diffResult && (diffResult === true || diffResult.confirmed));
+      diffNote = (diffResult && diffResult.note) ? diffResult.note : 'Alteração';
+
+      if (shouldAddAsAlteration) {
+        // Usuário confirmou que deseja adicionar como pedido de alteração
+        existingOnDriveNames.forEach((g) => {
+          const formatted = this.formatGameAlterationName(g, diffNote);
+          const withPriority = formatted.includes('!') ? formatted : `${formatted}!`;
+          notOnDriveNames.push(withPriority);
+        });
+      } else {
+        // Usuário optou por não adicionar (duplicata acidental pura)
+        this.showDuplicatedGameToast(existingOnDriveNames, () => {
+          const toAdd = existingOnDriveNames.map((g) => (g.includes('!') ? g : `${g}!`));
+          this._reallyAddGamesToList(cleanProviderName, toAdd, { isAlteration: true });
+        });
+        if (existingItems[0]) {
+          this.renderPreviewModal(existingItems[0]);
+        }
       }
     }
 
-    const gamesToAdd = validGames.filter(
-      (g) => !existingOnDriveNames.includes(g),
-    );
+    const gamesToAdd = notOnDriveNames;
+    if (gamesToAdd.length === 0) {
+      this.addLog(
+        'Nenhum jogo adicionado. Os itens já constavam prontos no catálogo e não foram marcados para alteração.',
+      );
+      return;
+    }
 
     const pendingOnQueueNames = [];
     const gamesToReallyAdd = [];
@@ -3267,15 +3755,22 @@ class ThumbSyncApp {
 
     if (gamesToReallyAdd.length === 0) {
       this.addLog(
-        'Nenhum jogo novo adicionado. Todos já possuíam miniatura ou já constavam na fila de demandas.',
+        'Nenhum jogo novo adicionado. Todos já constavam na fila de demandas.',
       );
       return;
     }
 
-    this.recordAddedDatesForGames(cleanProviderName, gamesToReallyAdd);
+    const formattedGamesToReallyAdd = gamesToReallyAdd.map((g) => {
+      if (isExplicitAlteration || options?.noticeOrigin || options?.alterationNote) {
+        return this.formatGameAlterationName(g, options?.noticeOrigin || options?.alterationNote || '');
+      }
+      return g;
+    });
+
+    this.recordAddedDatesForGames(cleanProviderName, formattedGamesToReallyAdd);
 
     this.addLog(
-      `Adicionando ${gamesToReallyAdd.length} jogos ao provedor '${cleanProviderName}'...`,
+      `Adicionando ${formattedGamesToReallyAdd.length} jogos ao provedor '${cleanProviderName}'...`,
     );
 
     const lines = this.state.listContent.split(/\r?\n/);
@@ -3292,7 +3787,7 @@ class ThumbSyncApp {
       updatedLines.push(line);
 
       if (targetHeaderRegex.test(line.trim())) {
-        gamesToReallyAdd.forEach((gameName) => {
+        formattedGamesToReallyAdd.forEach((gameName) => {
           updatedLines.push(gameName);
         });
         injected = true;
@@ -3307,12 +3802,333 @@ class ThumbSyncApp {
         updatedLines.push('');
       }
       updatedLines.push(`Provedor: ${cleanProviderName}`);
-      gamesToReallyAdd.forEach((gameName) => {
+      formattedGamesToReallyAdd.forEach((gameName) => {
         updatedLines.push(gameName);
       });
     }
 
-    this.saveUpdatedList(updatedLines.join('\n'));
+    await this.saveUpdatedList(updatedLines.join('\n'));
+  }
+
+  promptSpecifyAlterationGames({
+    noticeText,
+    defaultProvider = '',
+    originalKey = null,
+    onConfirm = null,
+  }) {
+    return new Promise((resolve) => {
+      const existing = document.getElementById('modal-specify-alteration');
+      if (existing) existing.remove();
+
+      // Provedores válidos disponíveis
+      const modalProvidersSet = new Set();
+      this.state.catalogItems.forEach((i) => {
+        if (
+          i.providerName &&
+          i.providerName !== 'Sem provedor' &&
+          i.providerName !== 'Não Foi Possível Criar' &&
+          i.providerName !== 'Prioridades' &&
+          i.providerName !== 'Pedidos de Alteração (Especificar Jogos)' &&
+          !this.isForbiddenProviderName(i.providerName)
+        ) {
+          modalProvidersSet.add(i.providerName);
+        }
+      });
+      (this.state.driveProviders || []).forEach((p) => {
+        if (
+          p &&
+          p !== 'Sem provedor' &&
+          p !== 'Não Foi Possível Criar' &&
+          p !== 'Prioridades' &&
+          p !== 'Pedidos de Alteração (Especificar Jogos)' &&
+          !this.isForbiddenProviderName(p)
+        ) {
+          modalProvidersSet.add(p);
+        }
+      });
+      const providersList = Array.from(modalProvidersSet).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+      let selectedProv = defaultProvider || (providersList.length > 0 ? providersList[0] : 'PG Soft');
+      if (
+        (!selectedProv || selectedProv === 'Sem provedor' || selectedProv === 'Pedidos de Alteração (Especificar Jogos)') &&
+        providersList.length > 0
+      ) {
+        selectedProv = providersList[0];
+      }
+
+      const modal = document.createElement('div');
+      modal.id = 'modal-specify-alteration';
+      modal.className =
+        'fixed inset-0 z-[9999] bg-black/85 backdrop-blur-md flex items-center justify-center p-4 transition-all duration-200';
+
+      const renderModalContent = () => {
+        const normSelected = this.normalizeName(selectedProv);
+        const knownGames = this.state.catalogItems
+          .filter((i) => !i.isAlterationNotice && this.normalizeName(i.providerName) === normSelected)
+          .map((i) => i.displayName);
+        const uniqueKnownGames = Array.from(new Set(knownGames)).sort((a, b) => a.localeCompare(b, 'pt-BR'));
+
+        return `
+          <div class="w-[94%] max-w-md bg-[#131316] border border-amber-500/30 p-6 rounded-3xl shadow-2xl flex flex-col text-left relative max-h-[92vh] overflow-y-auto custom-scrollbar">
+            <!-- Header -->
+            <div class="flex items-start gap-3 mb-4">
+              <div class="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/25 text-amber-400 flex items-center justify-center shrink-0 shadow-lg shadow-amber-500/10">
+                <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+              <div class="flex-1 min-w-0">
+                <h3 class="text-sm font-black text-white uppercase tracking-wider font-sans leading-tight">
+                  Pedido de Alteração Detectado
+                </h3>
+                <p class="text-[11px] text-zinc-400 mt-0.5">
+                  Demanda genérica que necessita indicar jogos específicos.
+                </p>
+              </div>
+            </div>
+
+            <!-- Notice Quote Box -->
+            <div class="mb-4 p-3.5 rounded-2xl bg-amber-500/[0.08] border border-amber-500/20 space-y-2">
+              <span class="text-[9px] font-extrabold uppercase tracking-wider text-amber-300 block">Texto da Demanda:</span>
+              <p class="text-xs font-bold text-amber-100 italic break-words leading-snug">
+                "${noticeText}"
+              </p>
+              <p class="text-[11px] text-zinc-300 leading-relaxed pt-1.5 border-t border-amber-500/15">
+                Esta instrução não cita um jogo específico. Por favor, <strong>especifique a qual ou quais jogos se refere</strong> para que possamos colocar na fila de produção.
+              </p>
+            </div>
+
+            <!-- Provider Select -->
+            <div class="mb-3.5">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">
+                Provedor Correspondente
+              </label>
+              <select id="specify-alteration-provider" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-amber-500">
+                ${providersList
+                  .map(
+                    (p) => `<option value="${p}" ${p === selectedProv ? 'selected' : ''}>${p}</option>`,
+                  )
+                  .join('')}
+              </select>
+            </div>
+
+            <!-- Quick games from catalog for this provider -->
+            <div class="mb-3.5">
+              <div class="flex items-center justify-between mb-1.5">
+                <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider block">
+                  Jogos Registrados deste Provedor
+                </label>
+                ${uniqueKnownGames.length > 0 ? `
+                  <button type="button" id="btn-specify-add-all-games" class="text-[10px] font-bold text-amber-300 hover:text-amber-200 underline cursor-pointer">
+                    Marcar Todos (${uniqueKnownGames.length})
+                  </button>
+                ` : ''}
+              </div>
+              
+              ${uniqueKnownGames.length > 0 ? `
+                <div class="flex flex-wrap gap-1.5 p-2 bg-black/40 border border-white/5 rounded-xl max-h-28 overflow-y-auto custom-scrollbar">
+                  ${uniqueKnownGames
+                    .map(
+                      (g) => `
+                        <button type="button" data-quick-game="${g.replace(/"/g, '&quot;')}" class="text-[10px] py-0.5 px-2 rounded-lg bg-white/5 hover:bg-amber-500/20 hover:text-amber-200 border border-white/5 hover:border-amber-500/30 text-zinc-300 transition-colors cursor-pointer text-left">
+                          + ${g}
+                        </button>
+                      `,
+                    )
+                    .join('')}
+                </div>
+              ` : `
+                <p class="text-[10px] text-zinc-500 italic">Nenhum jogo registrado anteriormente para este provedor.</p>
+              `}
+            </div>
+
+            <!-- Games Textarea -->
+            <div class="mb-3.5">
+              <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">
+                Jogos a Alterar (Um por linha) <span class="text-amber-400">*</span>
+              </label>
+              <textarea id="specify-alteration-games" placeholder="Selecione acima ou digite os jogos a alterar...&#10;Exemplo:&#10;Crazy Time&#10;Lightning Roulette" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white min-h-[90px] leading-relaxed outline-none focus:border-amber-500 custom-scrollbar"></textarea>
+            </div>
+
+            <!-- Mark as priority checkbox -->
+            <div class="mb-5 flex items-center gap-2">
+              <input type="checkbox" id="specify-alteration-priority" checked class="w-4 h-4 rounded border-white/10 bg-white/5 checked:bg-amber-500 cursor-pointer">
+              <label for="specify-alteration-priority" class="text-[11px] text-zinc-300 font-medium cursor-pointer select-none">
+                Marcar como <strong class="text-yellow-300">Prioridade Urgente (!)</strong> na fila
+              </label>
+            </div>
+
+            <!-- Action buttons -->
+            <div class="flex flex-col gap-2">
+              <button id="btn-specify-confirm" class="w-full py-2.5 px-4 rounded-xl bg-amber-500 hover:bg-amber-400 text-black font-bold text-xs cursor-pointer transition-colors shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2">
+                <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
+                <span>Confirmar e Vincular aos Jogos</span>
+              </button>
+
+              <div class="flex items-center gap-2">
+                <button id="btn-specify-keep-notice" class="flex-1 py-2 px-3 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-zinc-300 font-semibold text-[11px] cursor-pointer transition-colors" title="Salvar no Mural como um aviso aberto aguardando esclarecimento">
+                  Manter como Aviso no Mural
+                </button>
+                <button id="btn-specify-cancel" class="py-2 px-4 rounded-xl bg-white/5 hover:bg-white/10 border border-white/5 text-zinc-400 font-semibold text-[11px] cursor-pointer transition-colors">
+                  Cancelar
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      };
+
+      modal.innerHTML = renderModalContent();
+      document.body.appendChild(modal);
+
+      const cleanup = () => {
+        document.removeEventListener('keydown', handleKey);
+        modal.remove();
+        resolve(true);
+      };
+
+      const handleKey = (e) => {
+        if (e.key === 'Escape') cleanup();
+      };
+      document.addEventListener('keydown', handleKey);
+
+      const bindModalEvents = () => {
+        const provSelect = modal.querySelector('#specify-alteration-provider');
+        const textarea = modal.querySelector('#specify-alteration-games');
+        const priorityCheckbox = modal.querySelector('#specify-alteration-priority');
+
+        if (provSelect) {
+          provSelect.addEventListener('change', () => {
+            selectedProv = provSelect.value;
+            const curText = textarea ? textarea.value : '';
+            modal.innerHTML = renderModalContent();
+            const newTextarea = modal.querySelector('#specify-alteration-games');
+            if (newTextarea) newTextarea.value = curText;
+            bindModalEvents();
+          });
+        }
+
+        modal.querySelectorAll('[data-quick-game]').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            const gName = btn.getAttribute('data-quick-game');
+            if (!gName || !textarea) return;
+            const currentLines = textarea.value.split('\n').map((l) => l.trim()).filter(Boolean);
+            if (!currentLines.includes(gName)) {
+              currentLines.push(gName);
+              textarea.value = currentLines.join('\n');
+            }
+          });
+        });
+
+        const btnAddAll = modal.querySelector('#btn-specify-add-all-games');
+        if (btnAddAll && textarea) {
+          btnAddAll.addEventListener('click', () => {
+            const normSelected = this.normalizeName(selectedProv);
+            const allForProv = this.state.catalogItems
+              .filter((i) => !i.isAlterationNotice && this.normalizeName(i.providerName) === normSelected)
+              .map((i) => i.displayName);
+            const unique = Array.from(new Set(allForProv));
+            textarea.value = unique.join('\n');
+          });
+        }
+
+        modal.querySelector('#btn-specify-cancel')?.addEventListener('click', cleanup);
+
+        modal.querySelector('#btn-specify-keep-notice')?.addEventListener('click', async () => {
+          if (onConfirm) {
+            await this._reallyAddGamesToList(selectedProv, [noticeText], { isAlteration: true });
+          }
+          cleanup();
+          this.renderActiveTab();
+        });
+
+        modal.querySelector('#btn-specify-confirm')?.addEventListener('click', async () => {
+          if (!textarea) return;
+          const specifiedGames = textarea.value
+            .split('\n')
+            .map((l) => l.trim())
+            .filter(Boolean);
+
+          if (specifiedGames.length === 0) {
+            this.showAlertDialog({
+              title: 'Especifique os Jogos',
+              message: 'Por favor, selecione ou digite pelo menos um jogo para vincular a este pedido de alteração.',
+              type: 'warning',
+            });
+            return;
+          }
+
+          const isPriority = priorityCheckbox ? priorityCheckbox.checked : true;
+
+          if (onConfirm) {
+            await onConfirm(specifiedGames, selectedProv, isPriority);
+          } else {
+            await this.applySpecifiedAlterationGames({
+              noticeText,
+              providerName: selectedProv,
+              specifiedGames,
+              isPriority,
+              originalKey,
+            });
+          }
+          cleanup();
+          this.renderActiveTab();
+        });
+      };
+
+      bindModalEvents();
+    });
+  }
+
+  async applySpecifiedAlterationGames({
+    noticeText,
+    providerName,
+    specifiedGames,
+    isPriority = true,
+    originalKey = null,
+  }) {
+    if (!specifiedGames || specifiedGames.length === 0) return;
+
+    await this.fetchLatestListContent();
+
+    const lines = this.state.listContent.split(/\r?\n/);
+    const newLines = [];
+    const normNotice = this.normalizeName(noticeText);
+
+    // 1. Remover a linha de aviso original do lista.txt
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const clean = line
+        .replace(/^\uFEFF/, '')
+        .replace(/^\s*(?:[-*•]\s+|\d+\s*[\).\]-]\s*)/, '')
+        .trim();
+
+      const provMatch = clean.match(/^provedor\s*:\s*(.+)$/i);
+      if (provMatch) {
+        newLines.push(line);
+        continue;
+      }
+
+      if (clean && this.normalizeName(clean) === normNotice) {
+        continue;
+      }
+      newLines.push(line);
+    }
+
+    this.state.listContent = newLines.join('\n');
+
+    // 2. Adicionar os jogos especificados sob o provedor selecionado
+    const gamesToAdd = specifiedGames.map((g) => (isPriority && !g.includes('!') ? `${g}!` : g));
+    await this._reallyAddGamesToList(providerName, gamesToAdd, {
+      isAlteration: true,
+      noticeOrigin: noticeText,
+    });
+
+    this.showAlertDialog({
+      title: 'Pedido de Alteração Vinculado',
+      message: `Sucesso! O aviso foi vinculado a ${specifiedGames.length} jogo(s) do provedor "${providerName}".\nOs jogos foram devidamente registrados na fila de produção com prioridade.`,
+      type: 'success',
+    });
   }
 
   async handleEditGameInList(item, newName) {
@@ -3705,9 +4521,12 @@ class ThumbSyncApp {
   }
 
   async handleExcludeGameFromList(item) {
+    const isNotice = item.isAlterationNotice || this.isGenericAlterationNotice(item.displayName);
     const isConfirmed = await this.showConfirmDialog({
-      title: 'Excluir Jogo',
-      message: `Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`,
+      title: isNotice ? 'Excluir Pedido de Alteração' : 'Excluir Jogo',
+      message: isNotice
+        ? `Excluir o pedido de alteração "${item.displayName}"?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`
+        : `Excluir o jogo "${item.displayName}" do catálogo do provedor "${item.providerName}"?\nEsta alteração modificará o arquivo ${this.config.listFileName}.`,
       confirmText: 'Excluir',
       cancelText: 'Cancelar',
       isDanger: true,
@@ -3718,7 +4537,9 @@ class ThumbSyncApp {
     await this.fetchLatestListContent();
 
     this.addLog(
-      `Removendo '${item.displayName}' do provedor '${item.providerName}'...`,
+      isNotice
+        ? `Removendo pedido de alteração '${item.displayName}'...`
+        : `Removendo '${item.displayName}' do provedor '${item.providerName}'...`,
     );
 
     const lines = this.state.listContent.split(/\r?\n/);
@@ -3791,7 +4612,7 @@ class ThumbSyncApp {
     const targetProviderNormalized = this.normalizeName(item.providerName);
 
     for (const sec of sections) {
-      if (sec.providerNameNormalized === targetProviderNormalized) {
+      if (sec.providerNameNormalized === targetProviderNormalized || isNotice) {
         const idx = sec.games.findIndex(
           (g) =>
             !g.isBlankOrComment && g.normalizedGameName === item.normalizedName,
@@ -3799,7 +4620,7 @@ class ThumbSyncApp {
         if (idx !== -1) {
           sec.games.splice(idx, 1);
           deleted = true;
-          this.addLog(`Jogo descartado da lista.`);
+          this.addLog(isNotice ? `Pedido de alteração descartado da lista.` : `Jogo descartado da lista.`);
           break;
         }
       }
@@ -5445,12 +6266,20 @@ class ThumbSyncApp {
 
       if (/^provedor\s*:/i.test(clean)) continue;
 
+      const isNotice = this.isGenericAlterationNotice(clean);
+      let itemProv = currentProvider;
+      if (isNotice && currentProvider === 'Sem provedor') {
+        const detected = this.extractProviderFromNotice(clean);
+        if (detected) itemProv = detected;
+      }
+
       listGames.push({
         displayName: clean,
         normalizedName: this.normalizeName(clean),
-        providerName: currentProvider,
+        providerName: itemProv,
         isNotFound: isNotFound,
         isPriority: isPriority,
+        isAlterationNotice: isNotice,
       });
     }
 
@@ -5459,8 +6288,22 @@ class ThumbSyncApp {
     );
     const getListGameKey = (game) =>
       `${this.normalizeName(game.providerName)}::${game.normalizedName}`;
-    const isListGameOk = (game) =>
-      catalogItemsByKey.get(getListGameKey(game))?.hasWebp || false;
+
+    listGames.forEach((g) => {
+      if (g.isAlterationNotice) return;
+      const key = getListGameKey(g);
+      const catItem = catalogItemsByKey.get(key);
+      const hasWebp = catItem?.hasWebp || false;
+      const isEntryAlteration = this.isGameAlterationEntry(g.displayName);
+      if (hasWebp || isEntryAlteration) {
+        g.isAlteration = true;
+      }
+    });
+
+    const isListGameOk = (game) => {
+      if (game.isAlterationNotice || game.isAlteration) return false;
+      return catalogItemsByKey.get(getListGameKey(game))?.hasWebp || false;
+    };
     const sortGamesForProvider = (a, b) => {
       const okDiff = Number(isListGameOk(b)) - Number(isListGameOk(a));
       if (okDiff !== 0) return okDiff;
@@ -5472,9 +6315,12 @@ class ThumbSyncApp {
     const groupsMap = new Map();
     const notFoundGames = [];
     const priorityGames = [];
+    const alterationNotices = [];
 
     listGames.forEach((g) => {
-      if (g.isPriority) {
+      if (g.isAlterationNotice) {
+        alterationNotices.push(g);
+      } else if (g.isPriority) {
         priorityGames.push(g);
       } else if (g.isNotFound) {
         notFoundGames.push(g);
@@ -5506,6 +6352,13 @@ class ThumbSyncApp {
       ]);
     }
 
+    if (alterationNotices.length > 0) {
+      groupsList.unshift([
+        'Pedidos de Alteração (Especificar Jogos)',
+        [...alterationNotices],
+      ]);
+    }
+
     // Combinar provedores para exibir como opções no modal de adicionar jogo
     const modalProvidersSet = new Set();
 
@@ -5515,7 +6368,8 @@ class ThumbSyncApp {
         prov &&
         prov !== 'Sem provedor' &&
         prov !== 'Não Foi Possível Criar' &&
-        prov !== 'Prioridades'
+        prov !== 'Prioridades' &&
+        prov !== 'Pedidos de Alteração (Especificar Jogos)'
       ) {
         modalProvidersSet.add(prov);
       }
@@ -5530,7 +6384,7 @@ class ThumbSyncApp {
         if (prov.includes('!')) {
           prov = prov.replace(/!/g, '').trim();
         }
-        if (prov && prov !== 'Sem provedor') {
+        if (prov && prov !== 'Sem provedor' && prov !== 'Pedidos de Alteração (Especificar Jogos)') {
           modalProvidersSet.add(prov);
         }
       }
@@ -5569,8 +6423,16 @@ class ThumbSyncApp {
     let totalPendingCount = 0;
     let totalPriorityCount = 0;
     let totalNotFoundCount = 0;
+    let totalAlterationCount = 0;
 
     listGames.forEach((g) => {
+      if (g.isAlterationNotice) {
+        totalAlterationCount++;
+        return;
+      }
+      if (g.isAlteration) {
+        totalAlterationCount++;
+      }
       totalGamesCount++;
       const isDone = isListGameOk(g);
       if (g.isNotFound) {
@@ -5597,6 +6459,12 @@ class ThumbSyncApp {
         if (!nameMatch && !provMatch) return false;
       }
       // 2. Filtro de Status
+      if (muralFilter === 'pedidos_alteracao') {
+        return !!g.isAlterationNotice || !!g.isAlteration;
+      }
+      if (g.isAlterationNotice) {
+        return muralFilter === 'todos';
+      }
       const isDone = isListGameOk(g);
       if (muralFilter === 'sem_arte' || muralFilter === 'pendentes') {
         return !isDone && !g.isNotFound;
@@ -5630,12 +6498,13 @@ class ThumbSyncApp {
         <div class="flex flex-col gap-4 pb-2 border-b border-white/[0.05]">
           <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div>
-              <div class="flex items-center gap-2.5">
+              <div class="flex items-center gap-2.5 flex-wrap">
                 <h1 class="text-2xl font-black text-white tracking-tight">Mural & Lista de Jogos</h1>
                 <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-400 border border-blue-500/20">
                   ${totalGamesCount} jogos
                 </span>
                 ${totalPriorityCount > 0 ? `<span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-yellow-500/10 text-yellow-400 border border-yellow-500/20 flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-yellow-400"></span>${totalPriorityCount} urgentes</span>` : ''}
+                ${totalAlterationCount > 0 ? `<button data-mural-filter="pedidos_alteracao" class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 cursor-pointer hover:bg-amber-500/25 transition-colors"><span class="w-1.5 h-1.5 rounded-full bg-amber-400"></span>⚠️ ${totalAlterationCount} a especificar</button>` : ''}
               </div>
               <p class="text-zinc-500 text-xs mt-0.5">Gerencie demandas de miniaturas, organize por provedores e alterne entre modos de visualização.</p>
             </div>
@@ -5762,6 +6631,11 @@ class ThumbSyncApp {
               <button data-mural-filter="prioridades" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'prioridades' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' : 'text-zinc-400 hover:text-yellow-300 hover:bg-yellow-500/10'}" title="Filtrar prioridades">
                 ★ ${totalPriorityCount}
               </button>
+              ${totalAlterationCount > 0 ? `
+                <button data-mural-filter="pedidos_alteracao" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'pedidos_alteracao' ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' : 'text-zinc-400 hover:text-amber-300 hover:bg-amber-500/10'}" title="Filtrar pedidos de alteração que necessitam especificar jogos">
+                  ⚠️ Alterações (${totalAlterationCount})
+                </button>
+              ` : ''}
               ${totalNotFoundCount > 0 ? `
                 <button data-mural-filter="nao_encontrados" class="px-2 py-0.5 sm:px-2.5 sm:py-1 rounded-lg text-[10px] sm:text-[11px] font-bold cursor-pointer transition-colors whitespace-nowrap ${muralFilter === 'nao_encontrados' ? 'bg-red-500/20 text-red-300 border border-red-500/30' : 'text-zinc-400 hover:text-red-300 hover:bg-red-500/10'}" title="Filtrar não encontrados">
                   ? ${totalNotFoundCount}
@@ -5839,9 +6713,26 @@ class ThumbSyncApp {
               </select>
             </div>
 
-            <div class="mb-5 text-left">
+            <div class="mb-4 text-left">
               <label class="text-[10px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">Nomes dos Jogos (Um por linha)</label>
               <textarea id="new-game-displayNames" placeholder="Fortune Rabbit&#10;Gates of Olympus&#10;Sweet Bonanza" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-3 py-2 text-xs text-white min-h-[100px] leading-relaxed outline-none focus:border-blue-500"></textarea>
+            </div>
+
+            <!-- Checkbox de Pedido de Alteração -->
+            <div class="mb-4 p-3 rounded-2xl bg-amber-500/[0.08] border border-amber-500/20 text-left">
+              <label class="flex items-center gap-2.5 cursor-pointer select-none">
+                <input type="checkbox" id="modal-add-game-is-alteration" class="w-4 h-4 rounded border-white/20 bg-white/5 checked:bg-amber-500 cursor-pointer">
+                <span class="text-xs font-bold text-amber-300">Pedido de Alteração / Refazer Arte</span>
+              </label>
+              <p class="text-[10px] text-zinc-400 mt-1 pl-6.5 leading-tight">
+                Marque se estiver solicitando nova versão ou ajuste de jogos que já possuem arte no Drive.
+              </p>
+              <div id="modal-add-game-alteration-note-container" class="mt-2.5 pl-6.5 hidden">
+                <label class="text-[9px] text-zinc-400 font-bold uppercase tracking-wider mb-1 block">
+                  Instrução / Motivo (Opcional - aparecerá entre parênteses para o designer)
+                </label>
+                <input type="text" id="modal-add-game-alteration-note" placeholder="Ex: Mudar logo, novo fundo, trocar arte" class="w-full bg-[#1c1c22] border border-white/10 rounded-xl px-2.5 py-1.5 text-xs text-white outline-none focus:border-amber-500">
+              </div>
             </div>
 
             <div id="similarity-suggestions-container" class="mb-5 text-left hidden">
@@ -5955,13 +6846,14 @@ class ThumbSyncApp {
             const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
             const isNotFoundSection = providerName === 'Não Foi Possível Criar';
             const isPrioritySection = providerName === 'Prioridades';
+            const isAlterationSection = providerName === 'Pedidos de Alteração (Especificar Jogos)';
             const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
             return `
-              <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
+              <div class="w-[340px] shrink-0 snap-start rounded-2xl border ${isAlterationSection ? 'border-amber-500/30 bg-amber-500/5' : isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.01]'} divide-y divide-white/[0.03]">
                 <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" aria-expanded="${!isCollapsed}" aria-controls="provider-games-${providerAttr}" class="flex justify-between items-center px-4 py-3 hover:bg-white/[0.02] cursor-pointer outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50">
-                  <span class="text-xs font-black ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
-                    <span class="w-1.5 h-1.5 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
+                  <span class="text-xs font-black ${isAlterationSection ? 'text-amber-400' : isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} uppercase tracking-wider flex items-center gap-2 min-w-0">
+                    <span class="w-1.5 h-1.5 rounded-full ${isAlterationSection ? 'bg-amber-400' : isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'} shrink-0"></span>
                     <svg class="w-3 h-3 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
@@ -5970,10 +6862,10 @@ class ThumbSyncApp {
                     </span>
                   </span>
                   <div class="flex items-center gap-2 shrink-0">
-                    <span class="text-[9px] bg-white/5 border border-white/10 px-2 py-0.5 rounded-full text-zinc-400 font-bold whitespace-nowrap">
-                      ${games.length} jogos
+                    <span class="text-[9px] ${isAlterationSection ? 'bg-amber-500/15 border border-amber-500/25 text-amber-300' : 'bg-white/5 border border-white/10 text-zinc-400'} px-2 py-0.5 rounded-full font-bold whitespace-nowrap">
+                      ${games.length} ${isAlterationSection ? 'avisos' : 'jogos'}
                     </span>
-                    ${isNotFoundSection || isPrioritySection
+                    ${isNotFoundSection || isPrioritySection || isAlterationSection
                       ? ''
                       : `
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer shrink-0" title="Adicionar jogo">
@@ -6005,11 +6897,40 @@ class ThumbSyncApp {
                           })
                           : '';
 
+                        if (game.isAlterationNotice || isAlterationSection) {
+                          return `
+                            <div data-list-preview-key="${key}" class="flex flex-col gap-2 p-3 rounded-xl bg-amber-500/[0.08] border border-amber-500/30 hover:border-amber-500/50 cursor-pointer transition-all shadow-sm">
+                              <div class="flex items-start gap-2.5 min-w-0 w-full">
+                                <span class="w-2 h-2 rounded-full bg-amber-400 shrink-0 mt-1 shadow-sm shadow-amber-500/50"></span>
+                                <div class="flex-1 min-w-0">
+                                  <span class="text-[8px] font-extrabold uppercase tracking-wider text-amber-400 block">Pedido de Alteração</span>
+                                  <span class="text-xs font-bold text-amber-100 select-text cursor-text relative z-10 block break-words leading-tight mt-0.5">
+                                    ${game.displayName}
+                                  </span>
+                                  <span class="text-[9.5px] text-zinc-400 mt-1 block leading-tight">
+                                    Provedor: <strong class="text-zinc-200 font-semibold">${game.providerName}</strong>
+                                  </span>
+                                </div>
+                              </div>
+                              
+                              <div class="pt-2 border-t border-amber-500/15 flex items-center justify-between gap-2">
+                                <button data-specify-alteration-key="${key}" class="flex-1 py-1.5 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] transition-colors flex items-center justify-center gap-1.5 cursor-pointer shadow-sm active:scale-95">
+                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
+                                  <span>Especificar Jogos</span>
+                                </button>
+                                <button data-delete-catalog-key="${key}" class="w-7 h-7 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 flex items-center justify-center cursor-pointer text-red-400 transition-colors shrink-0" title="Excluir Aviso">
+                                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </div>
+                          `;
+                        }
+
                         return `
-                          <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : 'border-transparent'}">
+                          <div data-list-preview-key="${key}" class="flex flex-col gap-2 py-2.5 px-3 rounded-lg hover:bg-white/[0.03] cursor-pointer transition-colors border ${hasWebp && !game.isNotFound && !game.isAlteration ? 'border-[#10b981]/40 shadow-[0_0_12px_rgba(16,185,129,0.15)] bg-[#10b981]/[0.02]' : game.isAlteration ? 'border-amber-500/30 bg-amber-500/[0.02]' : 'border-transparent'}">
                             <div class="flex items-start gap-2.5 min-w-0 w-full">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 mt-0.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
-                              <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : hasWebp ? 'bg-[#10b981]' : game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]'} shrink-0 mt-1.5"></span>
+                              <span class="w-1.5 h-1.5 rounded-full ${game.isNotFound ? 'bg-red-500' : game.isAlteration ? 'bg-amber-400' : hasWebp ? 'bg-[#10b981]' : game.isPriority ? 'bg-yellow-500' : 'bg-[#f59e0b]'} shrink-0 mt-1.5"></span>
                               <div class="flex-1 min-w-0">
                                 <span class="text-xs font-bold text-zinc-100 select-text cursor-text relative z-10 block break-words leading-tight ${game.isNotFound ? 'opacity-50' : ''} ${game.isPriority && !hasWebp ? 'text-yellow-200' : ''}">
                                   ${game.displayName}
@@ -6020,9 +6941,10 @@ class ThumbSyncApp {
 
                             <!-- Badges and date -->
                             <div class="flex flex-wrap items-center gap-1.5 pl-6">
+                              ${game.isAlteration ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-amber-500/20 text-amber-300 border border-amber-500/30">PEDIDO DE ALTERAÇÃO</span>` : ''}
                               ${game.isPriority ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-yellow-500/10 text-yellow-500">PRIORIDADE</span>` : ''}
                               ${game.isNotFound ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-red-500/10 text-red-500">NÃO ENCONTRADO</span>` : ''}
-                              ${!game.isNotFound && hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
+                              ${!game.isNotFound && !game.isAlteration && hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#10b981]/10 text-[#10b981]">THUMB FEITA</span>` : ''}
                               ${!game.isNotFound && !hasWebp ? `<span class="text-[7.5px] font-extrabold tracking-wider px-1 py-0.2 rounded-md bg-[#f59e0b]/10 text-[#f59e0b]">EM PRODUÇÃO</span>` : ''}
                               ${hasWebp && formattedDate ? `<span class="text-[9px] text-zinc-500 font-medium whitespace-nowrap">${formattedDate}</span>` : ''}
                             </div>
@@ -6110,6 +7032,7 @@ class ThumbSyncApp {
               const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
               const isNotFoundSection = providerName === 'Não Foi Possível Criar';
               const isPrioritySection = providerName === 'Prioridades';
+              const isAlterationSection = providerName === 'Pedidos de Alteração (Especificar Jogos)';
               const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
               const provDoneCount = games.filter(g => {
@@ -6119,29 +7042,35 @@ class ThumbSyncApp {
               const provPct = games.length > 0 ? Math.round((provDoneCount / games.length) * 100) : 0;
 
               return `
-                <div class="rounded-2xl border ${isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.015]'} overflow-hidden transition-all">
+                <div class="rounded-2xl border ${isAlterationSection ? 'border-amber-500/30 bg-amber-500/5' : isNotFoundSection ? 'border-orange-500/30 bg-orange-500/5' : isPrioritySection ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-white/[0.05] bg-white/[0.015]'} overflow-hidden transition-all">
                   <!-- Header da Seção do Provedor -->
                   <div class="flex items-center justify-between px-4 py-2.5 bg-white/[0.02] border-b border-white/[0.04]">
                     <div data-provider-toggle="${providerAttr}" role="button" tabindex="0" class="flex items-center gap-2.5 cursor-pointer outline-none flex-1 min-w-0">
                       <svg class="w-3.5 h-3.5 text-zinc-500 transition-transform shrink-0 ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                         <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                       </svg>
-                      <span class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} truncate flex items-center gap-1.5">
-                        <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
+                      <span class="text-xs font-black uppercase tracking-wider ${isAlterationSection ? 'text-amber-400' : isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} truncate flex items-center gap-1.5">
+                        <span class="w-2 h-2 rounded-full ${isAlterationSection ? 'bg-amber-400' : isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
                         ${providerName}
                       </span>
                     </div>
 
                     <div class="flex items-center gap-3 shrink-0">
-                      <!-- Mini Barra de Progresso do Provedor -->
-                      <div class="hidden sm:flex items-center gap-2">
-                        <div class="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                          <div class="h-full bg-emerald-500 rounded-full" style="width: ${provPct}%"></div>
+                      ${!isAlterationSection ? `
+                        <!-- Mini Barra de Progresso do Provedor -->
+                        <div class="hidden sm:flex items-center gap-2">
+                          <div class="w-16 h-1.5 bg-white/10 rounded-full overflow-hidden">
+                            <div class="h-full bg-emerald-500 rounded-full" style="width: ${provPct}%"></div>
+                          </div>
+                          <span class="text-[10px] text-zinc-400 font-bold">${provDoneCount}/${games.length} (${provPct}%)</span>
                         </div>
-                        <span class="text-[10px] text-zinc-400 font-bold">${provDoneCount}/${games.length} (${provPct}%)</span>
-                      </div>
+                      ` : `
+                        <span class="text-[9px] bg-amber-500/15 border border-amber-500/30 text-amber-300 px-2 py-0.5 rounded-full font-bold">
+                          ${games.length} avisos
+                        </span>
+                      `}
 
-                      ${!isNotFoundSection && !isPrioritySection ? `
+                      ${!isNotFoundSection && !isPrioritySection && !isAlterationSection ? `
                         <button data-trigger-add-game="${providerName}" class="w-6.5 h-6.5 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                           <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
                         </button>
@@ -6160,19 +7089,44 @@ class ThumbSyncApp {
                           ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                           : '';
 
+                        if (game.isAlterationNotice || isAlterationSection) {
+                          return `
+                            <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2.5 px-3 rounded-xl bg-amber-500/[0.06] hover:bg-amber-500/[0.1] border border-amber-500/25 transition-colors cursor-pointer">
+                              <div class="flex items-center gap-2.5 flex-1 min-w-0">
+                                <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  ALTERAÇÃO
+                                </span>
+                                <span class="text-xs font-bold text-amber-100 select-text truncate">
+                                  ${game.displayName}
+                                </span>
+                                <span class="text-[10px] text-zinc-400 shrink-0 font-medium">(${game.providerName})</span>
+                              </div>
+                              <div class="flex items-center gap-1.5 shrink-0 pl-6 sm:pl-0">
+                                <button data-specify-alteration-key="${key}" class="py-1 px-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] transition-colors flex items-center justify-center gap-1 cursor-pointer">
+                                  <span>Especificar Jogos</span>
+                                </button>
+                                <button data-delete-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 flex items-center justify-center cursor-pointer text-red-400" title="Excluir">
+                                  <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                                </button>
+                              </div>
+                            </div>
+                          `;
+                        }
+
                         return `
-                          <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-white/[0.04] transition-colors border ${hasWebp && !game.isNotFound ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : 'border-transparent'} cursor-pointer">
+                          <div data-list-preview-key="${key}" class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 py-2 px-3 rounded-xl hover:bg-white/[0.04] transition-colors border ${hasWebp && !game.isNotFound && !game.isAlteration ? 'border-emerald-500/30 bg-emerald-500/[0.02]' : game.isAlteration ? 'border-amber-500/30 bg-amber-500/[0.02]' : 'border-transparent'} cursor-pointer">
                             <div class="flex items-center gap-2.5 flex-1 min-w-0">
                               <input type="checkbox" data-select-key="${key}" ${this.state.selectedListKeys.has(key) ? 'checked' : ''} class="game-selector w-3.5 h-3.5 rounded border-white/10 bg-white/5 checked:bg-blue-600 cursor-pointer shrink-0">
                               
                               <!-- Status Tag -->
                               <span class="text-[8px] font-extrabold uppercase tracking-wider px-1.5 py-0.5 rounded shrink-0 ${
                                 game.isNotFound ? 'bg-red-500/15 text-red-400 border border-red-500/20' :
+                                game.isAlteration ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30' :
                                 hasWebp ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/20' :
                                 game.isPriority ? 'bg-yellow-500/15 text-yellow-300 border border-yellow-500/20' :
                                 'bg-amber-500/15 text-amber-400 border border-amber-500/20'
                               }">
-                                ${game.isNotFound ? 'NÃO ENCONTRADO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
+                                ${game.isNotFound ? 'NÃO ENCONTRADO' : game.isAlteration ? 'PEDIDO DE ALTERAÇÃO' : hasWebp ? 'THUMB FEITA' : game.isPriority ? 'PRIORIDADE' : 'EM PRODUÇÃO'}
                               </span>
 
                               <!-- Nome do Jogo -->
@@ -6246,6 +7200,7 @@ class ThumbSyncApp {
             const isCollapsed = this.state.collapsedProviderKeys.has(providerKey);
             const isNotFoundSection = providerName === 'Não Foi Possível Criar';
             const isPrioritySection = providerName === 'Prioridades';
+            const isAlterationSection = providerName === 'Pedidos de Alteração (Especificar Jogos)';
             const isCustomPriorityProv = this.state.priorityProvidersSet?.has(providerKey);
 
             return `
@@ -6256,14 +7211,14 @@ class ThumbSyncApp {
                     <svg class="w-3.5 h-3.5 text-zinc-500 transition-transform ${isCollapsed ? '-rotate-90' : 'rotate-0'}" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
                     </svg>
-                    <h3 class="text-xs font-black uppercase tracking-wider ${isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} flex items-center gap-1.5">
-                      <span class="w-2 h-2 rounded-full ${isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
+                    <h3 class="text-xs font-black uppercase tracking-wider ${isAlterationSection ? 'text-amber-400' : isNotFoundSection ? 'text-orange-400' : isPrioritySection ? 'text-yellow-400' : 'text-white'} flex items-center gap-1.5">
+                      <span class="w-2 h-2 rounded-full ${isAlterationSection ? 'bg-amber-400' : isNotFoundSection ? 'bg-orange-500' : isPrioritySection ? 'bg-yellow-500' : 'bg-blue-500'}"></span>
                       ${providerName}
                     </h3>
-                    <span class="text-[10px] text-zinc-500 font-bold ml-1">(${games.length} jogos)</span>
+                    <span class="text-[10px] text-zinc-500 font-bold ml-1">(${games.length} ${isAlterationSection ? 'avisos' : 'jogos'})</span>
                   </div>
 
-                  ${!isNotFoundSection && !isPrioritySection ? `
+                  ${!isNotFoundSection && !isPrioritySection && !isAlterationSection ? `
                     <div class="flex items-center gap-2">
                       <button data-trigger-add-game="${providerName}" class="w-6 h-6 rounded-lg bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 border border-blue-500/15 flex items-center justify-center cursor-pointer" title="Adicionar Jogo">
                         <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4" /></svg>
@@ -6282,6 +7237,32 @@ class ThumbSyncApp {
                       const formattedDate = catalogItem?.modifiedTime
                         ? new Date(catalogItem.modifiedTime).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
                         : '';
+
+                      if (game.isAlterationNotice || isAlterationSection) {
+                        return `
+                          <div data-list-preview-key="${key}" class="group relative rounded-2xl border border-amber-500/30 bg-amber-500/[0.06] p-3.5 flex flex-col justify-between hover:border-amber-500/50 transition-all cursor-pointer">
+                            <div>
+                              <div class="flex items-center justify-between gap-2 mb-2.5">
+                                <span class="text-[7.5px] font-black uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                                  PEDIDO DE ALTERAÇÃO
+                                </span>
+                              </div>
+                              <h4 class="text-xs font-bold text-amber-100 select-text leading-snug line-clamp-2 mb-1">
+                                ${game.displayName}
+                              </h4>
+                              <p class="text-[10px] text-zinc-400 truncate mb-2">Provedor: ${game.providerName}</p>
+                            </div>
+                            <div class="pt-2.5 border-t border-amber-500/20 mt-2 flex items-center justify-between gap-2">
+                              <button data-specify-alteration-key="${key}" class="flex-1 py-1 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-black font-bold text-[10px] transition-colors flex items-center justify-center gap-1 cursor-pointer">
+                                <span>Especificar</span>
+                              </button>
+                              <button data-delete-catalog-key="${key}" class="w-6.5 h-6.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 flex items-center justify-center cursor-pointer text-red-400" title="Excluir">
+                                <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                              </button>
+                            </div>
+                          </div>
+                        `;
+                      }
 
                       return `
                         <div data-list-preview-key="${key}" class="group relative rounded-2xl border ${hasWebp && !game.isNotFound ? 'border-emerald-500/40 bg-emerald-500/[0.03] shadow-[0_0_15px_rgba(16,185,129,0.08)]' : 'border-white/[0.06] bg-[#111116]'} p-3.5 flex flex-col justify-between hover:border-white/20 transition-all cursor-pointer">
@@ -7763,6 +8744,22 @@ class ThumbSyncApp {
         });
       }
 
+      const isAlterationCheckbox = document.getElementById(
+        'modal-add-game-is-alteration',
+      );
+      const alterationNoteContainer = document.getElementById(
+        'modal-add-game-alteration-note-container',
+      );
+      if (isAlterationCheckbox && alterationNoteContainer) {
+        isAlterationCheckbox.addEventListener('change', () => {
+          if (isAlterationCheckbox.checked) {
+            alterationNoteContainer.classList.remove('hidden');
+          } else {
+            alterationNoteContainer.classList.add('hidden');
+          }
+        });
+      }
+
       const btnAddGameConfirm = document.getElementById(
         'modal-add-game-confirm',
       );
@@ -7778,13 +8775,26 @@ class ThumbSyncApp {
             : this.state.addingGameToProvider;
           const textValue = textarea ? textarea.value.trim() : '';
 
+          const isAlteration = isAlterationCheckbox
+            ? isAlterationCheckbox.checked
+            : false;
+          const alterationNoteInput = document.getElementById(
+            'modal-add-game-alteration-note',
+          );
+          const alterationNote = alterationNoteInput
+            ? alterationNoteInput.value.trim()
+            : '';
+
           if (textValue !== '' && selectedProvider) {
             const gameLines = textValue
               .split('\n')
               .map((l) => l.trim())
               .filter(Boolean);
             if (gameLines.length > 0) {
-              await this.handleAddGamesToList(selectedProvider, gameLines);
+              await this.handleAddGamesToList(selectedProvider, gameLines, {
+                isAlteration,
+                alterationNote: alterationNote || 'Alteração',
+              });
             }
             this.state.isAddingGame = false;
             this.renderActiveTab();
@@ -7858,8 +8868,34 @@ class ThumbSyncApp {
           const key = e.currentTarget.getAttribute('data-list-preview-key');
           const catalogItem = this.state.catalogItems.find((i) => i.id === key);
           if (catalogItem) {
+            if (catalogItem.isAlterationNotice) {
+              this.promptSpecifyAlterationGames({
+                noticeText: catalogItem.displayName,
+                providerName: catalogItem.providerName,
+                originalKey: key,
+              });
+              return;
+            }
             this.state.selectedCatalogItem = catalogItem;
             this.renderPreviewModal(catalogItem);
+          }
+        });
+      });
+
+      const specifyAlterationTriggers = document.querySelectorAll(
+        '[data-specify-alteration-key]',
+      );
+      specifyAlterationTriggers.forEach((btn) => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          const key = e.currentTarget.getAttribute('data-specify-alteration-key');
+          const catalogItem = this.state.catalogItems.find((i) => i.id === key);
+          if (catalogItem) {
+            this.promptSpecifyAlterationGames({
+              noticeText: catalogItem.displayName,
+              providerName: catalogItem.providerName,
+              originalKey: key,
+            });
           }
         });
       });
