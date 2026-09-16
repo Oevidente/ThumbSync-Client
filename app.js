@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.1.9
+ * Versão: Beta v1.2.0
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -2009,9 +2009,9 @@ class ThumbSyncApp {
       '',
     ).trim();
 
-    // 2. Parênteses/colchetes contendo termos de alteração ou avisos no final
+    // 2. Parênteses/colchetes contendo termos específicos de alteração ou avisos no final
     const alterationMatch = clean.match(
-      /^(.*?)\s*[\(\[\{](?:alteracao|alteração|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|corrigir|correcao|aviso|nota|obs|observacao|observação|atencao|atenção|[^)\]\}]+)[\)\]\}]\s*$/i,
+      /^(.*?)\s*[\(\[\{](?:alteracao|alteração|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|ajustar|corrigir|correcao|correção|fundo|logo|arte|banner|redesenhar|substituir|modificar|aviso|nota|obs|observacao|observação|atencao|atenção)[^\)\]\}]*[\)\]\}]\s*$/i,
     );
     if (alterationMatch && alterationMatch[1] && alterationMatch[1].trim()) {
       return alterationMatch[1].trim();
@@ -2111,26 +2111,21 @@ class ThumbSyncApp {
       .replace(/[\u0300-\u036f]/g, '')
       .toLowerCase();
 
-    // 1. Tags entre parênteses ou colchetes, ex: (alteração), [refazer], (mudar logo), etc.
+    // 1. Tags entre parênteses ou colchetes contendo palavras-chave de alteração / instrução
     if (
-      /[\(\[\{][^\)\]\}]*?(?:alteracao|alterar|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|corrigir|correcao|aviso|nota|obs|observacao|observação|atencao|atenção)[^\)\]\}]*?[\)\]\}]/i.test(
+      /[\(\[\{][^\)\]\}]*?\b(?:alteracao|alterar|refazer|atualizar|trocar|mudar|novo|nova\s+arte|novo\s+logo|ajuste|ajustar|corrigir|correcao|fundo|logo|arte|banner|redesenhar|substituir|modificar)\b[^\)\]\}]*?[\)\]\}]/i.test(
         norm,
       )
     ) {
       return true;
     }
 
-    // 2. Qualquer parênteses de instrução no final
-    if (/\([^\)]+\)\s*$/i.test(clean)) {
-      return true;
-    }
-
-    // 3. Prefixos com dois pontos ou traço, ex: "Alterar: Sweet Bonanza", "Refazer - Crazy Time"
+    // 2. Prefixos com dois pontos ou traço, ex: "Alterar: Sweet Bonanza", "Refazer - Crazy Time"
     if (
       /^(?:alterar|refazer|atualizar|trocar|ajustar|mudar|corrigir)\s*[:\-–\s]/i.test(
         norm,
       ) ||
-      /[:\-–]\s*(?:alterar|refazer|atualizar|trocar|mudar|ajustar|corrigir|nova\s+arte|novo\s+logo)/i.test(
+      /[:\-–]\s*(?:alterar|refazer|atualizar|trocar|mudar|ajustar|corrigir|nova\s+arte|novo\s+logo)\s*$/i.test(
         norm,
       )
     ) {
@@ -3761,7 +3756,7 @@ class ThumbSyncApp {
     }
 
     const formattedGamesToReallyAdd = gamesToReallyAdd.map((g) => {
-      if (isExplicitAlteration || options?.noticeOrigin || options?.alterationNote) {
+      if (isExplicitAlteration || options?.noticeOrigin || (options?.isAlteration && options?.alterationNote)) {
         return this.formatGameAlterationName(g, options?.noticeOrigin || options?.alterationNote || '');
       }
       return g;
@@ -6291,11 +6286,8 @@ class ThumbSyncApp {
 
     listGames.forEach((g) => {
       if (g.isAlterationNotice) return;
-      const key = getListGameKey(g);
-      const catItem = catalogItemsByKey.get(key);
-      const hasWebp = catItem?.hasWebp || false;
       const isEntryAlteration = this.isGameAlterationEntry(g.displayName);
-      if (hasWebp || isEntryAlteration) {
+      if (isEntryAlteration) {
         g.isAlteration = true;
       }
     });
@@ -8793,7 +8785,7 @@ class ThumbSyncApp {
             if (gameLines.length > 0) {
               await this.handleAddGamesToList(selectedProvider, gameLines, {
                 isAlteration,
-                alterationNote: alterationNote || 'Alteração',
+                alterationNote: isAlteration ? (alterationNote || 'Alteração') : '',
               });
             }
             this.state.isAddingGame = false;
