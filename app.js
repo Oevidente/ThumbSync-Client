@@ -2,7 +2,7 @@
  * ThumbSync Client Component - Vanilla ES Module
  * Companion do Sistema de sincronização de miniaturas de jogos voltado para o cliente
  * 100% Client-Side, compatível com GitHub Pages (sem backend Node/NPM obrigatório).
- * Versão: Beta v1.2.0
+ * Versão: Beta v1.2.1
  */
 
 import { classifyGame, loadMappings } from './gameClassifier.js';
@@ -2369,23 +2369,39 @@ class ThumbSyncApp {
     if (!query) return true;
     if (!text) return false;
 
+    // 1. Verificação direta de substring exata
     if (text.includes(query)) return true;
+
+    // Correspondência ignorando espaços (ex: busca "blackjack" encontra "black jack")
+    const compactText = text.replace(/\s+/g, '');
+    const compactQuery = query.replace(/\s+/g, '');
+    if (compactQuery.length >= 3 && compactText.includes(compactQuery)) return true;
 
     const queryWords = query.split(/\s+/).filter(Boolean);
     const textWords = text.split(/\s+/).filter(Boolean);
 
+    // Todas as palavras da busca devem ter correspondência no texto
     for (const qw of queryWords) {
       let wordMatched = false;
       for (const tw of textWords) {
-        if (tw.includes(qw) || qw.includes(tw)) {
+        // Correspondência por prefixo ou substring: a palavra do jogo contém o termo digitado (ex: "bonan" acha "bonanza")
+        if (tw.includes(qw)) {
           wordMatched = true;
           break;
         }
-        const maxLen = Math.max(qw.length, tw.length);
-        const allowedTypos = maxLen <= 3 ? 1 : maxLen <= 6 ? 2 : 3;
-        if (this.levenshteinDistance(qw, tw) <= allowedTypos) {
-          wordMatched = true;
-          break;
+
+        // Tolerância a pequenos erros de digitação (apenas para termos com pelo menos 4 caracteres)
+        // Termos curtos (1 a 3 caracteres) exigem correspondência exata para evitar falsos positivos
+        if (qw.length >= 4) {
+          const lenDiff = Math.abs(qw.length - tw.length);
+          const maxTypos = qw.length <= 6 ? 1 : 2;
+          if (lenDiff <= maxTypos) {
+            const dist = this.levenshteinDistance(qw, tw);
+            if (dist <= maxTypos) {
+              wordMatched = true;
+              break;
+            }
+          }
         }
       }
       if (!wordMatched) {
